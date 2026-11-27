@@ -4,7 +4,8 @@
  *   One command that measures the eleven kit presets on composition: what each role's stated
  *   tasks need, what its profile row grants, what its first request costs in bytes, and how
  *   often the system+tool prefix changed underneath a running session (which re-bills the
- *   provider cache). The report it feeds is docs/audits/preset-composition-2026-11-24.md.
+ *   provider cache). It prints a markdown report; save it under reports/ (gitignored), never in
+ *   docs/ - docs/ holds contracts, not dated results.
  *
  * INPUTS (all read-only)
  *   --profile <file>   profile patch (default profile/cordis.patch.yml)
@@ -31,7 +32,7 @@ const profilePath = value('--profile') !== '' ? resolve(value('--profile')) : jo
 const home = value('--sessions') !== '' ? resolve(value('--sessions')) : resolveHome()
 const limit = value('--limit') !== '' ? Number(value('--limit')) : 0
 
-const PRESETS = ['orchestrator', 'architect', 'ux', 'presenter', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'tester', 'docs']
+const PRESETS = ['orchestrator', 'architect', 'ux', 'presenter', 'backend', 'devops', 'research', 'gatherer', 'reviewer', 'critic', 'tester', 'docs']
 const utf8 = (text) => Buffer.byteLength(text ?? '', 'utf8')
 const sha1 = (text) => createHash('sha1').update(text).digest('hex').slice(0, 12)
 

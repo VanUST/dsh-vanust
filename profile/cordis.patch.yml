@@ -102,10 +102,12 @@
 
 # ── designmap: one Excalidraw page per design map ─────────────────────────
 # The single design map lives in `designmap/pages/<slug>.excalidraw`; the page is the
-# whole document. The human edits it in Project state -> Map and the agent through four
-# host tools (map_list, map_read, map_edit, map_render). A headless Excalidraw run
-# renders a page to PNG/SVG. There is no model, view, overlay, annotation or manifest
-# file behind it.
+# whole document. The human edits it in Project state -> Map, which is always an editor
+# that fills the panel and can go full screen; the agent uses five host tools (map_list,
+# map_read, map_lint, map_edit, map_render). map_edit draws a whole scheme with the
+# `diagram` op and map_lint names every readability defect with a repair. A headless
+# Excalidraw run renders a page to a clean PNG/SVG. There is no model, view, overlay,
+# annotation or manifest file behind it.
 - insert:
     - id: designmap
       name: '@cc/dsh-designmap'
@@ -113,8 +115,8 @@
         dir: designmap
         presets:
           - orchestrator
-          # The design map is the architect's artifact: the role reads and records it, and with
-          # the role left out of this list its three allowed designmap tools never registered
+          # The design map is the architect's artifact: the role reads, records and repairs it,
+          # and with the role left out of this list its allowed designmap tools never registered
           # (measured 2026-11-19: an architect session carried no designmap tool at all).
           - architect
 
@@ -455,6 +457,17 @@
             ptc:
               tools: 2
               promptBytes: 53365
+          # The runtime lane. Its own plugin rows are a shell, the file tools, jobs,
+          # skills, web and todo (13 tools); the case and board tools come from host
+          # rows gated per preset. The allowance covers that surface plus the harness's
+          # own fs/search/skill rows, which tools.restrict cannot mask. No budget for
+          # PTC: the preset does not mount it.
+          devops:
+            tools: 26
+            recommended: 20
+            schemaBytes: 45000
+            promptBytes: 26000
+            remindersBytes: 70000
         families:
           # Root: the board, delegation, the analysis record, the design map, files and the
           # read half of Hindsight (D4 keeps Hindsight at the root; the write tools are out).
@@ -484,6 +497,7 @@
               - glob
               - grep
               - map_edit
+              - map_lint
               - map_list
               - map_read
               - map_render
@@ -526,6 +540,7 @@
               - hindsight_read_page
               - hindsight_search_pages
               - map_edit
+              - map_lint
               - map_list
               - map_read
               - map_render
@@ -684,6 +699,36 @@
               - web_fetch
               - web_search
               - write
+          # The runtime lane: a shell, the file tools, background jobs, jobs, web and
+          # the case runner for an acceptance case the tester wrote. No browser (a
+          # deployment is proven by a command, not a screenshot), no godot, no Hindsight.
+          # Nothing else in this row removes bash: the role's whole job is a command.
+          devops:
+            allow:
+              - bash
+              - case_get
+              - case_list
+              - case_run
+              - edit
+              - glob
+              - grep
+              - job_kill
+              - job_list
+              - job_output
+              - outline
+              - read
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+              - web_fetch
+              - web_search
+              - working_directory
+              - write
+            projectDeny:
+              - mcp__godot__*
+            deny:
+              - 'mcp__playwright__*'
           # Interface work: the ONLY preset that keeps the Playwright family (24 tools /
           # 16 305 B, probe 5) - the role exists to render a UI. No godot, no Hindsight.
           ux:
@@ -767,8 +812,9 @@
 # ── project-state-panel: four modes and an Edit tab over the state projections ─
 # One client-only panel (the host row registers nothing) over `state/views/index.json`: the
 # business requirements, the task board, the design map and tests/traceability share one
-# selection, so picking a requirement filters the other modes. The map is designmap's read-only
-# `views` op drawn by designmap's own React Flow scene renderer. The panel writes no file; the
+# selection, so picking a requirement filters the other modes. The map is designmap's page
+# editor (Excalidraw on one page file), mounted full-height with a full-screen control; it is
+# always editable and saves through the /designmap command. The panel writes no file; the
 # owner has exactly two writes, both through the command Remote: a task status to the taskboard
 # (`/taskboard owner-status`, because the board owns that row) and any field of a REQ/TASK/TEST
 # to the state core (`/state`, which checks the revision and marks the field as the owner's). It
@@ -925,8 +971,10 @@
 #
 # The welcome notice is pinned to the version the operator has already seen; it is
 # a suppression marker, not a feature flag. The default model is the deployment's
-# model policy (flash, maximum reasoning effort on the root agent) — the same
-# choice flash-guard and model-gate assume, now stated once, portably.
+# model policy (flash, High reasoning effort on the root agent and on every role) —
+# the same choice flash-guard and model-gate assume, now stated once, portably.
+# Owner, 2026-11-27: the default reasoning budget is High, not max, for the root and
+# for every working preset; the architect keeps its own route at High (role-model).
 - id: ui-settings-general
   name: '@deepseek-ai/dsh-client-ui-settings-general'
   config:
@@ -937,7 +985,7 @@
   config:
     provider: deepseek-official
     model: deepseek-flash
-    reasoningEffort: max
+    reasoningEffort: high
 
 # ── retry: a malformed model answer must not end the turn ───────────────────
 # The harness retries a failed model request at the agent step boundary, but
@@ -1095,13 +1143,20 @@
 # A preset has no model field (`PresetDefinition` is identity + plugins), so a role that must run
 # on an expensive model was re-routed by hand in every session. This row is that rule, and the
 # first entry is the ARCHITECT role: `openai-codex/gpt-6.2-sol` for a fresh session whose human
-# has not picked a model (the owner moved it off `gpt-6.2-astra` on 2026-11-20), and
-# `deepseek-official/deepseek-flash` at max effort — the deployment
-# default from `agent-default-model` above — when the provider answers QUOTA. The switch happens
-# at `agent/request-error` and the step is RETRIED, so an exhausted subscription costs one retried
-# step instead of a dead turn. Nothing else is routed: a preset without a rule keeps the default,
-# and `gpt-6.2-sol` is not in `subagent-model-selection-settings`, so no delegation or workflow
-# script can name it.
+# has not picked a model (the owner moved it off `gpt-6.2-astra` on 2026-11-20), at High effort,
+# and `deepseek-official/deepseek-flash` at High effort — the deployment default from
+# `agent-default-model` above — when the provider answers QUOTA. The switch happens at
+# `agent/request-error` and the step is RETRIED, so an exhausted subscription costs one retried
+# step instead of a dead turn.
+#
+# THE WORKING PRESETS ARE PINNED TOO (owner, 2026-11-27). Every specialist preset names its route
+# explicitly at High effort, so a chat started ON that preset and a delegated child of it get the
+# same default instead of inheriting whatever the deployment row says (the installed row is
+# machine-owned and kit-update keeps it verbatim: this machine carries `openai-codex/gpt-6.2-sol`
+# at xhigh, which is right for the architect, not for a working role). A rule names the pair
+# because role-model needs provider+model; it does not change what a human picked in the composer
+# (`model/selection` recorded since load wins). `gpt-6.2-sol` is not in
+# `subagent-model-selection-settings`, so no delegation or workflow script can name it.
 - insert:
     - id: role-model
       name: '@cc/dsh-role-model'
@@ -1114,7 +1169,49 @@
             fallback:
               provider: deepseek-official
               model: deepseek-flash
-              reasoningEffort: max
+              reasoningEffort: high
+          # The working presets: their own cheapest route, at High effort. One block per preset
+          # because role-model keys by preset id; the route is the one delegation already uses.
+          backend:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          devops:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          docs:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          ux:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          presenter:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          research:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          gatherer:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          reviewer:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          critic:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
+          tester:
+            provider: deepseek-official
+            model: deepseek-flash
+            reasoningEffort: high
 
 # ── codex-signin: ChatGPT Plus/Pro device login outside the GUI ─────────────
 # The web build has no provider sign-in control for the OAuth-only openai-codex route;
@@ -1260,8 +1357,8 @@
     # reads what its brief gave it and names what is missing. That split is deliberate and is
     # stated in the persona.
     #
-    # ROUTE: `role-model` above selects gpt-6.2-sol for this preset before the first request and
-    # falls back to flash at max effort on a quota failure.
+    # ROUTE: `role-model` above selects gpt-6.2-sol at High effort for this preset before the
+    # first request and falls back to flash at High effort on a quota failure.
     - id: preset-architect
       name: '@deepseek-ai/dsh-agent-preset'
       config:
@@ -1274,7 +1371,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the architect of this workspace: the system designer, running on the deployment's most expensive route. Every token of context is paid at that route, so spend it on the decision, not on reading. Read only what the question needs (read, grep, glob, outline on named files or a named subsystem) and never survey the repository; when the answer depends on the current architecture, delegate ONE GATHERER with delegate_task and use its cited report instead of reading the tree yourself. As a delegated specialist you cannot delegate: the context you were given is the context, and a missing fact is named in your answer rather than explored. Record a design change in the design map with map_edit (shapes and arrows), keep the page readable, and answer in one text: the decision, why it is the right one, which parts change, what would break. No transcript of your reading. You cannot edit code, run commands or change the task board — those belong to the roles that own them; search the web (web_search/web_fetch) when the decision needs a fact the repository cannot give, and delegate the proof. Make the edit if the edit is the work. Keep the answer short enough to act on: the decision and its reasons are the product.
+                You are the architect of this workspace: the system designer, running on the deployment's most expensive route. Every token of context is paid at that route, so spend it on the decision, not on reading. Read only what the question needs (read, grep, glob, outline on named files or a named subsystem) and never survey the repository; when the answer depends on the current architecture, delegate ONE GATHERER with delegate_task and use its cited report instead of reading the tree yourself. As a delegated specialist you cannot delegate: the context you were given is the context, and a missing fact is named in your answer rather than explored. Record a design change in the design map with map_edit: draw the whole scheme with the `diagram` op (nodes, edges, LR or TB), then run map_lint and repair what it names before you call the page done. Answer in one text: the decision, why it is the right one, which parts change, what would break. No transcript of your reading. You cannot edit code, run commands or change the task board — those belong to the roles that own them; search the web (web_search/web_fetch) when the decision needs a fact the repository cannot give, and delegate the proof. Make the edit if the edit is the work. Keep the answer short enough to act on: the decision and its reasons are the product.
 
                 A design decision is checked against the system that exists: cite the `file:line` you decided from, or say which fact you are missing. False positive: a design that contradicts the code because it was designed from the brief alone. False negative: refusing to decide because context is incomplete — name the missing fact in one line, and decide what its two answers would change. A reading transcript on this route is cost, not evidence.
           - id: agent-instructions
@@ -1616,6 +1713,101 @@
           - id: tool-executor-ptc
             name: '@deepseek-ai/dsh-tool-executor-ptc'
 
+    # ── devops: owns the running deployment; one live task at a time ────────
+    # The runtime is a shared resource, not a tool: a restart ends every child
+    # working against it, and a version switch changes the thing another task is
+    # still measuring. This preset is the seat that owns that lane. It has a shell
+    # (the commands ARE the work), background jobs (a deployment is long), the file
+    # tools (compose files, start scripts, env), web for release notes and registries,
+    # and the case tools to cite and run an acceptance case the tester wrote. It has
+    # no PTC (a deployment is read step by step, not diffed as one program) and no
+    # present (its report is a command's output, not an artefact). It is NOT in
+    # `store.mjs` readOnly: it writes config, so an L1/L2 delegation needs the
+    # Analysis Record like any other.
+    - id: preset-devops
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: devops
+        name: DevOps
+        description: Owns the running deployment. Deploys, switches the dev/prod version, rolls back and cleans up, one live task at a time, and proves the live runtime from outside.
+        order: 35
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the deployment engineer (DEVOPS) for this workspace, and the running deployment is yours to change. You own the runtime lane: start, stop, upgrade, roll back, rebuild and clean up the deployment, and do not let a second agent touch it while your task is live. Before a command that restarts, stops or replaces the shared runtime, read the board (`task_list` scope workspace): a restart ends every child working against it, so name those tasks to the orchestrator instead of killing their work. Take the version you are replacing as a snapshot, change one thing at a time, verify from OUTSIDE the process you restarted (curl, the published port, the version the live thing reports, the image or container id), and leave the environment as you found it: no dangling container, no orphan process, no half-applied update. Your tools: a shell, the file tools, background jobs (a deployment is long: start it, then read job output), the case tools to cite and run an acceptance case the tester wrote, skills and web for release notes and registries. You do not write acceptance cases and you do not edit product code so a deployment passes: a defect goes back to the orchestrator with the exact command and output.
+
+                The deployment is the product you are judged on, and it is shared. False positive: "deployed" from a command that exited 0 while the live service still answers from the old image, or a version reported from the file you edited instead of the thing that restarted. False negative: refusing to act because another agent might be working - read the board, name the tasks a restart would end, and take the lane deliberately; or rebuilding the whole stack because one container drifted. Quote the command, the output, the exit code and the version the live deployment reports.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.8
+                  retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          # The config is REQUIRED by the tool-todo schema (no default): omitting it fails the
+          # preset mount silently - the preset simply never appears in the roster. A deployment
+          # is serial work, so one in-progress todo is the policy, not an oversight.
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: false
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
     # ── research: find what exists, read the source, cite it, never implement ─
     - id: preset-research
       name: '@deepseek-ai/dsh-agent-preset'

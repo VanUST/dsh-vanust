@@ -36,16 +36,17 @@ back to a semantic node id that no longer exists.
 
 ## 3. The agent surface
 
-Four tools instead of seven, and only the verbs a role is actually granted are registered (today
-seven are registered and four are unreachable through the allow-lists —
-`profile/cordis.patch.yml:493-495,531-533`):
+Five tools instead of seven, and only the verbs a role is actually granted are registered (at the
+v2 cut seven v1 tools were registered and four were unreachable through the allow-lists —
+`profile/cordis.patch.yml:493-495,531-533`; `map_lint` was added on 2026-11-27):
 
 | tool | effect |
 |---|---|
 | `map_list` | pages with node/edge counts and last-modified time |
-| `map_read` | the page as a compact outline (`- [box] Checkout API`, `- Checkout API -> Orders DB: reads`), plus `format:'json'` for exact positions, and `hints` (overlapping boxes, off-canvas elements, arrows without a label) |
-| `map_edit` | one `op` union: `node.add`, `node.move`, `node.resize`, `node.label`, `edge.add`, `edge.label`, `element.delete`, `page.create`, `page.rename`, `page.delete`, `tidy` |
-| `map_render` | the page as a PNG, produced by **Excalidraw's own canvas** in headless Chromium, framed to the page's bounds (not cropped to a viewport): `out/<page>.png`, returning the path, its size, the page bounds and the element count so the agent can look at it (`read_image`) |
+| `map_read` | the page as a compact outline (`- [box] Checkout API`, `- Checkout API -> Orders DB: reads`), a geometry table (`id x,y w x h`), the page bounds and the readability verdict, plus `format:'json'` for the exact scene |
+| `map_lint` | the readability check: a score, a verdict and every finding with the ids it measured and a `repair` op (`node_overlap`, `label_overflow`, `edge_label_on_node`, `edge_crosses_node`, `edge_crossing`, `edge_too_close`, `edge_unbound`, `edge_without_label`, `node_without_label`, `isolated_node`, `duplicate_label`, `page_too_tall`, `off_canvas`); a low score never refuses a save |
+| `map_edit` | one `op` union: `diagram` (nodes + edges + layout in one call), `layout`, `tidy`, `align`, `note.add`, `node.add`, `node.move`, `node.resize`, `node.label`, `node.style`, `edge.add`, `edge.label`, `element.delete`, `page.create`, `page.rename`, `page.delete` |
+| `map_render` | the page as a PNG, produced by **Excalidraw's own canvas** in headless Chromium, framed to the page's bounds (not cropped to a viewport) and captured with the editor toolbar/menu hidden: `out/<page>.png`, returning the path, its size, the page bounds and the element count so the agent can look at it (`read_image`) |
 
 **No SVG, by decision (owner, 2026-11-24).** The vendored bundle the panel ships is a stripped build
 with no export API — its own dialog offers only `.excalidraw` JSON — so a true vector export would
@@ -60,8 +61,20 @@ independent view of the same file.
 
 `map_edit` builds the elements itself, so the agent never writes seeds, versions or bindings: an op
 names a label and a place, the tool emits a valid rectangle with a bound text, and an edge op emits
-an arrow with real bindings. A missing target is refused by name (`unknown_page`, `unknown_node`);
-a crowded page is **not** refused — `tidy` places boxes and reports the hints it could not resolve.
+an arrow with real bindings. A missing target is refused by name (`unknown_page`, `unknown_node`,
+`unknown_op`); a crowded page is **not** refused — `map_lint` names the defects and `layout`
+reports what it could not resolve.
+
+**Drawing a scheme (2026-11-27).** One node per call left the agent placing twenty shapes blind,
+and the old default put a coordinate-less node under the page, so a scheme became one vertical
+column (owner's screenshot: labels on boxes, a 239x1096 px page). `diagram` draws the whole scheme
+in one call — nodes, edges, direction — and the layout sizes each box for its text, orders the
+layers to reduce crossings and leaves a layer gap of at least the widest edge label plus 24 px,
+because Excalidraw draws a bound arrow label at the arrow's middle (v0.18.1 `textElement.ts`).
+`map_lint` is advisory by design: it measures and proposes, it never refuses. The layout also
+respects Excalidraw's inscribed text area — a rectangle offers `width − 10`, an ellipse
+`width/2·√2 − 10`, a diamond `width/2 − 10` — because the editor grows a shape whose bound text
+does not fit, which is how two boxes that were apart in the file overlapped on screen.
 
 `tidy` is a deterministic layered placement (rank by edge direction, text-sized boxes, fixed gap)
 in our own code. It no longer owns correctness: a page with boxes on top of each other opens, and
@@ -75,11 +88,14 @@ becomes the page editor:
 
 - the designmap client exports a `PageEditor` component; the state panel mounts it in `MapMode`
   instead of the old `SceneCanvas` (the same coupling direction the two plugins already have);
-- the editor carries the page switcher (`designmap/pages/*.excalidraw`), a read/edit toggle, and
-  `tidy` / `render SVG` buttons that call the same host operations the agent tools call;
+- the editor carries the page switcher (`designmap/pages/*.excalidraw`), `Check` (the readability
+  report, with a Fix button for every finding whose repair is ready), `Tidy`, `Render` and
+  `Full screen`; every button calls the same host operation the agent tool calls;
 - drag, resize, text edit, colour and arrow creation are Excalidraw's own and are saved back into
   the page file with a debounced write;
-- reading stays the default: the file cannot change until edit mode is on.
+- **the page is always editable** (2026-11-27): the read/edit toggle is gone, the frame is built
+  in edit mode once, a scroll or a zoom does not write the file (only a different element list
+  does), and the stage fills the panel body or the whole screen under `Full screen`.
 - **the frame must own the focus before a drag.** An iframe document that was never focused lets
   Excalidraw select an injected element and never move it — the pointerdown selects, the move is
   ignored, and no `change` is emitted. Edit mode therefore focuses the frame when the page loads,
@@ -98,9 +114,9 @@ with the scene contract: the text is in the shape, and the human edits it on the
 |---|---|
 | `model.yaml`, `views.yaml`, `overlays.json`, `annotations.json`, `manifest.json`, `out/*.scene.json` | replaced by the page file; nothing else reads them except the two couplings in §6 |
 | node-type and edge-kind enums, `source` paths, groups as first-class objects | the rigid part: a drawing needs shapes and arrows, not a project ontology |
-| `designmap_status`, `designmap_scan`, `designmap_lint`, `designmap_export`, `designmap_open` | staleness, git-diff proposals, refusing lint and scene exports go with the model; `map_render` covers the export need |
+| `designmap_status`, `designmap_scan`, `designmap_lint`, `designmap_export`, `designmap_open` | staleness, git-diff proposals, the old refusing lint (its advisory successor is `map_lint`) and scene exports go with the model; `map_render` covers the export need |
 | semantic ops with strict schemas (`designmap_apply`) | one loose `map_edit` union; an unknown field is ignored with a note instead of refused with a path |
-| the scene contract (`docs/designmap/SCENE-CONTRACT.md`), the 14 lint rules, label plates, ELK, the refusal codes | a page that refuses to draw is the failure the owner wants gone; hints replace refusals |
+| the retired scene contract, the 14 lint rules, label plates, ELK, the refusal codes | a page that refuses to draw is the failure the owner wants gone; hints replace refusals |
 | our own SVG writer (`src/page-svg.mjs`) | a second renderer diverges from the canvas by definition; Excalidraw renders both the panel and the tool |
 | `designmap/out/index.json` and the `views` command op | the page list is a directory listing |
 
@@ -120,8 +136,7 @@ with the scene contract: the text is in the shape, and the human edits it on the
    untouched.
 
 The profile row keeps `id: designmap`, `name: @cc/dsh-designmap`, `config: {dir: designmap}`; the
-preset allow-list keeps `orchestrator` and `architect`, and now names only the four tools that
-exist.
+preset allow-list keeps `orchestrator` and `architect`, and names only the five tools that exist.
 
 ## 7. Our own drawing
 
@@ -133,19 +148,20 @@ a supported path: no version check, no fallback reader, no migration tool.
 ## 8. Phases, each with its proof
 
 **P1 — document and agent surface (no panel change).** Page format and element builders, outline
-reader, `map_edit` ops, `tidy`, SVG render, the four tools registered by allow-list, the one-shot
-importer and the page it produces.
+reader, `map_edit` ops, `tidy`, SVG render, the page tools registered by allow-list (four at the
+v2 cut, `map_lint` added 2026-11-27), the one-shot importer and the page it produces.
 *Proof:* create a page with four nodes and three edges through `map_edit`, read it back as an
 outline that matches; `tidy` a tangled page and show boxes stop overlapping; render an SVG that
 opens; `map_read` of a page with two overlapping boxes returns hints and no refusal.
 
 **P2 — the editor inside Project state → Map.** The designmap client exports `PageEditor` (page
-switcher, read/edit toggle, `tidy`/render buttons, debounced save); the state panel mounts it in
+switcher, `tidy`/render buttons, debounced save; the read/edit toggle was removed on 2026-11-27
+so the page is always editable); the state panel mounts it in
 `MapMode` in place of `SceneCanvas`; the dead `main`-slot registration is removed; the overlay,
 annotation and label paths are no longer called.
 *Proof:* on a second server, open Project state → Map, the page renders in the frame with a clean
-console; drag a node, reload, the position survives in the file and in `map_read`; read mode leaves
-the file's sha256 unchanged.
+console; drag a node, reload, the position survives in the file and in `map_read`; a scroll or a
+zoom leaves the file's sha256 unchanged, a drag changes it.
 
 **P3 — retirement and couplings.** Delete the v1 files, tools, scene pipeline and docs; remove the
 analysis drift gate and the `designRef` capture; switch the state panel to the SVG viewer; update

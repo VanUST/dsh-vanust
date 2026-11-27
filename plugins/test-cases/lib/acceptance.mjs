@@ -49,7 +49,7 @@ import { driftFor, testHashState } from './schema.mjs'
  * against `DEFAULT_ROLE_TOOLS` by test/independent-verification.test.mjs, so adding a preset to the
  * tool policy without adding it here fails the suite instead of silently blocking its cases.
  */
-export const KNOWN_PRESETS = ['orchestrator', 'backend', 'reviewer', 'critic', 'ux', 'research', 'docs', 'gatherer', 'tester']
+export const KNOWN_PRESETS = ['orchestrator', 'backend', 'reviewer', 'critic', 'ux', 'research', 'docs', 'gatherer', 'tester', 'devops']
 
 /** The default purpose: a case written before purposes existed still guards a task. */
 export function purposeOf(value) {

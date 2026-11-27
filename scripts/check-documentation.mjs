@@ -172,14 +172,14 @@ if (procedure.missing === true) {
   )
 }
 
-// 3. The README a human reads and the user guide that walks them through install: both tell
-//    a person which version to install, so both must agree with the installers. They are
-//    required to NAME the pin — a version-less install instruction is exactly the unpinned
+// 3. The README a human reads and the working guide that walks a session through the tree:
+//    both tell a reader which version is in force, so both must agree with the installers. They
+//    are required to NAME the pin — a version-less install instruction is exactly the unpinned
 //    machine the pin forbids.
 const readme = read('README.md')
 for (const [relative, document] of [
   ['README.md', readme],
-  ['USERGUIDE.md', read('USERGUIDE.md')],
+  ['docs/GUIDE.md', read('docs/GUIDE.md')],
 ]) {
   if (document.missing === true) {
     claim(`${relative} states the harness pin the installers declare`, false, 'missing')
@@ -294,8 +294,9 @@ function statedPluginCounts(text) {
 }
 
 // 5. Every document that describes the shipped plugin set must agree with the inventory.
-//    A user guide that denies the existence of a shipped plugin is the same class of lie as
-//    a rule with no enforcement point: it reads as authoritative and nothing contradicted it.
+//    The README is the catalog (one row per plugin) and the working guide points at it; a
+//    catalog that denies the existence of a shipped plugin is the same class of lie as a rule
+//    with no enforcement point: it reads as authoritative and nothing contradicted it.
 const inventory = read('plugins/inventory.json')
 if (inventory.missing === true) {
   claim('the plugin inventory is readable', false, 'missing')
@@ -306,7 +307,7 @@ if (inventory.missing === true) {
   } catch (error) {
     claim('the plugin inventory is readable', false, String(error))
   }
-  for (const relative of ['README.md', 'USERGUIDE.md']) {
+  for (const relative of ['README.md']) {
     const document = read(relative)
     if (document.missing === true) {
       claim(`${relative} names every shipped plugin`, false, 'missing')
@@ -326,7 +327,7 @@ if (inventory.missing === true) {
   //    describe (the reviewed kit is the committed one).
   const tracked = countTrackedPlugins(rows)
   const mismatches = []
-  for (const relative of ['README.md', 'USERGUIDE.md', 'rules/DEPLOYMENT.md']) {
+  for (const relative of ['README.md', 'docs/GUIDE.md', 'rules/DEPLOYMENT.md']) {
     const document = read(relative)
     if (document.missing === true) { mismatches.push(`${relative}: missing`); continue }
     const stated = statedPluginCounts(document.text)

@@ -109,14 +109,15 @@ const POLICY_RAW = {
     gatherer: { allow: ['bash', 'glob', 'grep', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'working_directory'] },
     research: { allow: ['glob', 'grep', 'papers_download', 'papers_search', 'papers_trending', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     docs: { allow: ['case_get', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'read', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    devops: { allow: ['bash', 'case_get', 'case_list', 'case_run', 'edit', 'glob', 'grep', 'job_kill', 'job_list', 'job_output', 'outline', 'read', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'working_directory', 'write'] },
     ux: { allow: ['bash', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'mcp__playwright__*', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     presenter: { allow: ['bash', 'dashboard', 'diagram', 'edit', 'glob', 'grep', 'job_kill', 'job_list', 'job_output', 'mcp__playwright__*', 'outline', 'present', 'presentation', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
   },
 }
-const BUDGETS = { architect: 15, orchestrator: 42, presenter: 36, backend: 16, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
+const BUDGETS = { architect: 15, orchestrator: 42, presenter: 36, backend: 16, devops: 26, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
 const POLICY = normalizeConfig(POLICY_RAW)
 
-const PRESETS = [undefined, 'orchestrator', 'architect', 'ux', 'presenter', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
+const PRESETS = [undefined, 'orchestrator', 'architect', 'ux', 'presenter', 'backend', 'devops', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
 const WORKSPACES = [
   { label: 'dsh-kit', marker: false },
   { label: 'godot-project', marker: true },

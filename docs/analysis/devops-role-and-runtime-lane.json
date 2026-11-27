@@ -1,0 +1,666 @@
+{
+  "schemaVersion": 1,
+  "id": "devops-role-and-runtime-lane",
+  "rev": 8,
+  "status": "completed",
+  "createdAt": "2026-11-27T10:33:39.677Z",
+  "updatedAt": "2026-11-27T11:22:14.904Z",
+  "updatedBy": "agent",
+  "title": "DEVOPS role and the runtime lane: one agent on the running deployment",
+  "requestedSolution": "Owner, 2026-11-27: add a devops preset/role the orchestrator can use. Runtime deployment, switching the dev/prod version and cleanups were being delegated as several tasks to several agents, and those agents interrupted each other; the orchestrator must be more careful about parallelism that is not interruptive to actively running agents.",
+  "businessOutcome": {
+    "problem": "The running deployment has no owner role. A restart, a version switch or a cleanup is handed to whichever role looks idle, and two such tasks can run at once: the second restart ends the children of the first task, and a version switch changes the runtime the first task is still measuring. The delegation rules name a shared file, a shared contract and a shared seat as the things that serialise work, but not the shared runtime, and no gate refuses a second live deployment task.",
+    "outcome": "A devops preset (role DEVOPS) owns the runtime lane: it is the one role delegated to change the running deployment, it takes a version snapshot, makes one change, proves it from outside the process and leaves the environment clean. The orchestrator policy names the shared runtime as a serialising resource, requires reading running children before ordering a restart, and tells the root to send runtime work to DEVOPS. delegate_task refuses a second live DEVOPS task in the same chat and names the open one, so a deployment is measured and accepted before the next one starts.",
+    "successMetrics": [
+      "preset-devops is declared in profile/cordis.patch.yml and listed in the composer picker at order 35",
+      "delegate_task resolves DEVOPS to preset devops, and refuses a second live deployment task with devops_lane_busy naming the open task",
+      "ROOT_POLICY names the shared runtime among the serialising resources and the restart-interruption rule; the policy-gating test asserts the new text",
+      "make verify and make test are green on the final tree, including the tool-families budget for devops",
+      "a second server (:3081, overlay) prints preset-devops in --dump-config and the browser picker lists it"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Runtime work goes to whatever role is idle",
+        "actors": [
+          "owner",
+          "orchestrator",
+          "backend",
+          "docs",
+          "tester",
+          "devops has no seat"
+        ],
+        "steps": [
+          "The owner asks for a deploy, a dev/prod version switch or a cleanup",
+          "The orchestrator opens one or more tasks and delegates them to roles whose tools fit the commands",
+          "Two agents touch the same deployment: one restarts or rebuilds while the other is still proving the previous state",
+          "The restart ends the other task's child, the version under measurement changes under it, or two processes fight over the port and the state directory",
+          "The board reports blocked tasks and the human restarts the work"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "DEVOPS owns the runtime lane, one live task at a time",
+        "actors": [
+          "owner",
+          "orchestrator",
+          "devops"
+        ],
+        "steps": [
+          "The owner asks for a runtime change; the orchestrator opens it as a task whose acceptance is the change measured from outside the deployment",
+          "The orchestrator delegates it to DEVOPS, and checks the board for tasks with running children, naming the ones a restart would end",
+          "The devops child reads the board, records the version it replaces, changes one thing, verifies the live deployment, and cleans up what it created",
+          "The orchestrator accepts the result and closes the task; only then may the next deployment task start",
+          "Unrelated work keeps running in parallel, because it touches no file, contract, seat or runtime that the deployment touches"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "The deployment has an owner role: DEVOPS denotes preset devops, and runtime deployment, version switching and cleanup are delegated to it instead of BACKEND, DOCS or another idle role.",
+      "acceptance": [
+        "profile/cordis.patch.yml declares preset-devops at order 35 with a persona and a tool set",
+        "PRESET_IDS and ROLE_PRESETS contain devops; DEVOPS, DEPLOYMENT and OPS resolve to it without an explicit preset",
+        "make verify prints that every role preset is named in the procedure, counting 12 presets (orchestrator included)",
+        "the tool-families row for devops keeps only its allow-listed tools and stays within its declared budget"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "One live deployment task per chat: delegate_task refuses a second live devops task and names the open one, while attaching to the same task stays allowed.",
+      "acceptance": [
+        "a devops delegation while another devops task in this chat is open, active, blocked or paused is refused with devops_lane_busy and the open task's id and status",
+        "delegate_task(taskId) attach to that same task is allowed and does not count as a second task",
+        "a delegation to another preset while a devops task is live is unchanged",
+        "the refusal happens before a task row is created and before a child is started"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "The orchestrator policy states that parallelism must not interrupt running agents: the shared runtime serialises work, DEVOPS owns it, and a restart is ordered only after reading the board for running children.",
+      "acceptance": [
+        "ROOT_POLICY names DEVOPS as the owner of the running deployment and states one live deployment task per chat",
+        "ROOT_POLICY lists the shared runtime (the running server, its port, the installed version, its state) beside the shared file, contract and seat as a resource that serialises work",
+        "ROOT_POLICY requires reading the board for tasks with running children before a restart and naming them in the brief",
+        "policy-gating.test.mjs asserts the new role count and the runtime-lane sentence"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "The default reasoning budget is High: the architect's sol route and every working preset run at High effort unless the human picks another one.",
+      "acceptance": [
+        "agent-default-model names reasoningEffort high, not max",
+        "role-model names High for the architect (primary and quota fallback) and for every working preset: backend, devops, docs, ux, presenter, research, gatherer, reviewer, critic, tester",
+        "delegate_task starts a child with agentOptions.reasoningEffort high, and a test asserts it",
+        "a model the human picks in the composer still wins, as role-model's selection rule says"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "The orchestrator's prompt carries the development rules in force, not behind a skill load: one owner per rule, a tool is not a behaviour until observed, proof by running, the smallest complete change, and a named list of what was skipped.",
+      "acceptance": [
+        "ROOT_POLICY contains a Development rules block naming the one-owner rule, the tool-versus-behaviour rule, proof by running, the smallest complete change and what-was-skipped",
+        "policy-gating.test.mjs asserts the block's anchors",
+        "rules/DEPLOYMENT.md states why the rules are in the prompt rather than a skill",
+        "make verify and make test are green"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "The preset composes without a new dependency or package: a preset row, a tool-families row and budgets, and it is measurable on a second server.",
+      "acceptance": [
+        "tool-families-proof.mjs passes for devops in both workspace kinds and reports kept tools <= its declared allowance",
+        "a second server started with an overlay of the row prints preset-devops in --dump-config and lists it in the composer picker at order 35",
+        "the change adds no dependency to package.json and no new plugin tarball"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Every kit gate and every packed artefact stays true: docs name the new preset, the case-tool table covers it, and repacked tarballs match their source.",
+      "acceptance": [
+        "make verify is green, including the documentation, prompt-playbook, role-table and portability checks",
+        "make test is green, including the new devops-lane test",
+        "every changed packed plugin (orchestrator, test-cases) is repacked and tarball:matches-source passes"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR3",
+      "kind": "NFR",
+      "text": "The High default is stated where the gates read it: the procedure, the user guide, the harness overview and the role-model config agree on the value.",
+      "acceptance": [
+        "make verify is green and the procedure states the High reasoning default",
+        "make test is green, including the role-model and orchestrator tests",
+        "the kit profile carries no max-effort default: a grep finds high for agent-default-model and for the role-model rules"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Delegation scope is a deterministic file claim: two active tasks in one chat cannot claim the same file, and delegate_task refuses the second before a task row or a child exists.",
+      "acceptance": [
+        "delegate_task refuses with scope_overlap when an active task in the chat claims the same file or a directory that contains it, before creating a row and before starting a child",
+        "an open row, a review row, a disjoint file and an attach to the holding task do not trigger the guard",
+        "scope entries are normalized ('./', '..', a trailing slash; prose after the path ignored; a backslash path is not a separator) and a prose-only entry claims nothing",
+        "plugins/orchestrator/test/scope-overlap.test.mjs passes and make verify plus make test are green"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-PROFILE",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "Declares preset-devops (order 35) with persona and plugin rows, its tool-families allow list and its budgets.",
+        "owner": "kit",
+        "owns": [
+          "D-PROFILE"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-ORCH",
+        "name": "plugins/orchestrator",
+        "responsibility": "PRESET_IDS and ROLE_PRESETS gain devops; the root policy states the runtime lane; delegate_task refuses a second live devops task.",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE"
+        ]
+      },
+      {
+        "id": "C-CASES",
+        "name": "plugins/test-cases",
+        "responsibility": "The per-preset case-tool map and its README table gain devops.",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "C-ORCH"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "rules/DEPLOYMENT.md, README.md, USERGUIDE.md, docs/PRESET-PLAYBOOKS.md",
+        "responsibility": "Document the role, its playbook and the runtime lane; the tree gates read these.",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE"
+        ]
+      },
+      {
+        "id": "C-PROOF",
+        "name": "scripts/tool-families-proof.mjs, scripts/check-prompt-playbooks.mjs, scripts/context-budget.mjs",
+        "responsibility": "Measure the new preset against the agreed policy and keep the doc gates closed over it.",
+        "owner": "kit",
+        "owns": [
+          "D-TARBALL"
+        ],
+        "dependsOn": [
+          "C-PROFILE"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-PROFILE",
+      "name": "profile/cordis.patch.yml",
+      "owner": "kit",
+      "ownerComponentId": "C-PROFILE",
+      "description": "The composed profile: one more preset declaration and one more tool-families row."
+    },
+    {
+      "id": "D-TARBALL",
+      "name": "plugins/cc-dsh-*.tgz",
+      "owner": "kit",
+      "ownerComponentId": "C-PROOF",
+      "description": "The packed orchestrator and test-cases tarballs, bumped and repacked when their source changes."
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-ROLE",
+      "name": "Preset and role registry",
+      "between": [
+        "C-PROFILE",
+        "C-ORCH"
+      ],
+      "change": "additive",
+      "description": "A new preset id devops at order 35 and role spellings that resolve to it; existing presets and role labels keep their tool sets."
+    },
+    {
+      "id": "CT-DELEGATE",
+      "name": "delegate_task refusal",
+      "between": [
+        "C-ORCH"
+      ],
+      "change": "additive",
+      "description": "A second live devops task in one chat is refused with devops_lane_busy and the open task named; no other delegation changes."
+    },
+    {
+      "id": "CT-POLICY",
+      "name": "Root orchestration policy",
+      "between": [
+        "C-ORCH"
+      ],
+      "change": "additive",
+      "description": "The policy text gains the runtime lane, the restart-interruption rule and an eleventh role in the roster sentence."
+    },
+    {
+      "id": "CT-MODEL",
+      "name": "Reasoning default",
+      "between": [
+        "C-PROFILE",
+        "C-ORCH"
+      ],
+      "change": "additive",
+      "description": "The deployment default effort is High, the architect route (primary and fallback) is High, and every working preset names its own route at High; no route, tool or API is removed, and a human's composer pick still wins."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-ONE-PRESET",
+      "text": "A role label keeps one preset; existing labels and presets are not re-composed.",
+      "scope": "C-ORCH"
+    },
+    {
+      "id": "INV-REFUSE-EARLY",
+      "text": "Every refusal in delegate_task happens before a task row exists and before a child starts.",
+      "scope": "C-ORCH"
+    },
+    {
+      "id": "INV-LANE",
+      "text": "One live devops task per chat; a task is live while it is open, active, blocked or paused.",
+      "scope": "C-ORCH"
+    },
+    {
+      "id": "INV-OTHERS",
+      "text": "Other roles keep their current surfaces and may still batch several rows into one seat.",
+      "scope": "C-PROFILE"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Add a preset instead of extending BACKEND",
+      "rationale": "SEGMENTATION and CONCURRENCY already share backend's tools and differ only in persona; the runtime lane needs its own tool set (long background jobs, jobs, web for releases) and its own seat, so a name would have been a persona without a boundary.",
+      "alternatives": []
+    },
+    {
+      "id": "D2",
+      "decision": "Enforce one live devops task; leave other roles' batch attach alone",
+      "rationale": "A batch of rows into one seat is the intended cheap pattern for implementation and review, but a deployment has to be measured and accepted before the next one replaces the runtime it measured.",
+      "alternatives": []
+    },
+    {
+      "id": "D3",
+      "decision": "Refuse by task state, not by keywords in the brief",
+      "rationale": "A word list cannot tell 'restart the stand' from 'read the restart section of the docs', so the gate keys on the ledger's own status of a task whose role resolves to devops.",
+      "alternatives": []
+    },
+    {
+      "id": "D4",
+      "decision": "Do not restart the live :3080 deployment from this session",
+      "rationale": "A restart ends this session mid-turn; composition is proven on a second server and the live server converges on its next ./start.sh.",
+      "alternatives": []
+    },
+    {
+      "id": "D5",
+      "decision": "Pin High per working preset instead of relying on the machine default",
+      "rationale": "kit-update keeps the installed agent-default-model row verbatim (this machine carries sol at xhigh), so the deployment default alone would never reach a working role; a role-model rule is the seam kit-update does update.",
+      "alternatives": []
+    },
+    {
+      "id": "D6",
+      "decision": "Put the development rules in ROOT_POLICY, keep the skill as the long form",
+      "rationale": "A rule that must bind every step cannot depend on someone loading a skill; the owner's ten-defect observation showed the class is found by running, so the short rules (one owner per rule, tool is not behaviour, prove by running, smallest change, name what was skipped) belong in the prompt, with the full skill for the rare deep pass.",
+      "alternatives": []
+    },
+    {
+      "id": "D7",
+      "decision": "Make the scope a path claim keyed on active tasks, not a lock file or a write-time check",
+      "rationale": "The claim has to exist at delegation time, before two children start: the taskboard's active status is the one durable fact about work in flight, and the scope list is already in every brief. A keyword or directory-only rule would either block disjoint files in one directory or miss the file case; a write-time check would report the collision after both children had edited it.",
+      "alternatives": []
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "A new preset inside the existing profile plus a refusal in delegate_task",
+      "No new dependency, package or data store",
+      "The live server is not restarted; composition is proven on a second server"
+    ]
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [
+        "CT-ROLE"
+      ],
+      "dataIds": [
+        "D-PROFILE",
+        "D-TARBALL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "TEST-098 red on HEAD copy and green mwyw46ys-esorg-1 (20/20); make verify 20/20, 12 presets documented; :3082 picker proof reports/devops-role/roster-devops-3082.png"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-DELEGATE"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "TEST-098 red mwyvzme8-mu5hq-1, green mwyw46ys-esorg-1; unit devops-lane.test.mjs 8 pass; the case caught the missing OPS alias, fixed in 0.1.76"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-POLICY"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "TEST-098 rootPolicy checks green; policy-gating.test.mjs markers; make verify and make test exit 0"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [
+        "CT-MODEL"
+      ],
+      "dataIds": [
+        "D-PROFILE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "TEST-098 configEffort and childEffort green; agent-default-model high; role-model architect + 10 working presets high; child agentOptions high asserted"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-POLICY"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "TEST-098 Development-rules check green; policy-gating.test.mjs markers; make verify and make test exit 0"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROOF",
+      "contractIds": [
+        "CT-ROLE"
+      ],
+      "dataIds": [
+        "D-TARBALL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "tool-families-proof devops kept 6 <= 26; :3082 profile-copy picker proof; no dependency added"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [],
+      "dataIds": [
+        "D-TARBALL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "make verify 20/20 exit 0; make test 77/77 exit 0; tarballs cc-dsh-orchestrator-0.1.76 sha256 0af1320c..., cc-dsh-test-cases-0.1.45 sha256 53f52430... match source"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR3",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [
+        "CT-MODEL"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyvpo6b-q8dc4o",
+          "role": "TESTER",
+          "at": "2026-11-27T11:09:20.704Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "procedure, USERGUIDE and HARNESS-OVERVIEW state High; no max-effort default in the kit profile; make verify green"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-DELEGATE"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyug14j-3ruwmo",
+          "role": "orchestrator",
+          "at": "2026-11-27T11:22:06.809Z",
+          "evidence": [
+            "TEST-098 names REQ-264 and measures the scope guard; scope-overlap.test.mjs 9 pass; scopeGuard checks green"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "96b013b473d1771a64d55604539b0222cbb796f91abc9cd6913f8a9c279c3987",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T10:33:39.677Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T10:53:50.273Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR4 added, NFR3 added; impacts: 3"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T11:04:43.230Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR5 added"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T11:08:53.168Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T11:09:20.704Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwyvpo6b-q8dc4o -> FR1, FR2, FR3, FR4, FR5, NFR1, NFR2, NFR3"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-27T11:12:23.080Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR6 added; impacts: 2"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-27T11:22:07.680Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR6 changed"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-27T11:22:14.904Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

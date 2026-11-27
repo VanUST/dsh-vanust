@@ -14,7 +14,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tidyElements } from '../src/tidy.mjs'
 
-const scene = JSON.parse(readFileSync(join(process.cwd(), 'designmap', 'pages', 'system.excalidraw'), 'utf8'))
+// The repository's own imported page, kept as a FIXTURE: the live page is the human's
+// drawing and a test that read it turned every human edit into a red build (measured
+// 2026-11-27: the owner cleared designmap/pages/system.excalidraw and two tests failed).
+const scene = JSON.parse(readFileSync(join(process.cwd(), 'plugins', 'designmap', 'test', 'fixtures', 'system-page.excalidraw'), 'utf8'))
 
 test('a tidied page keeps every element, its labelled arrow included', () => {
   const before = scene.elements

@@ -34,6 +34,11 @@ window.__ModuleLoader__.load({
 
     const PANEL_ID = 'project-state'
     const SESSION_KEY = 'dsh:project-state-panel:session'
+    // A WINDOW EVENT, NOT A SHARED STORE. The panel and the session header are two slots of the
+    // same document, so a status the owner just wrote can move the header counters immediately
+    // instead of waiting for their five-second poll (REQ-136: the panel shows the new status
+    // without a reload).
+    const STATE_CHANGED_EVENT = 'dsh:project-state-changed'
     const INDEX_PATH = 'state/views/index.json'
     const ANALYSIS_DIR = 'docs/analysis'
     const KIND_DIR = { req: 'req', task: 'task', test: 'test', decision: 'decision' }
@@ -700,8 +705,13 @@ window.__ModuleLoader__.load({
 .ps-alert code { font: 11px/1.5 ui-monospace, monospace; }
 .ps-warnline { border: 1px solid color-mix(in srgb, var(--ps-warn) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-warn) 7%, transparent); color: var(--ps-ink); border-radius: 8px; padding: 6px 9px; margin: 0 0 10px; font-size: 11.5px; }
 .ps-mapbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; font-size: 11.5px; color: var(--ps-muted); }
-.ps-mapstage { height: min(64vh, 620px); min-height: 320px; border: 1px solid var(--ps-line); border-radius: 10px; overflow: hidden; background: var(--ps-surface); }
+.ps-mapstage { height: 100%; min-height: 0; border: 0; border-radius: 0; overflow: hidden; background: var(--ps-surface); }
 .ps-mapstage > .dmv { height: 100%; }
+/* The Design map is the one mode that is a canvas rather than a document: it takes the whole
+   body (no 14px padding, no page scroll) so the editor fills the panel and grows with it. The
+   620px ceiling the map used to have is what made the Excalidraw page a strip. */
+.ps-main-map { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.ps-main-map .ps-mapstage { flex: 1 1 auto; }
 .ps-maplist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .ps-maplist li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .ps-nodebadge { position: absolute; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 999px; border: 1px solid color-mix(in srgb, #FFB020 58%, var(--ps-line)); /* #FFB020 is TYPE_COLOR.req */ background: color-mix(in srgb, #FFB020 22%, var(--ps-surface)); color: var(--ps-ink); font: 9.5px/14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; text-align: center; white-space: nowrap; pointer-events: none; }
@@ -2189,6 +2199,27 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * The owner's optimistic status, applied to the panel's one data object.
+     *
+     * WHY IT IS A PURE HELPER. The status badge is a controlled select: until `data` carries the
+     * new status, the browser paints the old one back even though the board and the TASK already
+     * changed. The patch therefore runs BEFORE the command, and after a refusal it is undone
+     * with the same helper. It touches the index row and the loaded entity, nothing else.
+     */
+    function applyTaskStatus(data, taskId, status) {
+      if (data === null || typeof data !== 'object') return data
+      if (data.phase !== 'ready' && data.phase !== 'refreshing') return data
+      if (data.index === null || typeof data.index !== 'object' || !Array.isArray(data.index.tasks)) return data
+      const tasks = data.index.tasks.map((row) => (row.id === taskId ? { ...row, status } : row))
+      const entities = new Map(data.entities)
+      const current = entities.get(taskId)
+      if (current !== undefined && current.frontmatter !== undefined) {
+        entities.set(taskId, { ...current, frontmatter: { ...current.frontmatter, status } })
+      }
+      return { ...data, index: { ...data.index, tasks }, entities }
+    }
+
     function ProjectStatePage(props) {
       const remote = props.remote
       const sessionsById = props.useSessions === undefined ? {} : props.useSessions((snapshot) => snapshot.byId)
@@ -2199,6 +2230,10 @@ window.__ModuleLoader__.load({
       const [subview, setSubview] = useState('tests')
       const [reloadToken, setReloadToken] = useState(0)
       const [data, setData] = useState({ phase: 'loading' })
+      // The previous status a refused write must restore; a ref because the callback cannot
+      // read the state it is about to replace.
+      const dataRef = useRef(data)
+      dataRef.current = data
       const [drawer, setDrawer] = useState(null)
       const [drawerTab, setDrawerTab] = useState('overview')
       // The evidence column belongs to the panel, not to the shell layout: layout has no
@@ -2235,7 +2270,16 @@ window.__ModuleLoader__.load({
         // The cached paint REPLACES the workspace object too, so it gets the same entity merge
         // as the fresh read below: a drawer that is open while the index refreshes must keep
         // its entity, otherwise its Edit form blanks out on every reload.
-        if (cached !== null) setData((previous) => withLoadedEntities(previous, workspaceFromIndex(cached).workspace))
+        // THE CACHE IS A FIRST-PAINT DEVICE, NOT A REFRESH. Repainting it on every reload put
+        // the pre-write status back after the owner changed one (the optimistic patch was
+        // overwritten by the cached old index, and the fresh read landed ~1.5 s later - the
+        // owner's "nothing changes"). A panel that is already showing data keeps it until the
+        // fresh read replaces it.
+        if (cached !== null) {
+          setData((previous) => (previous.phase === 'ready' || previous.phase === 'refreshing'
+            ? previous
+            : withLoadedEntities(previous, workspaceFromIndex(cached).workspace)))
+        }
         setData((previous) => (previous.phase === 'ready' ? { ...previous, phase: 'refreshing' } : { phase: 'loading' }))
         loadWorkspace(remote, sessionId, controller.signal).then(
           (next) => {
@@ -2347,35 +2391,42 @@ window.__ModuleLoader__.load({
       }, [statusNotice])
       const changeStatus = useCallback((taskId, status, reason = '') => {
         if (typeof sessionId !== 'string' || sessionId === '') return
+        const before = (dataRef.current?.index?.tasks ?? []).find((row) => row.id === taskId)?.status
+        // OPTIMISTIC FIRST. The badge is a controlled select: it paints the old value until the
+        // data object carries the new one, and the command's round trip (board write, TASK
+        // mirror, projections) is long enough for "nothing changed" to be what the owner sees.
+        // The write is confirmed below; a refusal restores the previous status.
+        setData((previous) => applyTaskStatus(previous, taskId, status))
         setStatusBusy(taskId)
         setStatusNotice(null)
         changeTaskStatus(remote, sessionId, { taskId, status, reason }).then(
           (result) => {
             setStatusBusy(null)
             if (result.ok !== true) {
+              if (typeof before === 'string' && before !== '') {
+                setData((previous) => applyTaskStatus(previous, taskId, before))
+              }
               setStatusNotice({ tone: 'bad', code: result.code, message: result.message ?? 'the status change was refused' })
               // A stale revision means the board moved under the panel: re-read it so the next
               // attempt carries the revision it needs.
               if (result.code === 'stale') setReloadToken((value) => value + 1)
               return
             }
-            // OPTIMISTIC, then the projection: the board already answered with the row it wrote,
-            // and the command mirrored it before answering, so the re-read finds the new status.
-            setData((previous) => {
-              if (previous.phase !== 'ready' && previous.phase !== 'refreshing') return previous
-              const tasks = previous.index.tasks.map((row) => (row.id === taskId ? { ...row, status } : row))
-              const entities = new Map(previous.entities)
-              const current = entities.get(taskId)
-              if (current !== undefined && current.frontmatter !== undefined) {
-                entities.set(taskId, { ...current, frontmatter: { ...current.frontmatter, status } })
-              }
-              return { ...previous, index: { ...previous.index, tasks }, entities }
-            })
+            // The board answered with the row it wrote and the command mirrored it before
+            // answering; keep the optimistic value (the controlled select must not flicker) and
+            // re-read the projection in the background.
+            setData((previous) => applyTaskStatus(previous, taskId, status))
             setStatusNotice({ tone: 'ok', code: null, message: `${taskId} is now ${status}; the state journal records the change` })
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent(STATE_CHANGED_EVENT))
+            }
             setReloadToken((value) => value + 1)
           },
           (error) => {
             setStatusBusy(null)
+            if (typeof before === 'string' && before !== '') {
+              setData((previous) => applyTaskStatus(previous, taskId, before))
+            }
             setStatusNotice({ tone: 'bad', code: 'status_change_failed', message: errorText(error) })
           },
         )
@@ -2426,6 +2477,10 @@ window.__ModuleLoader__.load({
                 ? `${id}: ${release.join(', ')} returned to the source; revision ${saved.revision}`
                 : `${id} saved at revision ${saved.revision}${mine.length === 0 ? '' : `; yours now: ${mine.join(', ')}`}`,
             })
+            // A status edited by hand moves the same counters: the header re-reads at once.
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent(STATE_CHANGED_EVENT))
+            }
             // SETTLE THE PANEL IN PLACE: the entity from disk plus the index row it affects
             // (title, status, revision, updatedAt). No index reload - a reload replaces the
             // workspace object and the open drawer with it, which blanked the form the owner
@@ -2589,7 +2644,7 @@ window.__ModuleLoader__.load({
               h('p', { style: { marginTop: 6 } }, 'Lens over state/views; you can change a task status here (recorded in the journal).'),
             ),
           ),
-          h('section', { className: 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
+          h('section', { className: mode === 'map' ? 'ps-main ps-main-map' : 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
             statusNotice === null
               ? null
               : h('div', { className: `ps-notice ${statusNotice.tone}`, role: 'status', 'aria-live': 'polite' },
@@ -2672,7 +2727,15 @@ window.__ModuleLoader__.load({
         }
         tick().catch((error) => { if (!cancelled) setCounts({ phase: 'error', message: errorText(error) }) })
         const timer = setInterval(() => { tick().catch(() => {}) }, 5000)
-        return () => { cancelled = true; controller.abort(); clearInterval(timer) }
+        // The panel just wrote a status: do not make the owner wait for the next poll.
+        const onChanged = () => { tick().catch(() => {}) }
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener(STATE_CHANGED_EVENT, onChanged)
+        return () => {
+          cancelled = true
+          controller.abort()
+          clearInterval(timer)
+          if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') window.removeEventListener(STATE_CHANGED_EVENT, onChanged)
+        }
       }, [remote, sessionId])
 
       const subagents = activeSubagents(sessionsById, sessionId)
@@ -2728,6 +2791,7 @@ window.__ModuleLoader__.load({
         // The hand-edit surface: what the Edit tab builds and what it sends, so a test proves the
         // patch and the refusal codes instead of re-implementing them.
         EDIT_FIELDS, EDIT_STATUS_CHOICES, initialDraft, buildEditPatch, parseStateReply, editStateEntity, runStateCommand,
+        applyTaskStatus, STATE_CHANGED_EVENT,
       },
       apply(ctx) {
         ctx.slots.inject('main', () => ctx.slots.register({

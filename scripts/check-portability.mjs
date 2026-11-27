@@ -150,11 +150,7 @@ const CHECKS = [
     // made the panel render check crash on Windows while passing on the platform it was
     // written on.
     paths: ['plugins', 'scripts'],
-    // Vendored, generated build outputs copied byte-for-byte from the DSH client loader
-    // so the static harness and the render spike run the REAL loader. They are not kit
-    // source, and the match is the loader's own generated `import(...)` call.
-    allow: ['scripts/designmap-render-spike/public/vendor/dsh-client-modules.client.js'],
-    allowReason: "vendored DSH client-loader build, not kit source: the match is the loader's generated module factory",
+    allow: [],
   },
   {
     id: 'no-url-pathname-as-path',
@@ -165,12 +161,7 @@ const CHECKS = [
     pattern: /^(?:(?!\/\/|\*)[\s\S])*?\.pathname\b/,
     why: 'a filesystem path derived from a file URL\'s pathname property is `/C:/…` on Windows, so use fileURLToPath(new URL(...)); the kit has read an empty tree this way four times',
     paths: ['plugins', 'scripts'],
-    // The one legitimate use: this value is the `url` of a synthetic HTTP request, never a
-    // filesystem path. Anything else that property is used for reaches `fileURLToPath`.
-    // Both dev servers resolve a request path through an `inside(root, target)` guard
-    // before touching the filesystem, never through `fileURLToPath`.
-    allow: ['scripts/designmap-render-spike/serve.mjs'],
-    allowReason: 'an HTTP request path from `new URL(request.url)`, guarded by an inside(root) check; never a file URL',
+    allow: [],
   },
   {
     id: 'no-hand-built-file-url',

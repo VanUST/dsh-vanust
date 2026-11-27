@@ -1,0 +1,502 @@
+{
+  "schemaVersion": 1,
+  "id": "designmap-instruments",
+  "rev": 5,
+  "status": "ready",
+  "createdAt": "2026-11-27T09:02:46.619Z",
+  "updatedAt": "2026-11-27T10:15:51.162Z",
+  "updatedBy": "agent",
+  "title": "Design map: the whole panel as canvas, always-on editing, instruments for readable drawings",
+  "requestedSolution": "Owner, 2026-11-27: (1) give the Excalidraw page much more space; (2) give agents better instruments, because they draw schemes badly and need help to build visually understandable drawings; (3) keep edit mode always on. The design map is the Excalidraw page editor inside Project state -> Map (designmap-pages), not a new store.",
+  "businessOutcome": {
+    "problem": "The page editor sits in a 620 px box inside the panel body, its own toolbar has no styles, and the read/edit toggle makes the canvas inert on open. Agents draw a scheme one node per call, and a node added without coordinates lands below the page, so a 10-node scheme becomes one tall column. `map_read` returns text without geometry and only three hints; `map_render` captures the editor chrome (toolbar and bottom menu) together with the drawing, so the agent looking at the PNG cannot judge the drawing. The result is what the owner sees: a vertical chain with edge labels over node labels.",
+    "outcome": "The page fills the panel and can expand to the whole screen. The agent describes a scheme once (`map_edit` op `diagram`) and the tool lays it out left-to-right or top-to-bottom without overlaps, with edge labels in the gaps. A readability check (`map_lint`) names every defect with element ids and the exact repair, `map_read` carries the compact geometry and the verdict, and `map_render` produces the drawing alone, without editor chrome. The page is always editable: a drag right after opening is saved.",
+    "successMetrics": [
+      "в режиме Design map холст занимает всё тело панели и растёт с окном; кнопка «Развернуть» отдаёт ему весь экран, Esc возвращает",
+      "кнопка `map_edit` с операцией `diagram` создаёт 10 узлов и 12 связей за один вызов, раскладка без наложений, подписи связей в промежутках",
+      "`map_lint` возвращает находки с id элементов и операцией-починкой; `map_read` по умолчанию несёт геометрию и вердикт читаемости",
+      "узел, добавленный без координат, встаёт в свободное место потока, а не в растущую вертикальную колонку",
+      "`map_render` отдаёт рисунок без панели инструментов Excalidraw",
+      "переключателя чтение/правка нет; первое перетаскивание после открытия сохраняется в файл страницы",
+      "make verify и тесты плагинов зелёные; формат страницы не меняется"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Одна операция — один элемент, место по умолчанию под страницей",
+        "actors": [
+          "агент",
+          "человек"
+        ],
+        "steps": [
+          "Агент вызывает map_edit на каждый узел и каждую связь отдельно.",
+          "Узел без координат встаёт под нижнюю границу страницы, поэтому схема растёт вертикально.",
+          "map_read отдаёт контур без координат и три подсказки.",
+          "map_render снимает холст вместе с панелью инструментов и меню редактора.",
+          "Панель открывается в режиме чтения; правка включается переключателем."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Один вызов на схему, проверка читаемости, всегда правка",
+        "actors": [
+          "агент",
+          "человек"
+        ],
+        "steps": [
+          "Агент описывает схему одним вызовом map_edit: узлы, связи, направление раскладки.",
+          "Инструмент раскладывает узлы слоями, ставит подписи связей в промежутки и пишет файл страницы.",
+          "map_lint измеряет читаемость и называет починку для каждой находки; map_read повторяет вердикт и геометрию.",
+          "map_render снимает только рисунок, без панели инструментов.",
+          "Человек открывает страницу и сразу правит её на холсте; панель сохраняет правку."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Страница карты занимает всё доступное место панели, а кнопка «Развернуть» отдаёт ей весь экран.",
+      "acceptance": [
+        "в режиме Design map нет потолка 620 px и прокрутки страницы: холст занимает всё тело панели и растёт с окном",
+        "кнопка «Развернуть» разворачивает холст на весь экран; Esc и «Выйти» возвращают панель, правка в развёрнутом виде работает"
+      ],
+      "status": "proven",
+      "reason": "Доказано независимыми кейсами design-map-stage-fills-the-panel-body (AC-1, TEST-089) и design-map-expand-covers-viewport-and-returns (AC-2, TEST-090): зелёный на текущем дереве, красный на продуктовой копии до правки. Браузерные замеры в reports/designmap-instruments/proof.out: 948x848 при 1440x900, полный экран 1440x900 и возврат."
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Агент рисует читаемую схему одним вызовом и получает проверку читаемости с конкретной починкой.",
+      "acceptance": [
+        "операция diagram создаёт все узлы и связи одной страницы за один вызов и раскладывает их без наложений",
+        "map_lint возвращает находки с id элементов, измерением и операцией-починкой; map_read по умолчанию несёт геометрию и вердикт",
+        "узел без координат встаёт в свободное место потока, а не в вертикальную колонку",
+        "map_render отдаёт рисунок без панели инструментов редактора",
+        "перегруженная страница не отказывается: проверка только сообщает"
+      ],
+      "status": "proven",
+      "reason": "Доказано независимыми кейсами one-diagram-op-lays-out-nodes-and-edge-labels (AC-3, TEST-091), map-lint-findings-carry-ids-measure-and-repair (AC-4, TEST-092), coordinate-free-node-add-spreads-wider-than-tall (AC-5, TEST-093) и map-render-is-framed-and-carries-no-editor-chrome (AC-6, TEST-094): каждый зелёный и красный на копии до правки. Замеры: diagram 4 узла/3 связи, overlaps 6→0; 820x56 вместо 140x264; 1 цвет на пустом рендере вместо 496."
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Страница всегда в режиме правки: холст редактируется сразу после открытия.",
+      "acceptance": [
+        "в панели нет переключателя чтение/правка, холст строится в режиме правки",
+        "первое перетаскивание после открытия сохраняется в файл страницы без второго клика"
+      ],
+      "status": "proven",
+      "reason": "Доказано независимым кейсом design-map-has-no-read-edit-toggle-and-saves-first-drag (AC-7, TEST-095): зелёный на текущем дереве, красный на панели 0.1.47 до правки. Браузерное перетаскивание и сохранение в reports/designmap-instruments/proof.out."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Условия приёмки кита не регрессируют и упаковка совпадает с исходниками.",
+      "acceptance": [
+        "make verify зелёный",
+        "тесты designmap и project-state-panel зелёные",
+        "tarball каждого изменённого плагина совпадает с деревом"
+      ],
+      "status": "proven",
+      "reason": "Доказано независимым кейсом gates-and-repacked-tarballs-match-the-tree (AC-8, TEST-096): зелёный на 0.1.51/1.0.5 (make verify 20/20, 11+5 тестовых файлов), красный на копии до правки. Тест читает версию из package.json, поэтому последующая упаковка требует нового прогона."
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Формат страницы не меняется: один файл сцены Excalidraw остаётся единственным хранилищем.",
+      "acceptance": [
+        "правка инструментом и правка на холсте пишут один и тот же файл",
+        "второго хранилища, модели, вида или манифеста нет"
+      ],
+      "status": "proven",
+      "reason": "Доказано независимым кейсом design-map-page-format-stays-one-excalidraw-file (TEST-097): зелёный и красный записаны. Ограничение названо в кейсе: прошлая версия тоже хранила одну сцену, поэтому красный несёт отсутствующий путь diagram/lint, а половина «один файл, без второго хранилища» проверена только зелёная."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-DESIGNMAP",
+        "name": "@cc/dsh-designmap",
+        "responsibility": "хост-плагин и клиент: страницы-файлы, инструменты карты, раскладка, проверка читаемости, рендер, редактор страницы",
+        "owner": "BACKEND",
+        "owns": [
+          "D-PAGE",
+          "D-OUT",
+          "D-ROLES"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-STATEPANEL",
+        "name": "@cc/dsh-project-state-panel",
+        "responsibility": "режим Design map в панели состояния: отдаёт холсту всё тело панели и разворот на весь экран",
+        "owner": "UX/UI",
+        "owns": [],
+        "dependsOn": [
+          "C-DESIGNMAP"
+        ]
+      },
+      {
+        "id": "C-PROFILE",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "allow-листы пресетов: orchestrator и architect получают map_lint",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-DESIGNMAP"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-PAGE",
+      "name": "designmap/pages/*.excalidraw",
+      "owner": "kit",
+      "ownerComponentId": "C-DESIGNMAP",
+      "description": "один файл сцены Excalidraw на страницу; формат не меняется"
+    },
+    {
+      "id": "D-OUT",
+      "name": "designmap/out/*.png, *.svg",
+      "owner": "kit",
+      "ownerComponentId": "C-DESIGNMAP",
+      "description": "производный рендер страницы для агента, доков и колод"
+    },
+    {
+      "id": "D-ROLES",
+      "name": "profile/cordis.patch.yml",
+      "owner": "kit",
+      "ownerComponentId": "C-DESIGNMAP",
+      "description": "списки allow для пресетов orchestrator и architect"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-TOOLS",
+      "name": "Инструменты карты",
+      "between": [
+        "C-DESIGNMAP"
+      ],
+      "change": "additive",
+      "description": "к четырём инструментам добавляется map_lint; map_read получает геометрию и вердикт; map_edit получает операции diagram, layout, note.add, align; старые имена и операции сохраняются"
+    },
+    {
+      "id": "CT-CMD",
+      "name": "Команда /designmap",
+      "between": [
+        "C-DESIGNMAP",
+        "C-STATEPANEL"
+      ],
+      "change": "additive",
+      "description": "добавляется операция lint для кнопки проверки в панели"
+    },
+    {
+      "id": "CT-PANEL",
+      "name": "Встраивание редактора в панель состояния",
+      "between": [
+        "C-DESIGNMAP",
+        "C-STATEPANEL"
+      ],
+      "change": "additive",
+      "description": "режим Design map отдаёт холсту всё тело панели и разрешает разворот на весь экран"
+    },
+    {
+      "id": "CT-PAGE",
+      "name": "Формат страницы",
+      "between": [
+        "C-DESIGNMAP"
+      ],
+      "change": "none",
+      "description": "один файл сцены Excalidraw остаётся единственным хранилищем; новые поля элементов не добавляются"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-ONE-STORE",
+      "text": "Страница — это только её файл; второго хранилища, модели или манифеста нет.",
+      "scope": "C-DESIGNMAP"
+    },
+    {
+      "id": "INV-ALWAYS-OPENS",
+      "text": "Страница открывается всегда; проверка читаемости ничего не отказывает.",
+      "scope": "C-DESIGNMAP"
+    },
+    {
+      "id": "INV-SAME-ELEMENTS",
+      "text": "Раскладка двигает элементы, а не пересобирает их: id, тип и поля сохраняются.",
+      "scope": "C-DESIGNMAP"
+    },
+    {
+      "id": "INV-NO-STATE-LINK",
+      "text": "Карта по-прежнему не связана с Analysis Record и designRef.",
+      "scope": "C-DESIGNMAP"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-BATCH-OP",
+      "decision": "map_edit получает операцию diagram: узлы, связи и направление раскладки одним вызовом.",
+      "rationale": "Агент, рисующий по одной фигуре, размещает 20 элементов вслепую; место по умолчанию под страницей дало вертикальную колонку из скриншота владельца.",
+      "alternatives": [
+        "оставить одну операцию на элемент",
+        "раскладывать после каждого node.add"
+      ]
+    },
+    {
+      "id": "D-LINT-ADVISORY",
+      "decision": "Проверка читаемости сообщает и предлагает починку; она не отказывает ни в правке, ни в открытии страницы.",
+      "rationale": "Решение владельца карты v2: страница открывается всегда; отказ рендера — это прежняя боль.",
+      "alternatives": [
+        "запрещать перегруженную правку",
+        "молча раскладывать"
+      ]
+    },
+    {
+      "id": "D-ALWAYS-EDIT",
+      "decision": "Переключатель чтение/правка удаляется: панель всегда редактор, сохранение всегда включено.",
+      "rationale": "Владелец: режим правки должен быть всегда; режим чтения делал холст инертным и требовал лишнего клика.",
+      "alternatives": [
+        "оставить переключатель с запоминанием",
+        "режим чтения только для чужого workspace"
+      ]
+    },
+    {
+      "id": "D-CLEAN-RENDER",
+      "decision": "map_render снимает только холст рисунка: панель инструментов, меню и подсказки редактора скрыты в headless-странице.",
+      "rationale": "Агент судит о читаемости по картинке; панель редактора на снимке — шум, а нижнее меню закрывало часть страницы.",
+      "alternatives": [
+        "оставлять панель",
+        "обрезать картинку по границам элементов"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется контракт инструментов карты: новый map_lint и новые операции map_edit",
+      "меняется встраивание редактора в панель состояния: холст занимает всё тело панели и разворачивается на весь экран",
+      "затрагиваются два плагина, профиль пресетов и документация кита"
+    ]
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-STATEPANEL",
+      "contractIds": [
+        "CT-PANEL"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyr7f5u-b180jl",
+          "role": "orchestrator",
+          "at": "2026-11-27T10:20:00.000Z",
+          "evidence": [
+            "browser: reports/designmap-instruments/proof.out — stage 948x848 at 1440x900; full screen 1440x900; Exit returns 948x848",
+            "node --test plugins/project-state-panel/test/map-space.test.mjs — 4 pass",
+            "node --test plugins/project-state-panel/test/*.test.mjs — 23 pass"
+          ]
+        },
+        {
+          "taskId": "task-mwyse8mz-z1b3nm",
+          "role": "TESTER",
+          "at": "2026-11-27T09:36:28.508Z",
+          "evidence": [
+            "case design-map-stage-fills-the-panel-body (TEST-089): green mwytle7z-j5as8-1, red mwytl0nv-l2v2c-1",
+            "case design-map-expand-covers-viewport-and-returns (TEST-090): green mwyt0pyl-nerkj-1, red mwyszsju-2ft76-1"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-TOOLS",
+        "CT-CMD"
+      ],
+      "dataIds": [
+        "D-PAGE",
+        "D-OUT",
+        "D-ROLES"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyr7f5u-b180jl",
+          "role": "orchestrator",
+          "at": "2026-11-27T10:20:00.000Z",
+          "evidence": [
+            "browser: reports/designmap-instruments/agent-render-clean.png and agent-render-clean-diagram.png — drawing only, no toolbar/menu",
+            "node --test plugins/designmap/test/*.test.mjs — 42 pass"
+          ]
+        },
+        {
+          "taskId": "task-mwyse8mz-z1b3nm",
+          "role": "TESTER",
+          "at": "2026-11-27T09:36:28.508Z",
+          "evidence": [
+            "case one-diagram-op-lays-out-nodes-and-edge-labels (TEST-091): green mwyt0rw2-s08rl-1, red mwyszufy-89mlf-1",
+            "case map-lint-findings-carry-ids-measure-and-repair (TEST-092): green mwyt0u3p-mb4c4-1, red mwyszwhh-o4lfa-1",
+            "case coordinate-free-node-add-spreads-wider-than-tall (TEST-093): green mwyt0w5l-qqwn5-1, red mwyszyzy-s2244-1",
+            "case map-render-is-framed-and-carries-no-editor-chrome (TEST-094): green mwyt0y2o-1pz98-1, red mwyt01a2-pg53d-1"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-TOOLS",
+        "CT-PANEL"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyr7f5u-b180jl",
+          "role": "orchestrator",
+          "at": "2026-11-27T10:20:00.000Z",
+          "evidence": [
+            "browser drag: reports/designmap-instruments/proof.out — +90,+40 saved, 10 elements; full-screen drag +60,+100",
+            "node --test plugins/designmap/test/editor-surface.test.mjs — 5 pass"
+          ]
+        },
+        {
+          "taskId": "task-mwyse8mz-z1b3nm",
+          "role": "TESTER",
+          "at": "2026-11-27T09:36:28.508Z",
+          "evidence": [
+            "case design-map-has-no-read-edit-toggle-and-saves-first-drag (TEST-095): green mwyt1bgy-9ro1l-1, red mwyt0em0-otseh-1"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-TOOLS",
+        "CT-PAGE"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyr7f5u-b180jl",
+          "role": "orchestrator",
+          "at": "2026-11-27T10:20:00.000Z",
+          "evidence": [
+            "make verify exit 0 (20/20)",
+            "make test exit 0 (75/75)",
+            "designmap tarball 1.0.5 sha256 a331b670…; panel tarball 0.1.51 sha256 11d3806a…"
+          ]
+        },
+        {
+          "taskId": "task-mwyse8mz-z1b3nm",
+          "role": "TESTER",
+          "at": "2026-11-27T09:36:28.508Z",
+          "evidence": [
+            "case gates-and-repacked-tarballs-match-the-tree (TEST-096): green mwytpgnz-8d0b2-1, red mwytpcdh-v8pih-1"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-PAGE"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwyr7f5u-b180jl",
+          "role": "orchestrator",
+          "at": "2026-11-27T10:20:00.000Z",
+          "evidence": [
+            "one designmap/pages/*.excalidraw per page; no model/view/manifest files exist; both the tool and the canvas write the same file"
+          ]
+        },
+        {
+          "taskId": "task-mwyse8mz-z1b3nm",
+          "role": "TESTER",
+          "at": "2026-11-27T09:36:28.508Z",
+          "evidence": [
+            "case design-map-page-format-stays-one-excalidraw-file (TEST-097): green mwytl5qs-ayfm6-1, red mwyt0ipy-q29h3k-1 (red limitation named in the case)"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "d8170ce93ab15eaabbbb289c6f2360e1d87a5957ab8790d6286715f66a8f0c07",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:02:46.619Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:02:59.020Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 added, FR2 added, FR3 added, NFR1 added, NFR2 added"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:36:10.395Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:36:28.508Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwyse8mz-z1b3nm -> FR1, FR2, FR3, NFR1, NFR2"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T10:15:51.162Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

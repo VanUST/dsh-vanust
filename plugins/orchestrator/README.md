@@ -61,16 +61,23 @@ existing delegation depth and concurrency cap still apply.
 
 Every `delegate_task` call names a `role`; the optional `roleDescription` becomes the new
 child's responsibility line, and the optional `preset` is required when the role is a genuine
-specialty outside the seven. Roles are case-insensitive; one child session per role is the rule,
-not one child per task.
+specialty outside the kit's eleven. Roles are case-insensitive; one child session per role is the
+rule, not one child per task.
 
 **A role label keeps one preset.** Three refusals, all before a task row exists:
 `preset_conflict` - the name is already recorded with another preset (pass `forceRole: true`
 only to deliberately re-compose it); a **legacy** row with no preset - the name is history, not
-a reuse target, and the refusal names the seven; and an unmapped new role - an explicit valid
+a reuse target, and the refusal names the eleven; and an unmapped new role - an explicit valid
 `preset` is required. `AUDIT` maps to nothing on purpose: it was the one label that meant both
 `reviewer` and `critic`, so the answer tells the caller to choose REVIEWER (judge a change) or
 CRITIC (attack a running behaviour) instead of guessing.
+
+**The runtime lane holds one live task.** `DEVOPS` (preset `devops`) owns the running
+deployment, so a delegation that resolves to it is refused with `devops_lane_busy` while this
+chat's board still holds a `devops` task in `open`, `active`, `blocked` or `paused`; the refusal
+names the open task, and an attach to that task is allowed. A restart ends the children that
+work against the runtime, so the policy also names the shared runtime beside the shared file,
+contract and seat as something that serialises work.
 
 The root policy catalog prints one line per `(name, preset)` pair, flags a name whose pairs
 disagree as ambiguous, and lists preset-less rows in their own *Legacy roles (history only - do

@@ -235,6 +235,9 @@ export const DEFAULT_ROLE_TOOLS = {
   ux: ['case_record', 'case_list'],
   research: ['case_get', 'case_list'],
   docs: ['case_record', 'case_list', 'case_get'],
+  // The runtime lane: it runs an acceptance case the tester wrote against the live deployment,
+  // and it never authors one - a deployment that writes its own oracle can make itself green.
+  devops: ['case_get', 'case_list', 'case_run'],
   gatherer: [],
 }
 
@@ -385,6 +388,7 @@ function summary(record) {
   return {
     id: record.id, title: record.title, kind: record.kind, status: record.status,
     source: record.source, automated: record.automated, revision: record.revision,
+    linkedTaskId: record.linkedTaskId ?? null,
     purpose: purposeOf(record.purpose),
     authorPreset: record.authorPreset ?? record.createdBy ?? null,
     tags: record.tags, lastVerified: record.lastVerified ?? null,
@@ -840,6 +844,7 @@ export function createTools(config = {}, env = {}) {
       steps: { type: 'array', items: { type: 'string' } },
       automated: { type: 'boolean' }, testPath: { type: 'string' }, runCommand: { type: 'string' }, reason: { type: 'string' },
       reqId: { type: 'string' }, authorRole: { type: 'string' },
+      linkedTaskId: { type: 'string', description: 'The implementing task this case judges (pass an empty string to clear it). A change drops the verification: the recorded run named the previous task (RUN_MISMATCH), so the case must be measured again against the new one.' },
       authorPreset: { type: 'string', description: 'Humans only: name the author. An agent cannot change it (AUTHOR_IMMUTABLE).' },
       purpose: { type: 'string', enum: ['acceptance', 'implementation'], description: 'acceptance | implementation. An agent cannot turn an automated acceptance case into an implementation case (PURPOSE_IMMUTABLE).' },
       waiver: { type: 'object', additionalProperties: false, description: 'Human only, for switching automation off or downgrading an automated acceptance case: {reason, by: "human"}.', properties: { reason: { type: 'string' }, by: { type: 'string' } } },
@@ -928,6 +933,16 @@ export function createTools(config = {}, env = {}) {
       if (caller.human && typeof args.authorPreset === 'string' && args.authorPreset.trim() !== '') next.authorPreset = args.authorPreset.trim()
       if (typeof args.reqId === 'string' && args.reqId.trim() !== '') next.reqId = args.reqId.trim()
       if (typeof args.authorRole === 'string' && args.authorRole.trim() !== '') next.authorRole = args.authorRole.trim()
+      // THE IMPLEMENTING TASK IS PART OF THE CLAIM (2026-11-27). A case recorded by the verification
+      // seat must name the task whose change it judges; before this field was writable the link was
+      // fixed at record time, so a case recorded by TESTER could only point at the TESTER task and
+      // the gate refused it SELF_AUTHORED although another seat implemented the change. Clearing it
+      // is allowed for a human; an agent uses it to name the implementing row.
+      if (typeof args.linkedTaskId === 'string') {
+        const linked = args.linkedTaskId.trim()
+        if (linked === '') delete next.linkedTaskId
+        else next.linkedTaskId = linked
+      }
       // SWITCHING THE EVIDENCE OFF IS NOT AN EDIT. `automated:false` turns a measured run into a
       // typed report, and `implementation` takes an acceptance case out of the acceptance rule:
       // either one is a way out of the gate rather than a repair of the case, so an agent cannot
@@ -981,7 +996,7 @@ export function createTools(config = {}, env = {}) {
       const editedBy = exec.actor === 'human' ? 'human' : 'agent'
       next.revision = existing.revision + 1
       next.updatedAt = new Date().toISOString()
-      next.history = [...(existing.history ?? []), { revision: existing.revision, at: existing.updatedAt, editedBy, snapshot: { title: existing.title, requirement: existing.requirement, expected: existing.expected, steps: existing.steps, automated: existing.automated, testPath: existing.testPath, runCommand: existing.runCommand, reason: existing.reason, status: existing.status, checks: existing.checks ?? [], negativeControl: existing.negativeControl ?? null } }]
+      next.history = [...(existing.history ?? []), { revision: existing.revision, at: existing.updatedAt, editedBy, snapshot: { title: existing.title, requirement: existing.requirement, expected: existing.expected, steps: existing.steps, automated: existing.automated, testPath: existing.testPath, runCommand: existing.runCommand, reason: existing.reason, status: existing.status, checks: existing.checks ?? [], negativeControl: existing.negativeControl ?? null, linkedTaskId: existing.linkedTaskId ?? null } }]
       // ANY change to the ORACLE (requirement, expected outcome, steps, checks, surface) or to the
       // automation/test binding invalidates the previous verification: the evidence measured a
       // claim this case no longer makes. The case goes stale and its evidence is dropped, so a
@@ -1006,7 +1021,10 @@ export function createTools(config = {}, env = {}) {
         // FR5: the realism fields ARE the claim. Rewriting the defect a case catches, or the
         // input that reaches it, or its oracle, is a new claim and drops the old verification.
         || ['failsWhen', 'trigger', 'oracle', 'realism'].some((field) => (next[field] ?? '') !== (existing[field] ?? ''))
-      if (next.requirement !== existing.requirement || oracleChanged || bindingChanged || surfaceDrifted) {
+      // Re-pointing the case at another task is a change of the claim's subject: the recorded run
+      // names the old task, so the verification (and its red) cannot be counted for the new one.
+      const taskRelinked = (next.linkedTaskId ?? '') !== (existing.linkedTaskId ?? '')
+      if (next.requirement !== existing.requirement || oracleChanged || bindingChanged || surfaceDrifted || taskRelinked) {
         next.status = next.status === 'verified' || next.status === 'failing' || next.status === 'flaky' ? 'stale' : next.status
         next.lastVerified = null
         next.evidence = {}
@@ -1017,6 +1035,9 @@ export function createTools(config = {}, env = {}) {
           delete next.redFirst
           next.degraded = next.automated === true ? false : existing.degraded === true
         }
+        // A RELINK KEEPS THE RED. The wrong-product red measured the same behaviour and the same
+        // driver; only the green must be measured again, because the close asks the green artifact
+        // about the task being closed (RUN_MISMATCH).
       }
       const path = writeCase(dir, next)
       const testMirror = await mirror(exec.agent, next)

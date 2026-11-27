@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "id": "design-map-page-format-stays-one-excalidraw-file",
+  "title": "design-map-page-format-stays-one-excalidraw-file",
+  "requirement": "NFR2 / REQ-255: the page format stays one Excalidraw file; the new instruments store nothing new. RED LIMITATION: the previous version already kept one file, so this case's red against the previous version is carried by the missing diagram/lint path, not by a format regression; the format half is a green-only invariant.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/map-instruments.mjs",
+  "runCommand": "node tests/designmap-instruments/map-instruments.mjs --case REQ-255",
+  "steps": [
+    "Create a page and draw a two-node diagram with the map tools.",
+    "Run map_lint and map_render.",
+    "List everything under the designmap dir: one pages/<slug>.excalidraw and the out/ pictures only; read the page file and reload it through map_read."
+  ],
+  "expected": "After page.create, a diagram op, map_lint and map_render, the designmap dir holds exactly one .excalidraw page file and no other store; the file keeps type excalidraw and its elements array; a reload reads the same nodes and edges back.",
+  "tags": [
+    "designmap",
+    "NFR2",
+    "REQ-255",
+    "format"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/src/pages.mjs",
+      "sha256": "707caf89ba7a94a1567ee95ccf5d57177264096970c759f68828adb0b54bbbb5"
+    },
+    {
+      "path": "plugins/designmap/src/ops.mjs",
+      "sha256": "6d7cc1402fdbba467a89bb6f24f5e56e83a86d620228947dce01efcedc7da348"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "reqId": "REQ-255",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "1da99e5eadd0d5dbdb05ea0959787131636ff8579f2042f91012d64dc16597af",
+  "failsWhen": "A second store (manifest, overlay, view, database) appears next to the page file, or the page file stops being a single Excalidraw document that reloads.",
+  "trigger": "An agent draws, lints and renders a page; the human then opens and reloads the same page.",
+  "oracle": "TASK-333 NFR2 and REQ-255: one Excalidraw file per page, nothing new stored; the designmap README states the same contract.",
+  "realism": "The owner's constraint that the design map stays one Excalidraw file and the change stores nothing new (TASK-333 non-scope and REQ-255).",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 5,
+  "createdAt": "2026-11-27T09:47:25.920Z",
+  "updatedAt": "2026-11-27T10:09:57.279Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:49:41.157Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:52:15.945Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:53:48.179Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T10:09:57.279Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwysv385-n5deh-1",
+      "at": "2026-11-27T09:49:41.156Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 5515,
+      "commandSha256": "c0d4450fbe1ff016b98e8897fe7a89077238cd1ad59ee69d0d7129b797e8b1fc",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwysv385-n5deh-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwysv385-n5deh-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwysv385-n5deh-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwysyepe-neq70-1",
+      "at": "2026-11-27T09:52:15.939Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 5401,
+      "commandSha256": "c0d4450fbe1ff016b98e8897fe7a89077238cd1ad59ee69d0d7129b797e8b1fc",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwysyepe-neq70-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwysyepe-neq70-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwysyepe-neq70-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0ipy-q29h3-1",
+      "at": "2026-11-27T09:53:48.174Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 140,
+      "commandSha256": "c0d4450fbe1ff016b98e8897fe7a89077238cd1ad59ee69d0d7129b797e8b1fc",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwyt0ipy-q29h3-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwyt0ipy-q29h3-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwyt0ipy-q29h3-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 1
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 1,
+          "threshold": 0,
+          "pass": false,
+          "reason": "1 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwytl5qs-ayfm6-1",
+      "at": "2026-11-27T10:09:57.274Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 5446,
+      "commandSha256": "c0d4450fbe1ff016b98e8897fe7a89077238cd1ad59ee69d0d7129b797e8b1fc",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwytl5qs-ayfm6-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwytl5qs-ayfm6-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-page-format-stays-one-excalidraw-file/mwytl5qs-ayfm6-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T10:09:57.279Z",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case REQ-255",
+    "exitCode": 0,
+    "runId": "mwytl5qs-ayfm6-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-27T09:53:48.179Z",
+    "runId": "mwyt0ipy-q29h3-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case REQ-255",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

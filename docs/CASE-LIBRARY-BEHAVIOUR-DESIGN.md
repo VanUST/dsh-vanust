@@ -1,10 +1,8 @@
 # Acceptance cases measure behaviour
 
-Status: **proposal, 2026-11-24**. This document changes no code. It replaces the plan in
-[`CASE-LIBRARY-DESIGN.md`](CASE-LIBRARY-DESIGN.md), which was written on 2026-11-16 when the
-library only *recorded* checks: its P1–P3 have shipped since (runner, typed checks, suite, gate,
-provenance), and its own header still says "proposal, not implemented". That sentence is a
-documentation defect for `make verify` to catch, not a case.
+Status: **the case-library contract** (the runner, typed checks, suite, gate and provenance it
+describes are shipped). This page owns what a case is, how it is recorded and run, and when it can
+close a task; the deployment procedure and the working guide point here instead of restating it.
 
 Subject: the acceptance layer — `@cc/dsh-test-cases`, the library in `docs/cases/`, the tester
 preset, and the three Makefile gates (`verify`, `test`, `cases`). Trigger: the owner's four rules
@@ -244,8 +242,7 @@ interaction and a `p95 <= 250` check; an ordered command set is a `cli` step per
 
 ## 5. The tester's procedure
 
-This replaces the four-field sentence the tester persona carries today
-(`profile/cordis.patch.yml:1911`) and becomes `docs/CASES-WORKFLOW.md`:
+This is the procedure the tester persona carries (`profile/cordis.patch.yml`):
 
 | # | step | evidence it leaves |
 |---|---|---|
@@ -325,11 +322,10 @@ interactions and the session that produced them.
 with three steps and a driver performing two is refused; a `process` case (start → readiness →
 load → log metric → stop) reads its p95 from the service's own log and fails on a 260 ms sample.
 
-**P4 — migration and the written procedure.**
-`cases.strict`, the audit queue driven to empty, README and this document corrected, the three
-words added to the glossary, the tester persona replaced by §5, `docs/CASES-WORKFLOW.md` published.
-*Proof:* `make cases` is green with strict on; the glossary check accepts the new rows; the tester's
-prompt section names the procedure it must follow.
+**P4 — migration (done).** `cases.strict` is on, the audit queue is empty, README and this
+document carry the corrected text, the three words are in the glossary, and the tester persona names
+the §5 procedure. *Proof:* `make cases` is green with strict on; the glossary check accepts the
+rows; a tester case names the procedure it follows.
 
 ## 8. Decisions for the owner
 

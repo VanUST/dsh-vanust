@@ -1,8 +1,8 @@
 /*
-PROOF: the designmap plugin registers exactly the four page tools and no v1 tool
-Behavior: applying the plugin to a host context registers map_list, map_read, map_edit and
-  map_render for an orchestrator agent (and nothing else), and registers the /designmap
-  page command; a non-orchestrator preset receives no designmap tool.
+PROOF: the designmap plugin registers exactly the five page tools and no v1 tool
+Behavior: applying the plugin to a host context registers map_list, map_read, map_lint,
+  map_edit and map_render for an orchestrator agent (and nothing else), and registers the
+  /designmap page command; a non-orchestrator preset receives no designmap tool.
 Fails when: a designmap_* tool is registered again, a page tool disappears, the command
   stops being the human path, or the preset gate leaks the tools to another seat.
 Production path: plugins/designmap/index.js apply() -> src/page-tools.mjs, src/command.mjs.
@@ -29,12 +29,12 @@ function agent(cwd, names, preset = 'orchestrator') {
   }
 }
 
-test('the orchestrator receives exactly the four page tools', () => {
+test('the orchestrator receives exactly the five page tools', () => {
   const { ctx, handlers, commands } = harness()
   apply(ctx, {})
   const names = []
   handlers.get('agent/created')({ agent: agent(process.cwd(), names) })
-  assert.deepEqual(names.sort(), ['map_edit', 'map_list', 'map_read', 'map_render'])
+  assert.deepEqual(names.sort(), ['map_edit', 'map_lint', 'map_list', 'map_read', 'map_render'])
   assert.equal(names.some((name) => name.startsWith('designmap_')), false, 'a v1 tool name must not be registered')
   assert.equal(commands.length, 1)
   assert.equal(commands[0].name, 'designmap')

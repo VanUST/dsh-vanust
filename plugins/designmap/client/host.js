@@ -71,6 +71,20 @@ export function createRemoteHost({ remote, sessionId }) {
       return executeCommand(remote, sessionId, { op: 'tidy-page', page })
     },
 
+    /** The same readability report map_lint returns: the panel's Check button. */
+    async lintPage(page) {
+      if (typeof page !== 'string' || page === '') return remoteFailure('invalid_page', 'A page name is required.')
+      return executeCommand(remote, sessionId, { op: 'lint', page })
+    },
+
+    /** One map_edit operation from the panel's finding list: a ready repair, applied. */
+    async edit(operation) {
+      if (operation === null || typeof operation !== 'object' || typeof operation.op !== 'string') {
+        return remoteFailure('invalid_operation', 'An edit needs one map operation.')
+      }
+      return executeCommand(remote, sessionId, { op: 'edit', operation })
+    },
+
     /** The same code map_render runs. */
     async renderPage(page) {
       return executeCommand(remote, sessionId, { op: 'render-page', page })

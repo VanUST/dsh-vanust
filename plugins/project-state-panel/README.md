@@ -11,7 +11,7 @@ the field as the owner's own). Nothing else in the panel writes.
 |---|---|---|
 | Requirements | `state/views/index.json` `reqs[]`, `state/req/*.md` frontmatter | what the business asks for, its criteria, and which links are missing |
 | Board | `index.json` `tasks[]` (first paint), `state/task/*.md` on a card | where the work is, which requirement each task belongs to, which tests link it, which subagents run now |
-| Design map | designmap's read-only `views` command | the system map, drawn by the same React Flow renderer as the Design map panel |
+| Design map | `designmap/pages/*.excalidraw` through the `/designmap` command | the system map as an always-editable Excalidraw page: the editor fills the panel body, has a Full screen control, a readability Check and a Tidy/Render pair; every write is the designmap command, never the panel |
 | Tests & trace | `index.json` `tests[]` + `reqs[]` | each test's requirement and evidence, and the REQ × TASK/TEST/DECISION matrix with its gaps |
 
 ## Decisions are not a second register
@@ -32,8 +32,8 @@ the index rewrite one read per entity, ~430). Every later open paints the last i
 of the session from `sessionStorage` at once and replaces it with the fresh one
 (stale-while-revalidate): a cold open costs one read, a warm open costs none before the paint.
 The 5-second header counter uses the same one-page read. Opening a card fetches that one entity file for the drawer's
-body and details (criteria, scope, acceptance, result); the Design map fetches
-`docs/analysis/*.json` the first time that mode opens. A legacy index whose rows carry no
+body and details (criteria, scope, acceptance, result); the Design map lists and opens
+`designmap/pages` through the `/designmap` command. A legacy index whose rows carry no
 `title` falls back to reading the entity files of exactly those rows, so an old workspace shows
 its titles again instead of ids.
 
@@ -59,11 +59,11 @@ never parses `digest.md`, `board.md` or `traceability.md`: those are the human p
 reads `state/<kind>/<ID>.md` only for the fields `index.json` does not carry — title, criteria,
 body, command, authorRole, revision — through the state entity format (`plugins/project-state/lib/format.mjs`).
 
-The map-to-requirement link is not in `index.json`. The panel takes it from the analysis record
-(`docs/analysis/*.json`): REQ `analysisRef` (initiative + requirementId) → `trace[]` row →
-`componentId` → the scene node whose id is that component or ends with `.<component>`. This is
-the one input beyond `state/`; it is read-only. When no component matches, the node drawer says
-so, and the missing link is reported as a gap rather than a zero.
+The design map is no longer linked to requirements through `index.json` or an analysis-record
+component: since design-map v2 a page is a DRAWING, and an Analysis Record may name a page in its
+prose rather than point at a node. The panel therefore shows the map as its own mode and does not
+invent a link between a box and a REQ; the missing link it still reports is the REQ → TASK/TEST
+one from `index.json`.
 
 ## The owner's status control
 
@@ -74,8 +74,13 @@ list and choosing one writes it. Native select keeps keyboard, screen-reader and
 without a custom menu; the click stops at the badge so the row does not open the drawer. In the
 drawer a small optional `why?` field travels with the next pick.
 
-Choosing a status sends `/taskboard {op: "owner-status", id: <boardId>, expectedRevision, status,
-reason?}` — one compare-and-set against the row the panel just read — and the board does the rest:
+Choosing a status applies it to the panel's data FIRST (the badge is a controlled select, so the
+owner sees the choice on the next paint), then sends `/taskboard {op: "owner-status", id:
+<boardId>, expectedRevision, status, reason?}` — one compare-and-set against the row the panel
+just read — and a refusal puts the previous value back with its code. The write also raises
+`dsh:project-state-changed`, so the session-header counters re-read immediately instead of on
+their five-second poll, and a reload no longer repaints the cached pre-write index over live
+data. The board does the rest:
 it stops the linked children for `done`/`cancelled`, mirrors the TASK, regenerates the projections
 and writes a `waiver` event with code `owner_status_override` into `state/events.jsonl`. Then the
 panel re-reads `index.json` and paints the new status. The change overrides the lifecycle rules on
@@ -91,15 +96,19 @@ drawer, the filter and the header count; `reqId` and `reqIds` are folded by one 
 
 ## What it does not do
 
-- No second write: besides the owner's status command, the panel executes only designmap's
-  `views` op, which renders in memory (`write:false`). The header badge reads
-  `read-only · status by owner` and the source-level check refuses any other command call site.
-- No second geometry owner: the map is `@cc/dsh-designmap`'s `SceneCanvas`, whose node
-  positions, edge points and label plates come from the rendered scene. The panel's only
-  overlay is its requirement badge, positioned from those scene coordinates.
-- No other edit affordance: no drag, no palette, no label editor, no create/close/run button.
-  Gaps are clickable to navigate to the mode where the link is missing; the fix happens in the
-  owner panel or the state core.
+- No second write of its own: the panel's own writes are the owner's status command and the
+  state core's entity edit. The Design map mode mounts designmap's page editor, which writes
+  the page file through the `/designmap` command (`save`, `tidy-page`, `render-page`, `lint`,
+  `edit`) — the same command the agent's tools use, and the page file is its only store. The
+  header badge reads `read-only · status by owner` and the source-level check refuses any
+  other command call site.
+- No second geometry owner: the canvas is `@cc/dsh-designmap`'s `PageEditor`; the panel gives it
+  the whole body (`.ps-main-map`) and nothing else. The panel draws no node, edge or label.
+- No other edit affordance in the state modes: no drag, no palette, no label editor in
+  Requirements, Board or Tests & trace. The Design map mode is the exception by design — it is
+  the editor, with the canvas's own drag/palette/text tools and the page editor's
+  Check/Tidy/Render/Full screen controls. Gaps elsewhere are clickable to navigate to the mode
+  where the link is missing; the fix happens in the owner panel or the state core.
 - No stale banner for links: `index.json` v1 carries no stale flag, so the panel does not
   invent one; `verify()` in the state core is the authority.
 - No History tab: v1 shows `revision`, `createdAt` and `updatedAt` from the entity frontmatter.

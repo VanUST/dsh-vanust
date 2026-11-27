@@ -1,10 +1,10 @@
 /**
- * designmap host plugin (design-map v2): the four page tools and the `/designmap` command.
+ * designmap host plugin (design-map v2): the five page tools and the `/designmap` command.
  *
  * The page document is the only store: one Excalidraw file per page under
  * designmap/pages/, edited by the Project state -> Map panel through the command and by
- * agents through map_list / map_read / map_edit / map_render. There is no model, view,
- * overlay, annotation or manifest behind it.
+ * agents through map_list / map_read / map_lint / map_edit / map_render. There is no model,
+ * view, overlay, annotation or manifest behind it.
  *
  * Registration follows the shipped pattern: `inject ['tools','commands']`, tools
  * registered per agent from `agent/created` and gated by `agentPreset` (default:

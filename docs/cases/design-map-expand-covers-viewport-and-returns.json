@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "id": "design-map-expand-covers-viewport-and-returns",
+  "title": "design-map-expand-covers-viewport-and-returns",
+  "requirement": "AC-2 / FR1 / REQ-251: Expand makes the map cover the viewport, Exit/Esc returns, and the canvas is still editable while expanded. This case verifies the full-screen wiring and the editable frame contract; the viewport covering itself is the implementer's browser proof, not re-measured here.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/panel-surface.mjs",
+  "runCommand": "node tests/designmap-instruments/panel-surface.mjs --case AC-2",
+  "steps": [
+    "Read client/page-view.jsx and client/frame.js from the tree under test.",
+    "Assert the Full screen control calls requestFullscreen, fullscreenchange drives the expanded state, and the two labels exist.",
+    "Assert the frame document has no read/edit switch, does not hide .App-toolbar, and still hides .HintViewer/.dropdown-menu-button/.help-icon."
+  ],
+  "expected": "The page editor calls requestFullscreen on its root, listens for fullscreenchange (the Esc exit path), offers Full screen / Exit full screen, keeps the expanded state in step with document.fullscreenElement via data-expanded; the frame document is not built read-only and hides only the menu/help entry points, keeping the drawing toolbar.",
+  "tags": [
+    "designmap",
+    "AC-2",
+    "panel",
+    "fullscreen"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/client/page-view.jsx",
+      "sha256": "1702fc4352b7490d376993c607a80c254b8f9a53edd9c323716d7680296988fa"
+    },
+    {
+      "path": "plugins/designmap/client/frame.js",
+      "sha256": "df4823707c89a437c16aa6ea74e234241b7003327a1fa33060e6a2357a83fb8d"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "criterionId": "AC-2",
+  "reqId": "REQ-251",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "959aae1549ce1ca8e23ff6c588c604eb39b0361b793ccf3f5dcc387ad6ae5945",
+  "failsWhen": "Full screen is dropped, Esc/fullscreenchange no longer returns the layout, or the expanded canvas is built read-only (toolbar hidden, view mode on).",
+  "trigger": "A human presses Full screen on the design map, draws in the covered viewport, then presses Esc or Exit full screen.",
+  "oracle": "TASK-333 criterion AC-2 and FR1 (REQ-251), including the same-canvas-is-editable clause; not the editor source.",
+  "realism": "The owner's requirement that the map can take the whole screen and stay editable, recorded in TASK-333 and REQ-251; the implementer's proof.out reports the measured box and a drag while expanded.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 5,
+  "createdAt": "2026-11-27T09:47:07.712Z",
+  "updatedAt": "2026-11-27T09:53:58.525Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:47:35.136Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:50:08.291Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:53:14.252Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:53:58.525Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyssi2u-0g3y0-1",
+      "at": "2026-11-27T09:47:35.134Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 128,
+      "commandSha256": "6dd5268467726c8a9d568968b92ebc1805d354749ddfcc11933129d683a2c9b4",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyssi2u-0g3y0-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyssi2u-0g3y0-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyssi2u-0g3y0-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwysvsa9-7my24-1",
+      "at": "2026-11-27T09:50:08.287Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 129,
+      "commandSha256": "6dd5268467726c8a9d568968b92ebc1805d354749ddfcc11933129d683a2c9b4",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwysvsa9-7my24-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwysvsa9-7my24-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwysvsa9-7my24-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyszsju-2ft76-1",
+      "at": "2026-11-27T09:53:14.246Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 124,
+      "commandSha256": "6dd5268467726c8a9d568968b92ebc1805d354749ddfcc11933129d683a2c9b4",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyszsju-2ft76-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyszsju-2ft76-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyszsju-2ft76-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 7
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 7,
+          "threshold": 0,
+          "pass": false,
+          "reason": "7 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0pyl-nerkj-1",
+      "at": "2026-11-27T09:53:58.518Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 150,
+      "commandSha256": "6dd5268467726c8a9d568968b92ebc1805d354749ddfcc11933129d683a2c9b4",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyt0pyl-nerkj-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyt0pyl-nerkj-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-expand-covers-viewport-and-returns/mwyt0pyl-nerkj-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T09:53:58.525Z",
+    "command": "node tests/designmap-instruments/panel-surface.mjs --case AC-2",
+    "exitCode": 0,
+    "runId": "mwyt0pyl-nerkj-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-27T09:53:14.252Z",
+    "runId": "mwyszsju-2ft76-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/panel-surface.mjs --case AC-2",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

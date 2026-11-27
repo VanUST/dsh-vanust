@@ -3,7 +3,7 @@
  * The page-document demo: one page built through map_edit ops, read back, tidied and rendered.
  *
  * It is the P1 proof in one command, and it needs no harness: the op layer is the same code the
- * four tools call. Run it against a scratch directory so the repository's own pages are never
+ * five tools call. Run it against a scratch directory so the repository's own pages are never
  * touched:
  *
  *   node bin/pages-demo.mjs [--dir .cache/designmap-demo]
@@ -51,7 +51,7 @@ const tidy = applyOp(designmapDir, { op: 'tidy', page: 'tangled' })
 writePage(designmapDir, 'empty', emptyScene())
 const empty = readOutline(readPage(designmapDir, 'empty'), 'empty')
 
-const rendered = renderPage(designmapDir, 'checkout')
+const rendered = await renderPage(designmapDir, 'checkout')
 process.stdout.write(JSON.stringify({
   ok: true,
   dir: designmapDir,

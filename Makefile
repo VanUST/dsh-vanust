@@ -144,6 +144,7 @@ verify:
 	node scripts/check-role-table.mjs
 	node scripts/check-prompt-playbooks.mjs
 	node scripts/schema-lint.mjs
+	node scripts/check-preset-configs.mjs
 	node scripts/context-budget.mjs
 	node scripts/harness-identity-guard.mjs --check
 

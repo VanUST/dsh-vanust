@@ -14,10 +14,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { pageBounds, frameFor } from '../src/excalidraw-render.mjs'
+import { EDITED_CHROME_SELECTOR, pageBounds, frameFor } from '../src/excalidraw-render.mjs'
 
 // The subject is the repository's own imported page; the suite runs from the repository root.
-const scene = JSON.parse(readFileSync(join(process.cwd(), 'designmap', 'pages', 'system.excalidraw'), 'utf8'))
+// The repository's own imported page, kept as a FIXTURE: the live page is the human's
+// drawing and a test that read it turned every human edit into a red build (measured
+// 2026-11-27: the owner cleared designmap/pages/system.excalidraw and two tests failed).
+const scene = JSON.parse(readFileSync(join(process.cwd(), 'plugins', 'designmap', 'test', 'fixtures', 'system-page.excalidraw'), 'utf8'))
 
 /** The scene-space rectangle the framed view can show: (point + scroll) * zoom is on screen. */
 function visibleRect(frame) {
@@ -53,6 +56,15 @@ test('the extent includes bound labels and arrow points, not just shapes', () =>
   ]
   assert.equal(pageBounds(probe).y, -40, 'the arrow point above the shape is part of the bounds')
   assert.equal(pageBounds(probe).height, 50)
+})
+
+test('a rendered picture hides the editor chrome, including the floating bottom bar', () => {
+  // The toolbar and the undo/redo footer float OVER the canvas, so a clipped canvas screenshot
+  // carries them unless their classes are hidden first (measured 2026-11-27: the clean render
+  // still showed the undo/redo bar until `.App-bottom-bar` was added).
+  assert.match(EDITED_CHROME_SELECTOR, /\.App-toolbar-container/)
+  assert.match(EDITED_CHROME_SELECTOR, /\.App-bottom-bar/)
+  assert.match(EDITED_CHROME_SELECTOR, /\.layer-ui__wrapper__footer/)
 })
 
 test('an empty page frames a small picture and says it is empty', () => {

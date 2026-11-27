@@ -36,6 +36,37 @@ const MAX_VIEWPORT = { width: 2400, height: 2400 }
 export const DEVICE_SCALE = 2
 
 /**
+ * The editor chrome a rendered PICTURE must not carry.
+ *
+ * The capture is a screenshot of Excalidraw's canvas element, and Playwright clips the whole
+ * page screenshot at that element's box - so the toolbar and the bottom menu, which float OVER
+ * the canvas, were part of every render: the agent looking at the PNG saw the editor, and the
+ * bottom menu covered the lower edge of the drawing. The selectors are the vendor's own class
+ * names (v0.18.1 app chrome); a re-vendored bundle that renames them shows the chrome again,
+ * which is visible in the picture rather than silent.
+ */
+export const EDITED_CHROME_SELECTOR = [
+  '.App-toolbar-container',
+  '.App-menu_top',
+  '.App-menu_bottom',
+  // The bottom bar is `.App-bottom-bar` in 0.18.1; its footer repeats the `App-toolbar` class,
+  // but the bar is the positioned island that floats over the drawing.
+  '.App-bottom-bar',
+  '.dropdown-menu-button',
+  '.sidebar-trigger',
+  '.main-menu-trigger',
+  '.layer-ui__wrapper__top-right',
+  // The footer carries the undo/redo pair and the zoom controls; it is a floating white bar
+  // OVER the bottom of the drawing and covered the last row of the picture until it was added
+  // here (measured 2026-11-27: the clean render still showed the undo/redo bar).
+  '.layer-ui__wrapper__footer',
+  '.HintViewer',
+  '.help-icon',
+  '.zoom-button',
+].join(',')
+const CLEAN_STYLE_ID = 'designmap-clean-render'
+
+/**
  * The page's own bounds: the extent of everything that will be drawn.
  *
  * WHY IT IS COMPUTED HERE. The capture used to be a fixed viewport, so a page taller than it
@@ -211,10 +242,23 @@ export async function renderWithExcalidraw(elements, outDir, page, { timeoutMs =
 
     mkdirSync(outDir, { recursive: true })
     const pngPath = join(outDir, `${page}.png`)
+    // Hide the editor chrome for the capture only; the export dialog below needs its menu
+    // trigger, so the style is removed before that click.
+    await tab.evaluate(({ selector, id }) => {
+      const style = document.createElement('style')
+      style.id = id
+      style.textContent = `${selector}{display:none!important}`
+      document.head.append(style)
+    }, { selector: EDITED_CHROME_SELECTOR, id: CLEAN_STYLE_ID })
+    await tab.waitForTimeout(150)
     const canvas = tab.locator('.excalidraw canvas').first()
     const box = await canvas.boundingBox()
     if (box === null) throw new MapRefusal('renderer_unavailable', 'Excalidraw rendered no canvas to capture')
     await canvas.screenshot({ path: pngPath })
+    await tab.evaluate((id) => {
+      const style = document.getElementById(id)
+      if (style !== null) style.remove()
+    }, CLEAN_STYLE_ID)
     const png = {
       path: pngPath,
       bytes: statSync(pngPath).size,
@@ -261,6 +305,9 @@ export async function renderWithExcalidraw(elements, outDir, page, { timeoutMs =
       empty: framed.empty,
       elements: elements.length,
       renderer: 'excalidraw',
+      // Evidence for the caller that the capture is the drawing and not the editor: the same
+      // selector list is applied to the DOM before the screenshot.
+      chromeHidden: true,
     }
   } finally {
     await browser.close().catch(() => {})

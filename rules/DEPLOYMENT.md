@@ -6,7 +6,7 @@ was asked to do the work, and it is installed to `$DSH_HOME/DEPLOYMENT.md` by th
 installers. The commands here are the ones that are checked: `scripts/check-documentation.mjs`
 fails if a script this document names is missing, if a plugin it describes is not mounted,
 if the harness pin below disagrees with the installers, if any other place the harness version
-is written — `README.md`, `USERGUIDE.md` — quotes a different one, or if the clone URL
+is written — `README.md`, `docs/GUIDE.md` — quotes a different one, or if the clone URL
 disagrees with `README.md`.
 
 `$DSH_HOME` is `~/.npm/dsh` on Linux/macOS and `%USERPROFILE%\.npm\dsh` on Windows,
@@ -47,6 +47,7 @@ The upstream harness plus 29 plugins, all pinned and installed from one kit repo
 | `scripts/outline-bench.mjs`, `scripts/outline-audit.mjs` | bench and journal audit for the outline saving: full read vs outline vs outline+symbol body on real kit sources (`--find` runs the find-one-function negative control), and per-session `outline` calls and `read` bytes with/without an outline. Not part of `make verify` (they read the machine and journals). |
 | `make design-audit` | runs the pinned `impeccable` UI detector (npm `impeccable@4.9.2` launcher, engine `@impeccable/cli-linux-x64@0.1.25`, sha256 `f48aca43…` into `~/.impeccable/bin/impeccable`) over the kit UI sources (`plugins/designmap/client/*`, `plugins/project-state-panel/client.js`) and prints one JSON document. Separate from `make verify`: verify stays offline. The DSH skill is installed from the pinned commit `d41d986…` into `$DSH_HOME/skills/impeccable` (SKILL.md, reference/ 46 files, scripts/). |
 | `scripts/schema-lint.mjs` | FR5 gate in `make verify`: statically measures the description bytes of every tool (43 tools over the kit plugins), sums them per preset from the tool-families allow rows, WARN above 600 B per description and RED above 1200 (preset sums WARN 45 000 / RED 90 000); RED exits 1. It caught `analysis_upsert` at 2885 B before the diet. |
+| `scripts/check-preset-configs.mjs` | gate in `make verify`: parses the profile, resolves every preset plugin module from the installed harness (or the kit inventory for `@cc` packages) and validates each row's `config` against the module's own schemastery `Config` without booting. A required field missing refuses the row (`$.allowParallelInProgress missing required value`) instead of letting the preset mount nothing silently; a module without a schema is reported unverifiable, not failed. Measured 2026-11-27: 147 rows validated, 1 unverifiable (`command-goal`), 0 refused; the same check on a profile with the devops `tool-todo` config removed refuses it. |
 | `scripts/waiver-proof.mjs` | FR8 proof (not a gate): every lifecycle refusal (`req_required`, `steps_incomplete`, `test_req_required`, `evidence_required`) is observed refusing, refusing `waiver_required` on a malformed waiver, and passing with `{reason, by:'human'}` plus its journal line; `decision_superseded` refuses a decision without a successor and a reason. 17 checks. |
 | `@cc/dsh-delegation-brief` | root-only tools that render a delegation brief from the register and validate the return. `delegation_brief` returns deterministic bytes and `briefHash` over the accepted REQ (criteria verbatim with stable `REQ-…-Cnn` ids, related decisions, mandatory TESTs with commands, non-scope, return format); `delegation_return` rerenders and refuses `brief_stale` when the criteria changed and `return_unmapped` when a criterion is unknown/duplicated/omitted. Refusals: `cold_start_required` (no core or no `state/views/index.json`), `feature_required` (REQ missing or not accepted), `criteria_missing`. Registers a short static prompt section for the root preset only. Tests: `node --test plugins/delegation-brief/test/*.test.mjs`. |
 | `@cc/dsh-taskboard` | the workspace task ledger and the Tasks panel. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope, acceptance, status, owner, results and a timeline; `task_create`/`task_get`/`task_list`/`task_update` (CAS)/`task_note`/`task_link` share one Host service with the `/taskboard` command. The client half reads through `workspaceFiles`, writes through `commands`, registers `main` key `tasks`, the `sidebar.panellist` entry and the `subagent-catalog` header cell. It replaces the subagent catalog; `@deepseek-ai/dsh-client-ui-subagent` is disabled in the profile so the header has one cell, and child sessions open from the task detail. Pause/Resume, **Stop child**, Close and Remove are lifecycle actions: pause/cancel/close interrupt linked children through `ctx.subagents` (the hook passes the runtime's tagged `{kind:'ancestor',agent}` or `{kind:'user',parentSessionId}` authority, so the orchestrator and the owner both can stop a child; a refused interrupt fails closed), `task_stop` force-stops a task's children or one session without changing the status, close marks done (with an optional result in the same call) and interrupts, remove deletes the ledger row and leaves children running. Each workspace keeps persistent `agents[]` roles (one child per role), and each linked child records the role plus active/sleeping/paused state for the panel roster. **A chat has its own board**: every task records `chatId`, the root session of the lineage that created it, so a delegated child's task lands on the parent chat's board; reads default to the caller's chat and `task_list` scope `workspace` (or the panel's All chats toggle) reads the whole history. A chatless row (written before `chatId`) is visible only in the workspace scope and writable only by the human; an agent write from another chat is refused with `other_chat` |
@@ -59,7 +60,9 @@ The harness owns the request pipeline and the user interface, but this kit now a
 a role roster and a deployment policy on top of it. `@deepseek-ai/dsh-agent-preset` declarations
 give each role its persona and its tool list; `@cc/dsh-orchestrator` registers a root policy
 section and a child specialist section on `agent/created`; `@cc/dsh-skills` registers twenty
-runtime skills; `@cc/dsh-flash-guard` refuses a delegated child's disallowed model route. The
+runtime skills; `@cc/dsh-flash-guard` refuses a delegated child's disallowed model route. **The orchestrator's root policy carries the development rules, not a skill.** Owner, 2026-11-27: nine defects of the "rule lives in two places" or "the tool exists, the behaviour does not change" class were found in one day by running the product, and none by reading the diff. The `## Orchestration policy` section states the rules where every step pays for them: **a rule lives in ONE owner** (a second copy drifts, and the copy nobody reads wins); **a registered tool, config row or default is not a behaviour** until the caller path, the activation and the effect are observed (the missing required `tool-todo` config mounted no preset at all, and the roster simply lost it); **prove by running**, with the command and its output, and name what was not run; take **the smallest complete change** and never cut validation at a trust boundary, error handling, security or accessibility; and **say what you skipped** at the end. The `ponytail` skill stays as the long form, but a rule that must be in force in every session cannot depend on someone loading a skill.
+
+The
 earlier "no plugin contributes prompt text" stance is retired deliberately. A repository's
 `AGENTS.md`/`CLAUDE.md` still reaches the model through the upstream loader; the deployment
 policy is additional and scoped (root or child), not a replacement for the harness persona. The
@@ -76,11 +79,13 @@ request, which is why the budget stays bounded and the mode is `normal`, not `al
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Eleven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Twelve `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
 `preset-orchestrator`, `preset-architect`, `preset-ux`, `preset-presenter`, `preset-backend`,
-`preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-tester`, `preset-critic`,
-`preset-docs`. A preset is the persona AND the tool list, so
+`preset-devops`, `preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-tester`,
+`preset-critic`, `preset-docs`. **The reasoning default is High, and that is a policy, not a model quirk (owner, 2026-11-27).** `@deepseek-ai/dsh-agent-default-model` names `deepseek-official/deepseek-flash` at `reasoningEffort: high` for a fresh session that picks no model, and `@cc/dsh-role-model` pins every working preset to its own route at High: the architect stays on `openai-codex/gpt-6.2-sol` at High with a `deepseek-flash` fallback at High, and backend, devops, docs, ux, presenter, research, gatherer, reviewer, critic and tester name `deepseek-flash` at High. The delegated child is started with `reasoningEffort: 'high'` in its `agentOptions` as well, so a child cannot inherit a different budget from its parent. A model the human picks in the composer still wins (`model/selection` recorded since the plugin loaded), and the installed `agent-default-model` row is machine-owned: `kit-update --keep-model-config` never rewrites it, so a machine that wants a different provider/model/effort edits that row itself.
+
+A preset is the persona AND the tool list, so
 the isolation is
 registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
 `edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
@@ -95,7 +100,8 @@ have the full shell and filesystem.
 **`architect` is the system designer on the expensive route, and it exists to be small.** The
 owner opens a chat on it, or the orchestrator delegates one design question; every step is paid at
 `openai-codex/gpt-6.2-sol`, so the preset is the decision surface only: `read`, `glob`, `grep`,
-`outline`, `web_fetch` / `web_search`, `map_list` / `map_read` / `map_edit` / `map_render`,
+`outline`, `web_fetch` / `web_search`, `map_list` / `map_read` / `map_lint` / `map_edit` /
+`map_render`,
 `delegate_task`, `task_note` and the three Hindsight read tools. It has no shell, no
 `write`/`edit`, no case tools and **no `skill-filesystem`/`tool-skill`** — `tool-skill` emits the skill catalog
 only together with its own tool, so dropping the tool drops the catalog, which measured 30 304 B
@@ -103,7 +109,7 @@ of the 34 188 B of reminders in a session before this change. Context arrives on
 as a ROOT the role delegates a `GATHERER` (`delegate_task` is registered on root agents only), and
 as a CHILD it reads the brief the orchestrator wrote and names what is missing instead of
 surveying the tree. `@cc/dsh-role-model` gives it its route and the fallback
-(`deepseek-official/deepseek-flash` at max effort) when the subscription is out of quota, and
+(`deepseek-official/deepseek-flash` at High effort) when the subscription is out of quota, and
 `tool-families` keeps its surface at twelve tools. The role is NOT in `store.mjs` `readOnly`:
 it changes the design map, so an L1/L2 delegation to it needs the Analysis Record like any other.
 
@@ -122,6 +128,10 @@ browser, `presentation`, `dashboard` and `diagram` (the last one was extended to
 and PTC so the edit/look/fix loop stays out of the conversation. It has no `designmap_*` (it does
 not design the system) and no Godot bridge. The OutputRule: **a deck that needs an explanation in
 chat has failed, and a slide nobody looked at is not finished.**
+
+**`devops` owns the running deployment, and one live deployment task per chat is its rule.** The owner's 2026-11-27 report is the failure this role closes: runtime work was delegated as several tasks to several agents, and the agents interrupted each other, because a restart ends the children working against the runtime it restarts. The preset is the runtime lane: `bash`, the file tools (compose files, start scripts, env), background jobs (`job_output`/`job_list`/`job_kill` - a deployment is long), web for release notes and registries, and `case_get`/`case_list`/`case_run` for an acceptance case the tester wrote; it has no PTC and no `present`, because its report is a command's output. Its `tool-families` row is an allow list of twenty names with a 26-tool allowance, so the role cannot drive a browser or the Godot bridge. It is **not** in `store.mjs` `readOnly` - it writes config - so an L1/L2 delegation to it needs the Analysis Record like any other. Two rules keep the lane: the root policy names the shared runtime beside the shared file, contract and seat as a resource that serialises work and requires reading the board's running children before a restart, and `delegate_task` refuses a role whose preset is `devops` while this chat's board still holds a `devops` task in `open`/`active`/`blocked`/`paused` (`devops_lane_busy`, naming the open task; attaching to that task stays allowed). `DEVOPS`, `DEPLOYMENT`, `DEPLOY`, `RUNTIME`, `RELEASE`, `ROLLOUT` and `SRE` map to the preset.
+
+**A task's scope is a file claim, and two live tasks cannot claim one file.** `delegate_task` reads each `scope` entry as a path - the leading token with a slash or a dot, a directory written with its trailing slash, the prose after it ignored - and refuses a delegation with `scope_overlap` when an ACTIVE task in the same chat already claims the same file or a directory that contains it. The refusal happens before the second task row exists and before its child starts, and it names the holding task and the path. An `open` row is a plan (a batch creates several for one seat) and a `review` row is settled work, so neither holds a claim; an attach to the holding task is allowed. This is the deterministic half of the orchestrator's parallelism rule: the prompt states which resources serialise work, and the guard makes the file one of them instead of leaving it to a brief's wording.
 
 **`gatherer` is reconnaissance, and it exists to keep the root's context for the design.** The
 orchestrator can read and write, but "how does this actually work today?" answered by the root's
@@ -191,12 +201,12 @@ child's tool header looks far wider than its role:
 
 | source | rows | what a specialist sees |
 | --- | --- | --- |
-| the ten presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
+| the eleven presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
 | the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
 | kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `diagram` orchestrator+ux) |
 
 Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
-reviewer/critic/research 103, a legacy run-code-only role 1. The ten presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
+reviewer/critic/research 103, a legacy run-code-only role 1. The eleven presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
 this in one line**, so a specialist knows an `mcp__*` tool in its header came from the host and
 is not licence to do a job its role was given no tool for. Moving the MCP rows INTO the presets
 is technically possible (a preset is a plugin list) but each mounted MCP row starts its own
@@ -781,7 +791,7 @@ pack saves tokens or time. Evidence and the full tables:
 [integration.md](../reports/code-search/integration.md) (local run artifacts; `reports/` is
 gitignored, so these links exist in this checkout, not in an installed copy).
 
-**The role toolchain — ten presets, nine pinned binaries, and two roles that cannot run them.**
+**The role toolchain — eleven presets, nine pinned binaries, and two roles that cannot run them.**
 Provisioning also installs the CLIs the role personas name. Each pin is the project's own latest
 release measured on 2026-11-10; the release date, licence, last-commit date and the exact proof
 command for every row are recorded in `.dsh/research/role-toolchain-install.md`.
@@ -818,7 +828,7 @@ delegation, not a tool call, and the brief has to carry it.
 **Two upstream rows the kit now pins, and why they are in the kit.** `profile/cordis.patch.yml`
 carries `@deepseek-ai/dsh-client-ui-settings-general` (welcome notice suppressed at
 `2026-09-28.1`) and `@deepseek-ai/dsh-agent-default-model` (`deepseek-official` /
-`deepseek-flash` / `reasoningEffort: max`). Both lived only in the installed profile before
+`deepseek-flash` / `reasoningEffort: high`). Both lived only in the installed profile before
 2026-10-26, which made `kit-update --check` report profile drift forever: the managed-seed rule
 correctly refuses to overwrite a hand-edited patch, so the kit and the machine could never
 converge. They are now kit state, because the deployment's model policy already assumed them

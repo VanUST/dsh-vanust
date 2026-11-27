@@ -78,6 +78,7 @@ test('the command lists, opens, saves, tidies and renders one page file', async 
     assert.equal(existsSync(join(dir, 'out', 'checkout.png')), true)
     assert.ok(rendered.value.png.bytes > 1000)
     assert.equal(rendered.value.renderer, 'excalidraw')
+    assert.equal(rendered.value.chromeHidden, true, 'the render did not hide the editor chrome')
   } else {
     assert.match(String(rendered.value), /renderer_unavailable/)
   }

@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "id": "one-diagram-op-lays-out-nodes-and-edge-labels",
+  "title": "one-diagram-op-lays-out-nodes-and-edge-labels",
+  "requirement": "AC-3 / FR2 / REQ-252: one map_edit call with op diagram creates all given nodes and edges and lays them out without node overlaps, in the requested direction, with edge labels in the gaps.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/map-instruments.mjs",
+  "runCommand": "node tests/designmap-instruments/map-instruments.mjs --case AC-3",
+  "steps": [
+    "Create a page through the registered map tools.",
+    "Send one map_edit with op diagram, direction LR, four labelled nodes and three labelled edges.",
+    "Read the page file and the scene: four boxes, three arrows, pairwise no overlap, x increasing in edge order, one row, every label between its boxes."
+  ],
+  "expected": "One map_edit op:diagram call with four nodes and three labelled edges returns ok, creates four boxes and three arrows, lays them out left-to-right on one row with no overlapping boxes, and puts every edge label in the gap between its source and target box.",
+  "tags": [
+    "designmap",
+    "AC-3",
+    "diagram"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/src/ops.mjs",
+      "sha256": "6d7cc1402fdbba467a89bb6f24f5e56e83a86d620228947dce01efcedc7da348"
+    },
+    {
+      "path": "plugins/designmap/src/tidy.mjs",
+      "sha256": "fc0869ea0736ca619fc0847af229ad3bae2089a94e29bd3fab00bdfd3243bae0"
+    },
+    {
+      "path": "plugins/designmap/src/elements.mjs",
+      "sha256": "ef02f26dd9f84471246bf51d8470f6eb16c0b338a5b5a23cc54a28805362bf13"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "criterionId": "AC-3",
+  "reqId": "REQ-252",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "1da99e5eadd0d5dbdb05ea0959787131636ff8579f2042f91012d64dc16597af",
+  "failsWhen": "The diagram op is missing, creates fewer nodes/edges, overlaps boxes, ignores the direction, or leaves edge labels on top of boxes.",
+  "trigger": "An agent sends map_edit {op:'diagram', nodes:[...], edges:[{from,to,label}]} once for a scheme.",
+  "oracle": "TASK-333 criterion AC-3 and FR2 (REQ-252): all nodes and edges in one call, no overlaps, requested direction, labels in gaps.",
+  "realism": "The owner's requirement that an agent can lay out a whole scheme in one call instead of one box per call (TASK-333 objective, REQ-252); the implementer's proof.out shows a 4-node diagram built by one op.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 5,
+  "createdAt": "2026-11-27T09:47:10.444Z",
+  "updatedAt": "2026-11-27T09:54:01.289Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:47:37.407Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:50:10.767Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:53:16.761Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:54:01.289Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyssjtt-pufmh-1",
+      "at": "2026-11-27T09:47:37.406Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 168,
+      "commandSha256": "f5c0c13a0dabdea113912510e50c83d279e298c64955afb7d60023ea19f1f363",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyssjtt-pufmh-1/stdout.log",
+      "stderr": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyssjtt-pufmh-1/stderr.log",
+      "summary": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyssjtt-pufmh-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwysvu2t-imdm6-1",
+      "at": "2026-11-27T09:50:10.761Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 214,
+      "commandSha256": "f5c0c13a0dabdea113912510e50c83d279e298c64955afb7d60023ea19f1f363",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwysvu2t-imdm6-1/stdout.log",
+      "stderr": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwysvu2t-imdm6-1/stderr.log",
+      "summary": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwysvu2t-imdm6-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyszufy-89mlf-1",
+      "at": "2026-11-27T09:53:16.755Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 193,
+      "commandSha256": "f5c0c13a0dabdea113912510e50c83d279e298c64955afb7d60023ea19f1f363",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyszufy-89mlf-1/stdout.log",
+      "stderr": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyszufy-89mlf-1/stderr.log",
+      "summary": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyszufy-89mlf-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 11
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 11,
+          "threshold": 0,
+          "pass": false,
+          "reason": "11 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0rw2-s08rl-1",
+      "at": "2026-11-27T09:54:01.288Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 231,
+      "commandSha256": "f5c0c13a0dabdea113912510e50c83d279e298c64955afb7d60023ea19f1f363",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyt0rw2-s08rl-1/stdout.log",
+      "stderr": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyt0rw2-s08rl-1/stderr.log",
+      "summary": "docs/cases/runs/one-diagram-op-lays-out-nodes-and-edge-labels/mwyt0rw2-s08rl-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T09:54:01.289Z",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-3",
+    "exitCode": 0,
+    "runId": "mwyt0rw2-s08rl-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-27T09:53:16.761Z",
+    "runId": "mwyszufy-89mlf-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-3",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

@@ -49,10 +49,10 @@ function claim(name, ok, detail) {
 /**
  * The anchor each preset must keep.
  *
- * Ten roles name the two directions of a false result with the same words, because they are the
- * same idea seen from the oracle and from the probe. The orchestrator states them in its own
+ * Eleven roles name the two directions of a false result with the same words, because they are
+ * the same idea seen from the oracle and from the probe. The orchestrator states them in its own
  * sentence - it closes tasks, so its false positive is a closure and its false negative is
- * ceremony - and is checked for its own phrasing rather than bent to the other ten.
+ * ceremony - and is checked for its own phrasing rather than bent to the other eleven.
  */
 const PLAYBOOK = {
   orchestrator: ['Two ways it becomes false', 'The opposite failure'],
@@ -60,6 +60,7 @@ const PLAYBOOK = {
   ux: ['False positive:', 'False negative:'],
   presenter: ['False positive:', 'False negative:'],
   backend: ['False positive:', 'False negative:'],
+  devops: ['False positive:', 'False negative:'],
   research: ['False positive:', 'False negative:'],
   gatherer: ['False positive:', 'False negative:'],
   reviewer: ['False positive:', 'False negative:'],
@@ -121,7 +122,7 @@ for (const [preset, anchors] of Object.entries(PLAYBOOK)) {
 }
 
 // FAIL CLOSED IN BOTH DIRECTIONS. A dropped row must not read as "nothing to check", and a
-// renamed row must not shrink coverage to ten presets while this file still lists eleven.
+// renamed row must not shrink coverage while this file still lists the full roster.
 const known = Object.keys(PLAYBOOK).sort()
 const present = [...rows.keys()].sort()
 const absent = known.filter((preset) => !rows.has(preset))
@@ -130,7 +131,7 @@ claim(
   'preset coverage',
   present.length > 0 && absent.length === 0 && unknown.length === 0,
   absent.length === 0 && unknown.length === 0
-    ? `${present.length} preset rows, exactly the eleven this check knows`
+    ? `${present.length} preset rows, exactly the twelve this check knows`
     : [...absent.map((preset) => `no persona row for ${preset}`), ...unknown.map((preset) => `row ${preset} is not a preset this check knows`)].join('; '),
 )
 

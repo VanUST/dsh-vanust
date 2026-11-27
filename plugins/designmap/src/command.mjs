@@ -3,17 +3,28 @@
  *
  * The panel cannot write the workspace (its file API is read-only), so every page operation
  * the editor needs goes through this command: list the pages, open one page, save a scene
- * back, tidy it and render it with the same code the agent tools use. The page file is the
- * only store — no view, overlay, annotation or manifest document sits behind it.
+ * back, tidy it, check its readability and render it with the same code the agent tools use.
+ * The page file is the only store — no view, overlay, annotation or manifest document sits
+ * behind it.
  *
  * Result shape matches the command registry: `{kind:'success', text}` is a JSON document;
  * `{kind:'error', text}` carries a stable `designmap: <code>: <detail>` prefix the panel
  * can quote.
  */
 import { MapRefusal, listPages, readPage, writePage } from './pages.mjs'
-import { applyOp, renderPage } from './ops.mjs'
+import { OPS as MAP_OPS, applyOp, renderPage } from './ops.mjs'
+import { lintOutline } from './outline.mjs'
 
-const OPS = ['pages', 'page', 'save', 'tidy-page', 'render-page']
+const OPS = ['pages', 'page', 'save', 'tidy-page', 'render-page', 'lint', 'edit']
+
+/**
+ * The ops the panel may run as a FINDING REPAIR.
+ *
+ * The command carries the human's canvas writes, so an `edit` op from the panel is not a
+ * general map_edit: it exists to apply what `lint` proposed. Page creation, deletion and
+ * renaming are deliberately absent - a repair never destroys a page.
+ */
+const REPAIR_OPS = new Set(['node.move', 'node.resize', 'node.label', 'node.style', 'edge.label', 'element.delete', 'layout', 'tidy', 'align'])
 
 export function createCommandHandler({ hostFor }) {
   return async function handler(invocation) {
@@ -57,6 +68,19 @@ export function createCommandHandler({ hostFor }) {
         }
         case 'tidy-page': value = applyOp(designmapDir, { op: 'tidy', page: op.page }); break
         case 'render-page': value = await renderPage(designmapDir, op.page); break
+        // The panel's "Check" button: the same readability report map_lint returns, so the
+        // human and the agent read the same findings about the same file.
+        case 'lint': value = lintOutline(readPage(designmapDir, op.page), op.page); break
+        // One repair from the panel's finding list: the operation a finding carries is the SAME
+        // map_get/map_edit op the agent would send, validated against that op set.
+        case 'edit': {
+          const operation = op.operation
+          if (operation === null || typeof operation !== 'object' || typeof operation.op !== 'string' || !MAP_OPS.has(operation.op) || !REPAIR_OPS.has(operation.op)) {
+            return { kind: 'error', text: 'designmap: invalid_operation: edit needs an operation with a map op name' }
+          }
+          value = applyOp(designmapDir, operation)
+          break
+        }
         default: return { kind: 'error', text: `designmap: unknown op (${OPS.join(' | ')})` }
       }
       return { kind: 'success', text: JSON.stringify(value) }

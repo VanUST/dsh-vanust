@@ -84,55 +84,64 @@ async function loadFrameText(fetchImpl = globalThis.fetch) {
   if (!response.ok) throw new Error(`excalidraw frame HTTP ${response.status}`);
   return response.text();
 }
-function frameDocument(script, look = { surface: "#ffffff" }, { editing = false } = {}) {
+function frameDocument(script, look = { surface: "#ffffff" }) {
   const safe = patchUnloadRegistration(script).replaceAll("<\/script", "<\\/script");
   const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? "")) ? look.surface : "#ffffff";
   const editorChrome = [
     ".HintViewer",
     ".dropdown-menu-button",
-    ".layer-ui__wrapper__top-right",
-    ".help-icon",
-    ".zoom-button",
-    'button[aria-label="Undo"]',
-    'button[aria-label="Redo"]'
+    ".help-icon"
   ].join(",");
-  const chrome = editing ? `${editorChrome}{display:none!important}` : `.App-toolbar,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button,.help-icon,.zoom-button,.HintViewer{display:none!important}`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
-${chrome}
+${editorChrome}{display:none!important}
 </style></head><body><div id="root"></div><script>${safe}<\/script></body></html>`;
 }
 
 // client/page-view.jsx
 var import_jsx_runtime = require("react/jsx-runtime");
 var SAVE_DEBOUNCE_MS = 500;
+var LOAD_SETTLE_MS = 1500;
 var LOOK = { surface: "#ffffff" };
+var MAX_SHOWN_FINDINGS = 30;
 function blankScene(page) {
   return { type: "excalidraw", version: 2, elements: [], appState: { gridSize: null, viewBackgroundColor: "#ffffff" }, files: {}, page };
+}
+function repairIsReady(repair) {
+  if (repair === null || typeof repair !== "object" || typeof repair.op !== "string") return false;
+  return !Object.values(repair).some((value) => typeof value === "string" && value.includes("<"));
 }
 function PageEditor({ host }) {
   const [pages, setPages] = import_react.default.useState([]);
   const [slug, setSlug] = import_react.default.useState(null);
   const [scene, setScene] = import_react.default.useState(null);
-  const [mode, setMode] = import_react.default.useState("read");
   const [revision, setRevision] = import_react.default.useState(0);
   const [status, setStatus] = import_react.default.useState({ kind: "info", message: "Loading the pages\u2026" });
   const [saving, setSaving] = import_react.default.useState(false);
   const [srcDoc, setSrcDoc] = import_react.default.useState(null);
+  const [lint, setLint] = import_react.default.useState(null);
+  const [showLint, setShowLint] = import_react.default.useState(true);
+  const [expanded, setExpanded] = import_react.default.useState(false);
+  const rootRef = import_react.default.useRef(null);
   const iframeRef = import_react.default.useRef(null);
   const frameTextRef = import_react.default.useRef(null);
-  const builtModeRef = import_react.default.useRef(null);
   const readyRef = import_react.default.useRef(false);
   const loadedRef = import_react.default.useRef(false);
+  const loadedAtRef = import_react.default.useRef(0);
   const pendingRef = import_react.default.useRef(null);
   const timerRef = import_react.default.useRef(null);
-  const modeRef = import_react.default.useRef(mode);
   const slugRef = import_react.default.useRef(slug);
   const sceneRef = import_react.default.useRef(scene);
-  modeRef.current = mode;
+  const signatureRef = import_react.default.useRef("");
   slugRef.current = slug;
   sceneRef.current = scene;
   const say = (kind, message) => setStatus({ kind, message });
+  const focusFrame = import_react.default.useCallback(() => {
+    try {
+      iframeRef.current?.focus();
+    } catch {
+    }
+  }, []);
   const loadPages = import_react.default.useCallback(async () => {
     const result = await host.pages();
     if (result?.ok !== true) {
@@ -143,18 +152,60 @@ function PageEditor({ host }) {
     setPages(list);
     return list;
   }, [host]);
+  const checkPage = import_react.default.useCallback(async (name) => {
+    if (typeof host.lintPage !== "function") return null;
+    const target = typeof name === "string" && name !== "" ? name : slugRef.current;
+    if (target === null || target === "") return null;
+    const result = await host.lintPage(target);
+    if (result?.ok !== true) {
+      say("error", result?.error?.message ?? "The readability check failed.");
+      return null;
+    }
+    setLint({ ...result.value, page: target });
+    focusFrame();
+    return result.value;
+  }, [host]);
+  const flush = import_react.default.useCallback(async () => {
+    const name = slugRef.current;
+    const pending = pendingRef.current;
+    if (name === null || pending === null) return;
+    pendingRef.current = null;
+    setSaving(true);
+    const base = sceneRef.current ?? blankScene(name);
+    const result = await host.savePage(name, {
+      elements: pending.elements,
+      appState: pending.appState ?? base.appState,
+      files: base.files ?? {}
+    });
+    setSaving(false);
+    if (result?.ok !== true) {
+      say("error", result?.error?.message ?? "The page could not be saved.");
+      return;
+    }
+    signatureRef.current = JSON.stringify(pending.elements);
+    setScene((current) => current === null ? current : { ...current, elements: pending.elements, appState: pending.appState ?? current.appState });
+    const report = await checkPage(name);
+    say("ok", `Saved ${result.value?.elements ?? pending.elements.length} element(s)${report === null ? "" : ` \xB7 readability ${report.score}/100 ${report.verdict}`}`);
+  }, [host, checkPage]);
   const openPage = import_react.default.useCallback(async (name) => {
     if (typeof name !== "string" || name === "") return;
+    if (pendingRef.current !== null) await flush();
     const result = await host.page(name);
     if (result?.ok !== true) {
       say("error", result?.error?.message ?? `Page "${name}" could not be read.`);
       return;
     }
+    const loaded = result.value?.scene ?? blankScene(name);
     setSlug(name);
-    setScene(result.value?.scene ?? blankScene(name));
+    setScene(loaded);
     setRevision((value) => value + 1);
+    setLint(null);
     say("info", `designmap/pages/${name}.excalidraw`);
-  }, [host]);
+    if (typeof host.lintPage === "function") {
+      const report = await host.lintPage(name);
+      if (report?.ok === true) setLint({ ...report.value, page: name });
+    }
+  }, [host, flush]);
   import_react.default.useEffect(() => {
     let alive = true;
     loadPages().then((list) => {
@@ -173,8 +224,7 @@ function PageEditor({ host }) {
     loadFrameText().then((text) => {
       if (!alive) return;
       frameTextRef.current = text;
-      builtModeRef.current = modeRef.current;
-      setSrcDoc(frameDocument(text, LOOK, { editing: modeRef.current === "edit" }));
+      setSrcDoc(frameDocument(text, LOOK));
     }).catch((error) => {
       if (alive) say("error", `The Excalidraw frame did not load: ${error?.message ?? error}`);
     });
@@ -182,20 +232,17 @@ function PageEditor({ host }) {
       alive = false;
     };
   }, []);
-  import_react.default.useEffect(() => {
-    if (frameTextRef.current === null || builtModeRef.current === mode) return;
-    builtModeRef.current = mode;
-    readyRef.current = false;
-    loadedRef.current = false;
-    setSrcDoc(frameDocument(frameTextRef.current, LOOK, { editing: mode === "edit" }));
-    say("info", mode === "edit" ? "Edit mode: changes are saved to the page file." : "Read mode: the page file cannot change.");
-  }, [mode]);
   const postLoad = import_react.default.useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    pendingRef.current = null;
     const current = sceneRef.current;
     if (current === null) return;
     const appState = { gridSize: null, viewBackgroundColor: "#ffffff", ...current.appState ?? {} };
-    const readOnly = modeRef.current !== "edit";
-    const elements = (Array.isArray(current.elements) ? current.elements : []).map((element) => readOnly ? { ...element, locked: true } : element);
+    const elements = Array.isArray(current.elements) ? current.elements : [];
+    signatureRef.current = JSON.stringify(elements);
     iframeRef.current?.contentWindow?.postMessage({
       source: PANEL_SOURCE,
       type: "load",
@@ -207,26 +254,6 @@ function PageEditor({ host }) {
     loadedRef.current = false;
     postLoad();
   }, [srcDoc, revision, postLoad]);
-  const flush = import_react.default.useCallback(async () => {
-    const name = slugRef.current;
-    const pending = pendingRef.current;
-    if (name === null || pending === null || modeRef.current !== "edit") return;
-    pendingRef.current = null;
-    setSaving(true);
-    const base = sceneRef.current ?? blankScene(name);
-    const result = await host.savePage(name, {
-      elements: pending.elements,
-      appState: pending.appState ?? base.appState,
-      files: base.files ?? {}
-    });
-    setSaving(false);
-    if (result?.ok !== true) {
-      say("error", result?.error?.message ?? "The page could not be saved.");
-      return;
-    }
-    setScene((current) => current === null ? current : { ...current, elements: pending.elements, appState: pending.appState ?? current.appState });
-    say("ok", `Saved ${result.value?.elements ?? pending.elements.length} element(s) to designmap/pages/${name}.excalidraw.`);
-  }, [host]);
   const schedule = import_react.default.useCallback((elements, appState) => {
     pendingRef.current = { elements, appState };
     if (timerRef.current !== null) clearTimeout(timerRef.current);
@@ -251,30 +278,68 @@ function PageEditor({ host }) {
       }
       if (data.type === "loaded") {
         loadedRef.current = true;
-        if (modeRef.current === "edit") iframeRef.current?.focus();
+        loadedAtRef.current = Date.now();
+        focusFrame();
         return;
       }
       if (data.type !== "change") return;
-      if (modeRef.current !== "edit" || !loadedRef.current) return;
-      schedule(Array.isArray(data.elements) ? data.elements : [], data.appState ?? {});
+      if (!loadedRef.current) return;
+      if (Date.now() - loadedAtRef.current < LOAD_SETTLE_MS) return;
+      const elements = Array.isArray(data.elements) ? data.elements : [];
+      const signature = JSON.stringify(elements);
+      if (signature === signatureRef.current) return;
+      schedule(elements, data.appState ?? {});
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [postLoad, schedule]);
+  import_react.default.useEffect(() => {
+    const onFullscreen = () => {
+      setExpanded(document.fullscreenElement === rootRef.current);
+      window.setTimeout(focusFrame, 50);
+    };
+    document.addEventListener("fullscreenchange", onFullscreen);
+    return () => document.removeEventListener("fullscreenchange", onFullscreen);
+  }, [focusFrame]);
+  const toggleExpand = async () => {
+    try {
+      if (document.fullscreenElement === rootRef.current) {
+        await document.exitFullscreen();
+      } else if (typeof rootRef.current?.requestFullscreen === "function") {
+        await rootRef.current.requestFullscreen();
+      } else {
+        say("error", "This browser does not support full screen.");
+      }
+    } catch (error) {
+      say("error", `Full screen failed: ${error?.message ?? error}`);
+    }
+    window.setTimeout(focusFrame, 60);
+  };
+  const reloadScene = async (name) => {
+    const reloaded = await host.page(name);
+    if (reloaded?.ok !== true) {
+      say("error", reloaded?.error?.message ?? "The page could not be reloaded.");
+      return;
+    }
+    setScene(reloaded.value?.scene ?? null);
+    setRevision((value) => value + 1);
+  };
   const tidy = async () => {
     if (slug === null) return;
+    pendingRef.current = null;
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     const result = await host.tidyPage(slug);
     if (result?.ok !== true) {
       say("error", result?.error?.message ?? "Tidy failed.");
       return;
     }
     const notes = Array.isArray(result.value?.notes) ? result.value.notes.join("; ") : "tidied";
-    const reloaded = await host.page(slug);
-    if (reloaded?.ok === true) {
-      setScene(reloaded.value?.scene ?? null);
-      setRevision((value) => value + 1);
-    }
-    say("ok", `Tidy: ${notes}`);
+    await reloadScene(slug);
+    const report = await checkPage(slug);
+    say("ok", `Tidy: ${notes}${report === null ? "" : ` \xB7 readability ${report.score}/100 ${report.verdict}`}`);
   };
   const render = async () => {
     if (slug === null) return;
@@ -286,15 +351,40 @@ function PageEditor({ host }) {
     const png = result.value?.png;
     const svg = result.value?.svg;
     say("ok", `Rendered ${png?.width}x${png?.height} PNG (${png?.bytes} bytes)${svg?.path ? ` + SVG (${svg.bytes} bytes)` : `; SVG: ${svg?.reason ?? "not produced"}`}`);
+    focusFrame();
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dmv", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "dmv-header", children: [
+  const applyFix = async (finding) => {
+    if (slug === null) return;
+    if (!repairIsReady(finding?.repair) || typeof host.edit !== "function") {
+      say("info", "This finding has no ready repair; use Tidy or move the box on the canvas.");
+      return;
+    }
+    pendingRef.current = null;
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const result = await host.edit({ ...finding.repair, page: slug });
+    if (result?.ok !== true) {
+      say("error", result?.error?.message ?? "The repair could not be applied.");
+      return;
+    }
+    await reloadScene(slug);
+    const report = await checkPage(slug);
+    const notes = Array.isArray(result.value?.notes) ? result.value.notes.join("; ") : "";
+    say("ok", `Fixed ${finding.code}${notes === "" ? "" : ` (${notes})`}${report === null ? "" : ` \xB7 readability ${report.score}/100 ${report.verdict}`}`);
+  };
+  const findings = Array.isArray(lint?.findings) ? lint.findings : [];
+  const visible = findings.slice(0, MAX_SHOWN_FINDINGS);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dmv", ref: rootRef, "data-expanded": expanded ? "true" : "false", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "dmv-toolbar", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { className: "dmv-title", children: "Design map" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dmv-field", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Page" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "dmv-page", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dmv-label", children: "Page" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
           "select",
           {
+            className: "dmv-select",
             value: slug ?? "",
             onChange: (event) => {
               openPage(event.target.value);
@@ -314,23 +404,31 @@ function PageEditor({ host }) {
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-button", onClick: () => {
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-btn", onClick: () => {
         loadPages().then((list) => {
           if (slug !== null && !list.some((entry) => entry.page === slug)) openPage(list[0]?.page);
         });
-      }, children: "Reload pages" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      }, children: "Reload" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-btn", onClick: () => checkPage(), disabled: slug === null || typeof host.lintPage !== "function", children: "Check" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-btn", onClick: tidy, disabled: slug === null, children: "Tidy" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-btn", onClick: render, disabled: slug === null, children: "Render" }),
+      lint === null ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "button",
         {
           type: "button",
-          className: "dmv-button",
-          "aria-pressed": mode === "edit",
-          onClick: () => setMode((current) => current === "edit" ? "read" : "edit"),
-          children: mode === "edit" ? "Edit mode: on" : "Edit mode: off"
+          className: `dmv-chip ${findings.length === 0 ? "ok" : lint.score >= 85 ? "warn" : "bad"}`,
+          onClick: () => setShowLint((value) => !value),
+          "aria-expanded": showLint && findings.length > 0,
+          title: findings.length === 0 ? "The readability check found nothing" : "Show or hide the readability findings",
+          children: [
+            lint.score,
+            "/100 ",
+            lint.verdict
+          ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-button", onClick: tidy, disabled: slug === null || mode !== "edit", children: "Tidy" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-button", onClick: render, disabled: slug === null, children: "Render PNG" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dmv-spacer" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-btn", onClick: toggleExpand, "aria-pressed": expanded, children: expanded ? "Exit full screen" : "Full screen" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dmv-status", role: "status", "data-kind": status.kind, children: saving ? "Saving\u2026" : status.message })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dmv-stage", children: srcDoc === null ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dmv-loading", role: "status", children: [
@@ -340,13 +438,46 @@ function PageEditor({ host }) {
       "iframe",
       {
         ref: iframeRef,
-        className: "dmv-excalidraw",
+        className: "dmv-frame",
         title: "Design map page",
         srcDoc,
         sandbox: "allow-scripts",
         style: { background: LOOK.surface }
       }
-    ) })
+    ) }),
+    showLint && findings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "dmv-lint", "aria-label": "Readability findings", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dmv-lint-head", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", { children: [
+          "Readability ",
+          lint.score,
+          "/100 \xB7 ",
+          lint.verdict
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+          lint.counts?.high ?? 0,
+          " high \xB7 ",
+          lint.counts?.medium ?? 0,
+          " medium \xB7 ",
+          lint.counts?.low ?? 0,
+          " low"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dmv-spacer" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-btn small", onClick: () => setShowLint(false), children: "Hide" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { children: visible.map((finding, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: `dmv-finding ${finding.severity}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dmv-finding-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: finding.code }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dmv-finding-elements", children: Array.isArray(finding.elements) ? finding.elements.join(", ") : "" }),
+          repairIsReady(finding.repair) && typeof host.edit === "function" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dmv-btn small", onClick: () => applyFix(finding), children: "Fix" }) : null
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: finding.message })
+      ] }, `${finding.code}-${index}`)) }),
+      findings.length > MAX_SHOWN_FINDINGS ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { className: "dmv-more", children: [
+        "\u2026 ",
+        findings.length - MAX_SHOWN_FINDINGS,
+        " more; the host's map_lint lists them all."
+      ] }) : null
+    ] }) : null
   ] });
 }
 
@@ -407,6 +538,18 @@ function createRemoteHost({ remote, sessionId }) {
     async tidyPage(page) {
       return executeCommand(remote, sessionId, { op: "tidy-page", page });
     },
+    /** The same readability report map_lint returns: the panel's Check button. */
+    async lintPage(page) {
+      if (typeof page !== "string" || page === "") return remoteFailure("invalid_page", "A page name is required.");
+      return executeCommand(remote, sessionId, { op: "lint", page });
+    },
+    /** One map_edit operation from the panel's finding list: a ready repair, applied. */
+    async edit(operation) {
+      if (operation === null || typeof operation !== "object" || typeof operation.op !== "string") {
+        return remoteFailure("invalid_operation", "An edit needs one map operation.");
+      }
+      return executeCommand(remote, sessionId, { op: "edit", operation });
+    },
     /** The same code map_render runs. */
     async renderPage(page) {
       return executeCommand(remote, sessionId, { op: "render-page", page });
@@ -424,18 +567,12 @@ var CSS = `
   --dmv-ink: var(--dsw-alias-label-primary, #0f172a);
   --dmv-muted: var(--dsw-alias-label-secondary, #64748b);
   --dmv-line: var(--dsw-alias-border-l1, #e2e8f0);
-  /* The primary button's FILL is the shell's primary-button fill, not its brand text
-     colour: in the dark theme brand-primary is near-white, so using it as a fill made a
-     white button whose white label disappeared. The label follows the inverted token and
-     the panel re-derives it from the resolved fill as a fallback. */
   --dmv-accent: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb));
   --dmv-accent-ink: var(--dsw-alias-label-primary-inverted, #ffffff);
+  --dmv-ok: var(--dsw-alias-state-success-primary, #15803d);
   --dmv-warn: var(--dsw-alias-state-warn-primary, #92400e);
   --dmv-danger: var(--dsw-alias-state-error-primary, #b91c1c);
-  --dmv-ok: var(--dsw-alias-state-success-primary, #15803d);
-  --dmv-radius-s: 6px;
-  --dmv-radius-l: 12px;
-  --dmv-focus: 2px solid var(--dmv-accent);
+  --dmv-radius: 6px;
   height: 100%;
   min-height: 0;
   display: flex;
@@ -443,69 +580,48 @@ var CSS = `
   background: var(--dmv-surface);
   color: var(--dmv-ink);
   font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  container-type: inline-size;
 }
 .dmv * { box-sizing: border-box; }
-.dmv :focus-visible { outline: var(--dmv-focus); outline-offset: 2px; border-radius: 4px; }
+.dmv :focus-visible { outline: 2px solid var(--dmv-accent); outline-offset: 2px; border-radius: 4px; }
 
-.dmv-top {
+.dmv-toolbar {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 42px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--dmv-line);
   background: var(--dmv-surface);
-  min-height: 52px;
-  flex-wrap: wrap;
 }
-.dmv-ident { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
-.dmv-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0; white-space: nowrap; }
-.dmv-view-title { font-size: 13px; font-weight: 550; color: var(--dmv-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40ch; }
-.dmv-view-title::before { content: "/"; color: var(--dmv-muted); margin-right: 8px; font-weight: 400; }
-.dmv-chips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.dmv-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.dmv-title { margin: 0 4px 0 0; font-size: 13px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
+.dmv-page { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.dmv-label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dmv-muted); font-weight: 700; white-space: nowrap; }
+.dmv-select {
+  height: 26px;
+  max-width: 26ch;
   border: 1px solid var(--dmv-line);
-  border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 10.5px;
-  line-height: 1.6;
-  color: var(--dmv-muted);
-  background: var(--dmv-surface-2);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.dmv-chip.level { color: var(--dmv-ink); font-weight: 600; }
-.dmv-chip.editing { color: var(--dmv-accent); border-color: color-mix(in srgb, var(--dmv-accent) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-accent) 8%, var(--dmv-surface)); font-weight: 600; }
-.dmv-chip.pending { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 35%, var(--dmv-line)); }
-.dmv-chip.lint { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
-.dmv-chip.lint.bad { color: var(--dmv-danger); border-color: color-mix(in srgb, var(--dmv-danger) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-danger) 8%, var(--dmv-surface)); }
-.dmv-chip.stale { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
-.dmv-chip.readonly { color: var(--dmv-ok); border-color: color-mix(in srgb, var(--dmv-ok) 35%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-ok) 7%, var(--dmv-surface)); }
-.dmv-spacer { flex: 1 1 24px; }
-.dmv-viewswitch select {
-  border: 1px solid var(--dmv-line);
-  border-radius: var(--dmv-radius-s);
+  border-radius: var(--dmv-radius);
   background: var(--dmv-surface-2);
   color: var(--dmv-ink);
   font: inherit;
   font-size: 11.5px;
   font-weight: 550;
-  padding: 3px 8px;
-  max-width: 26ch;
+  padding: 0 6px;
   cursor: pointer;
 }
-.dmv-viewswitch select:hover { background: var(--dmv-surface-3); }
-.dmv-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.dmv-select:hover { background: var(--dmv-surface-3); }
+.dmv-select:disabled { opacity: .55; cursor: default; }
+
 .dmv-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 28px;
+  height: 26px;
   border: 1px solid var(--dmv-line);
-  border-radius: var(--dmv-radius-s);
+  border-radius: var(--dmv-radius);
   background: var(--dmv-surface-2);
   color: var(--dmv-ink);
   font: inherit;
@@ -516,368 +632,82 @@ var CSS = `
   white-space: nowrap;
 }
 .dmv-btn:hover { background: var(--dmv-surface-3); }
-.dmv-btn.primary { background: var(--dmv-accent); border-color: var(--dmv-accent); color: var(--dmv-accent-ink, #ffffff); }
-.dmv-btn svg { flex: none; }
-.dmv-btn.primary:hover { filter: brightness(1.06); }
-.dmv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.dmv-selected .dmv-node { box-shadow: 0 0 0 3px color-mix(in srgb, var(--dmv-accent) 45%, transparent); }
-.dmv-edited {
-  position: absolute;
-  bottom: -7px;
-  left: 6px;
-  border: 1px solid color-mix(in srgb, var(--dmv-accent) 35%, var(--dmv-line));
-  background: var(--dmv-surface);
-  color: var(--dmv-accent);
-  border-radius: 999px;
-  padding: 0 4px;
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 1.5;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
+.dmv-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--dmv-accent) 14%, var(--dmv-surface-2)); border-color: color-mix(in srgb, var(--dmv-accent) 45%, var(--dmv-line)); }
+.dmv-btn.small { height: 22px; font-size: 11px; padding: 0 7px; }
+.dmv-btn:disabled { opacity: .5; cursor: not-allowed; }
 
-.dmv-search { position: relative; display: flex; align-items: center; gap: 4px; }
-.dmv-search-input {
-  width: min(260px, 34vw);
-  height: 30px;
-  border: 1px solid var(--dmv-line);
-  border-radius: var(--dmv-radius-s);
-  background: var(--dmv-surface-2);
-  color: var(--dmv-ink);
-  font: inherit;
-  font-size: 12px;
-  padding: 0 28px 0 9px;
-}
-.dmv-search-input::placeholder { color: var(--dmv-muted); opacity: 1; }
-.dmv-search-count { position: absolute; right: 7px; font-size: 10px; color: var(--dmv-muted); font-variant-numeric: tabular-nums; pointer-events: none; }
-.dmv-visually-hidden {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-}
-
-.dmv-crumbs {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 16px;
-  border-bottom: 1px solid var(--dmv-line);
-  background: var(--dmv-surface-2);
-  font-size: 11.5px;
-  min-height: 32px;
-  overflow-x: auto;
-}
-.dmv-crumb-list { display: flex; align-items: center; gap: 4px; list-style: none; margin: 0; padding: 0; }
-.dmv-crumb-list li { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.dmv-crumb-list li + li::before { content: "/"; color: var(--dmv-muted); margin: 0 2px; }
-.dmv-crumb {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--dmv-muted);
-  font: inherit;
-  font-weight: 550;
-  padding: 1px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.dmv-crumb:hover { color: var(--dmv-ink); background: var(--dmv-surface-3); }
-.dmv-crumb[aria-current="page"] { color: var(--dmv-ink); background: var(--dmv-surface); border-color: var(--dmv-line); cursor: default; font-weight: 650; }
-.dmv-crumb-hint { color: var(--dmv-muted); font-size: 10.5px; }
-
-.dmv-stage { flex: 1; min-height: 0; display: flex; background: var(--dmv-surface); position: relative; }
-.dmv-flow { position: relative; flex: 1; min-width: 0; }
-.dmv-flow .react-flow { background: var(--dmv-surface); }
-/* RF puts the edge-label portal before the node layer; labels are annotations and must
-   stay readable when core's labelAt is close to a box. */
-.dmv-flow .react-flow__edgelabel-renderer { z-index: 5; }
-/* React Flow ships light chrome. Every surface here inherits the host theme, so the
-   controls and the minimap frame stop reading as white stickers on a dark page. */
-.dmv-flow .react-flow__controls { border: 1px solid var(--dmv-line); border-radius: 8px; overflow: hidden; box-shadow: none; }
-.dmv-flow .react-flow__controls-button {
-  background: var(--dmv-surface-2);
-  border-bottom: 1px solid var(--dmv-line);
-  color: var(--dmv-ink);
-  fill: currentColor;
-}
-.dmv-flow .react-flow__controls-button:hover { background: var(--dmv-surface-3); }
-.dmv-flow .react-flow__controls-button svg { fill: currentColor; }
-.dmv-flow .react-flow__minimap { background: var(--dmv-surface-2); }
-.dmv-flow .react-flow__minimap-mask { fill: var(--dmv-surface-3); opacity: 0.45; }
-.dmv-flow .react-flow__minimap { border: 1px solid var(--dmv-line); border-radius: 8px; overflow: hidden; }
-@media (max-width: 760px) {
-  .dmv-legend { display: none; }
-}
-.dmv-stage .react-flow__attribution { font-size: 9px; opacity: 0.55; }
-/* The Excalidraw frame fills the stage; it draws and edits, the panel owns the chrome. */
-.dmv-excalidraw { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
-.dmv-stage .react-flow__node { border-radius: var(--dmv-radius-s); }
-.dmv-stage .react-flow__node:focus-visible { outline: var(--dmv-focus); outline-offset: 2px; }
-.dmv-stage .react-flow__handle { opacity: 0; pointer-events: none; }
-
-/* Scene node: geometry (width/height/position) comes from the scene and React Flow. */
-.dmv-node {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 0 10px;
-  border: 1.5px solid;
-  border-radius: 8px;
-  color: #0f172a;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.25;
-  text-align: center;
-  white-space: pre-line;
-  cursor: pointer;
-  position: relative;
-  transition: box-shadow 150ms ease-out, filter 150ms ease-out;
-}
-.dmv-node:hover, .dmv-node:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--dmv-accent) 40%, transparent); }
-.dmv-node.shape-ellipse { border-radius: 50%; }
-.dmv-node.shape-dashed { border-style: dashed; }
-.dmv-node .dmv-node-label { overflow-wrap: anywhere; }
-.dmv-node .dmv-open-hint { position: absolute; top: 2px; right: 4px; font-size: 10px; color: var(--dmv-muted); opacity: 0; }
-.dmv-node:hover .dmv-open-hint, .dmv-node:focus-within .dmv-open-hint { opacity: 1; }
-/* SceneCanvas has no header or legend; it fills the host panel's own box. */
-.dmv-canvas-only { min-height: 0; }
-.dmv-canvas-only .dmv-stage { min-height: 0; }
-.dmv-node .dmv-stale {
-  position: absolute;
-  top: -7px;
-  right: -4px;
-  border: 1px solid color-mix(in srgb, var(--dmv-warn) 45%, #ffffff);
-  background: #fff7ed;
-  color: var(--dmv-warn);
-  border-radius: 999px;
-  padding: 0 3px;
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 1.5;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-/* Group band: scene geometry only; the title button is the keyboard drill affordance. */
-.dmv-group {
-  position: absolute;
-  border: 1px dashed color-mix(in srgb, var(--dmv-accent) 30%, var(--dmv-line));
-  border-radius: var(--dmv-radius-l);
-  background: color-mix(in srgb, var(--dmv-accent) 3.5%, transparent);
-  pointer-events: none;
-}
-.dmv-group-title {
-  position: absolute;
-  top: 0;
-  left: 8px;
-  transform: translateY(-50%);
-  border: 1px solid color-mix(in srgb, var(--dmv-accent) 28%, var(--dmv-line));
-  background: var(--dmv-surface);
-  color: var(--dmv-muted);
-  border-radius: 999px;
-  padding: 0 7px;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1.7;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.dmv-group-title { pointer-events: auto; }
-.dmv-group-title:hover { color: var(--dmv-ink); border-color: var(--dmv-accent); }
-
-.dmv-legend {
-  flex: none;
-  width: 188px;
-  overflow: auto;
-  border-left: 1px solid var(--dmv-line);
-  background: var(--dmv-surface-2);
-  padding: 12px;
-  font-size: 10.5px;
-  color: var(--dmv-muted);
-}
-.dmv-legend h2 { margin: 0 0 5px; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dmv-muted); font-weight: 700; }
-.dmv-legend ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
-.dmv-legend li { display: flex; align-items: center; gap: 6px; }
-.dmv-legend .swatch { width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid; flex: none; }
-.dmv-legend .swatch.ellipse { border-radius: 50%; }
-.dmv-legend .swatch.dashed { border-style: dashed; }
-.dmv-legend .line { width: 16px; border-top: 2px solid #475569; flex: none; }
-.dmv-legend .hint { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--dmv-line); font-size: 9.5px; line-height: 1.4; }
-
-/* The legend is a bar under the canvas, not a side rail: a wide map needs every pixel of
-   width, and the legend is a reading aid for the same map, not a separate column. */
-.dmv-legend-bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 5px 12px;
-  border-top: 1px solid var(--dmv-line);
-  background: var(--dmv-surface-2);
-  overflow-x: auto;
-  font-size: 10.5px;
-  color: var(--dmv-muted);
-}
-.dmv-legend-title { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; font-size: 9.5px; color: var(--dmv-muted); }
-.dmv-legend-group { display: flex; align-items: center; gap: 10px; margin: 0; padding: 0; list-style: none; }
-.dmv-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.dmv-labels { flex: none; display: flex; flex-direction: column; max-height: 220px; border-top: 1px solid var(--dmv-line); background: var(--dmv-surface); }
-.dmv-labels-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 16px 3px; flex-wrap: wrap; }
-.dmv-labels-head h2 { margin: 0; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dmv-muted); }
-.dmv-labels-head p { margin: 0; font-size: 11px; color: var(--dmv-muted); }
-.dmv-labels-count { margin-left: auto; font-size: 10.5px; color: var(--dmv-muted); font-variant-numeric: tabular-nums; }
-.dmv-labels-list { list-style: none; margin: 0; padding: 4px 16px 10px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px 14px; }
-.dmv-label-row { display: grid; grid-template-columns: 34px minmax(80px, 1fr) 1.3fr; align-items: center; gap: 6px; min-width: 0; }
-.dmv-label-kind { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--dmv-muted); }
-.dmv-label-id { font-size: 10.5px; color: var(--dmv-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dmv-label-input { min-width: 0; height: 25px; border: 1px solid var(--dmv-line); border-radius: 4px; padding: 0 6px; background: var(--dmv-surface-2); color: var(--dmv-ink); font: inherit; font-size: 11.5px; }
-.dmv-label-input:focus-visible { outline: 2px solid var(--dmv-accent); outline-offset: 1px; }
-.dmv-legend-mixed {
+.dmv-chip {
   display: inline-flex;
   align-items: center;
-  border: 1px dashed var(--dmv-line);
+  height: 24px;
   border-radius: 999px;
-  padding: 0 5px;
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--dmv-muted);
-  background: var(--dmv-surface-2);
-}
-.dmv-legend-item b { font-weight: 650; color: var(--dmv-ink); font-variant-numeric: tabular-nums; }
-.dmv-glyph { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid; display: inline-block; flex: none; }
-.dmv-glyph.ellipse { border-radius: 50%; }
-.dmv-glyph.dashed { border-style: dashed; }
-.dmv-glyph.diamond { transform: rotate(45deg); border-radius: 2px; }
-.dmv-wire { width: 18px; border-top: 2px solid; display: inline-block; flex: none; }
-.dmv-legend-sep { width: 1px; height: 14px; background: var(--dmv-line); flex: none; }
-.dmv-legend-hint { font-size: 10px; color: var(--dmv-muted); }
-.dmv-fit { font-size: 10.5px; padding: 2px 8px; }
-.dmv-inspector-pop {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  width: 220px;
-  max-height: 60%;
-  overflow: auto;
-  background: var(--dmv-surface);
-  border: 1px solid var(--dmv-line);
-  border-radius: var(--dmv-radius-l);
-  padding: 10px 12px;
-  box-shadow: 0 8px 24px rgb(15 23 42 / 0.14);
-  z-index: 6;
-}
-.dmv-inspector { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--dmv-line); }
-.dmv-inspector h2 { margin: 0 0 5px; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dmv-muted); font-weight: 700; }
-.dmv-inspector-name { margin: 0 0 2px; color: var(--dmv-ink); font-weight: 650; font-size: 11.5px; overflow-wrap: anywhere; }
-.dmv-inspector-name code { font: 9.5px/1.4 ui-monospace, monospace; color: var(--dmv-muted); display: block; }
-.dmv-inspector-hint { margin: 0 0 7px; font-size: 10px; color: var(--dmv-muted); }
-.dmv-swatches { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
-.dmv-swatch-btn { width: 24px; height: 24px; border: 2px solid; border-radius: 6px; cursor: pointer; padding: 0; }
-.dmv-swatch-btn[aria-pressed="true"] { outline: 2px solid var(--dmv-accent); outline-offset: 1px; }
-.dmv-inspector-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-
-.dmv-edge-label {
-  position: absolute;
-  transform-origin: top left;
-  /* The plate must be opaque: a translucent one let the edge line and any node
-     underneath show through the glyphs, which is unreadable on a dark theme.
-     Width/height come inline from the scene's labelBox \u2014 the same rectangle core
-     validated \u2014 so the fallback never draws a bigger label than the check approved. */
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  background: var(--dmv-surface);
-  border: 1px solid var(--dmv-line);
-  border-radius: 6px;
-  padding: 0 2px;
-  font-size: 10.5px;
-  line-height: 1.25;
-  font-weight: 600;
-  color: var(--dmv-ink);
-  white-space: pre-line;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.dmv-empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  text-align: center;
-  padding: 32px;
-  color: var(--dmv-muted);
-}
-.dmv-empty h2 { margin: 0; font-size: 15px; color: var(--dmv-ink); font-weight: 650; }
-.dmv-empty p { margin: 0; max-width: 52ch; }
-
-.dmv-status {
-  flex: none;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 4px 16px;
-  border-top: 1px solid var(--dmv-line);
-  background: var(--dmv-surface);
+  padding: 0 9px;
   font-size: 11px;
-  min-height: 28px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid var(--dmv-line);
+  background: var(--dmv-surface-2);
   color: var(--dmv-muted);
 }
-.dmv-status[data-kind="ok"] { color: var(--dmv-ok); }
-.dmv-status[data-kind="error"] { color: var(--dmv-danger); }
-.dmv-status code { font: 10.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-.dmv-status .dmv-spacer { flex: 1; }
+.dmv-chip.ok { color: var(--dmv-ok); border-color: color-mix(in srgb, var(--dmv-ok) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-ok) 9%, var(--dmv-surface)); }
+.dmv-chip.warn { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 45%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 10%, var(--dmv-surface)); }
+.dmv-chip.bad { color: var(--dmv-danger); border-color: color-mix(in srgb, var(--dmv-danger) 45%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-danger) 10%, var(--dmv-surface)); }
 
-.dmv-foot {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-  padding: 8px 16px;
-  border-top: 1px solid var(--dmv-line);
-  background: var(--dmv-surface-2);
-  font-size: 10.5px;
+.dmv-spacer { flex: 1 1 auto; }
+.dmv-status {
+  min-width: 0;
+  max-width: 44ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
   color: var(--dmv-muted);
   font-variant-numeric: tabular-nums;
 }
-.dmv-foot dl { display: contents; margin: 0; }
-.dmv-foot .pair { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.dmv-foot dt { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; color: var(--dmv-muted); }
-.dmv-foot dd { margin: 0; color: var(--dmv-ink); font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46ch; }
-.dmv-foot dd code { font: inherit; }
-.dmv-foot .warn dd { color: var(--dmv-warn); }
+.dmv-status[data-kind="ok"] { color: var(--dmv-ok); }
+.dmv-status[data-kind="error"] { color: var(--dmv-danger); }
 
-.dmv-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--dsw-alias-label-primary, #0f172a);
-  border-radius: 6px;
-  padding: 3px 7px;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  height: 26px;
-}
-.dmv-trigger:hover { background: var(--dsw-alias-bg-layer-1, #f1f5f9); }
-.dmv-trigger:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #2563eb); outline-offset: 2px; }
-.dmv-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--dmv-muted); gap: 8px; }
+.dmv-stage { position: relative; flex: 1 1 auto; min-height: 0; background: #ffffff; }
+.dmv-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+
+.dmv-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--dmv-muted); }
 .dmv-loading .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--dmv-accent); animation: dmv-pulse 1.2s ease-in-out infinite; }
-.dmv-error { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px; color: var(--dmv-danger); text-align: center; }
-@keyframes dmv-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .dmv-loading .pulse { animation: none; } .dmv-node { transition: none; } }
+@keyframes dmv-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dmv-loading .pulse { animation: none; } }
+
+.dmv-lint {
+  flex: none;
+  max-height: 34vh;
+  overflow: auto;
+  border-top: 1px solid var(--dmv-line);
+  background: var(--dmv-surface-2);
+  padding: 8px 10px 10px;
+  scrollbar-width: thin;
+}
+.dmv-lint-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
+.dmv-lint-head h2 { margin: 0; font-size: 12px; font-weight: 700; }
+.dmv-lint-head span { font-size: 10.5px; color: var(--dmv-muted); font-variant-numeric: tabular-nums; }
+.dmv-lint ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px; }
+.dmv-finding { border: 1px solid var(--dmv-line); border-left: 3px solid var(--dmv-line); background: var(--dmv-surface); border-radius: var(--dmv-radius); padding: 5px 8px; min-width: 0; }
+.dmv-finding.high { border-left-color: var(--dmv-danger); }
+.dmv-finding.medium { border-left-color: var(--dmv-warn); }
+.dmv-finding.low { border-left-color: var(--dmv-muted); }
+.dmv-finding-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dmv-finding-head code { font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; white-space: nowrap; }
+.dmv-finding-elements { flex: 1 1 auto; min-width: 0; font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--dmv-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dmv-finding p { margin: 2px 0 0; font-size: 11px; color: var(--dmv-muted); overflow-wrap: anywhere; }
+.dmv-more { margin: 6px 0 0; font-size: 11px; color: var(--dmv-muted); }
+
+/* Full screen: the editor IS the screen; the toolbar stays so the page switch and Exit exist. */
+.dmv:fullscreen { width: 100vw; height: 100vh; background: var(--dmv-surface); }
+.dmv:fullscreen .dmv-stage { background: #ffffff; }
+
+@container (max-width: 720px) {
+  .dmv-title { display: none; }
+  .dmv-status { max-width: 20ch; }
+  .dmv-lint ul { grid-template-columns: minmax(0, 1fr); }
+}
 `;
 
 // client/entry.jsx

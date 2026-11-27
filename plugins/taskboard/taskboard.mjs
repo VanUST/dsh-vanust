@@ -648,7 +648,7 @@ function sleepSync(ms) {
  * released by `rmdir` in a `finally`, so a thrown operation cannot keep the board locked.
  * A second process WAITS (see LOCK_POLL_MS) instead of writing a board it read before the
  * first process wrote its rows - that lost update is why two servers on one workspace
- * dropped tasks (§4.6 of docs/review/HARNESS-ARCHITECTURE-REVIEW-2026-11-20.md).
+ * dropped tasks.
  *
  * A lock whose directory is older than `staleMs` is treated as a dead process's leftover
  * and taken over once; the age is the directory's own mtime, so it needs no content.
@@ -934,7 +934,7 @@ function createService(config, logger, hooks = {}) {
    * THE READ AND THE WRITE SIT INSIDE ONE LOCK. Serializing only the write keeps a second
    * process's read-then-write pair intact, and that pair is what loses rows: two servers on
    * one workspace each read the whole board, each add a row, and the later rename drops the
-   * earlier row (§4.6 of docs/review/HARNESS-ARCHITECTURE-REVIEW-2026-11-20.md). With the
+   * earlier row. With the
    * lock around both, the second process reads what the first one wrote.
    */
   const mutate = (cwd, operation) => {

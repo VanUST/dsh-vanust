@@ -1,0 +1,375 @@
+{
+  "schemaVersion": 1,
+  "id": "project-hygiene-guide-and-docs",
+  "rev": 4,
+  "status": "ready",
+  "createdAt": "2026-11-27T11:26:08.208Z",
+  "updatedAt": "2026-11-27T11:39:08.633Z",
+  "updatedBy": "agent",
+  "title": "Project hygiene: one working guide, durable docs only, a legacy audit, and the orchestrator lessons",
+  "requestedSolution": "Owner, 2026-11-27: after a day of work, clean the project up. Write ONE guide file for working in the project - tools, deployment principles, available functionality - so future sessions start with the right context, and fold in every problem that came from a wrong or insufficient understanding of that context. Deduplicate and update the documentation, delete everything that is runtime documentation (plans, check results) because it goes stale. Audit the codebase for junk and legacy - the same class of problem hit today. Propose how the orchestrator preset should account for this class of problem.",
+  "businessOutcome": {
+    "problem": "The repository carries two kinds of documentation in one place: durable contracts (how the kit works, how to deploy, the glossary) and runtime records (dated audits, handoffs, proofs, plans). The runtime records age within days, are cited by other docs and code, and a reader cannot tell which page is still true. There is no single working guide: the facts a fresh session needs are spread across README.md, USERGUIDE.md, rules/DEPLOYMENT.md and docs/HARNESS-OVERVIEW.md, which repeat each other (roughly 340 KB of prose). The cost was measured today: three separate misunderstandings of this repository's own rules (a preset that silently did not mount, a role alias missing from the requirement, a case that could not close its own task) each cost a retry.",
+    "outcome": "The repository has one entry point (README.md) and one working guide (docs/GUIDE.md) that a new session can read in one sitting: the repository map, the tools and presets, the deployment and verification procedure, and the measured traps. The other durable docs keep one owner per fact, runtime records are gone from the tree, every surviving link resolves, and a legacy audit lists what was removed and what was deliberately kept with the reason.",
+    "successMetrics": [
+      "docs/GUIDE.md exists and covers tools, presets, deployment, verification and the context-failure traps; README.md links to it and no longer repeats its content",
+      "no dated audit/handoff/proof/plan file remains in docs/, and every reference to a removed file is updated or removed",
+      "the legacy audit names every removed file/directory with the evidence that it was unused, and every kept candidate with the reason",
+      "make verify and make test are green on the final tree",
+      "the orchestrator proposal names the guards it needs, their cost and the decision left to the owner"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Two kinds of docs in one tree, no working guide",
+        "actors": [
+          "owner",
+          "orchestrator",
+          "future session"
+        ],
+        "steps": [
+          "A session opens the repository and finds ~29 docs of ~700 KB with overlapping content",
+          "It cannot tell which page is a contract and which is a snapshot of last week's work",
+          "It re-derives a rule from code, or trusts a stale page, and pays a retry",
+          "Runtime records are cited by code comments and analysis records, so they cannot simply age out"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "One guide, one owner per fact, runtime records gone",
+        "actors": [
+          "owner",
+          "orchestrator",
+          "future session"
+        ],
+        "steps": [
+          "README.md answers what the kit is and where to go next, in a few screens",
+          "docs/GUIDE.md answers how to work here: layout, tools, presets, deployment, verification, traps",
+          "durable docs each own their facts (glossary, playbooks, case contract, design map, procedure)",
+          "runtime records are not in the tree; the case library and the analysis records carry the evidence that must survive",
+          "a legacy audit records what was removed and why"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "One working guide exists and README points to it: repository map, tools and presets, deployment and verification principles, available functionality, and the context-failure traps measured today.",
+      "acceptance": [
+        "docs/GUIDE.md exists, is linked from README.md, and its sections cover layout, tools/presets, deployment, verification and traps",
+        "the traps section names each failure measured today with the concrete symptom and the rule that prevents it",
+        "README.md is a thin entry point: what the kit is, install, quickstart, doc map, verification, no duplicated guide content",
+        "make verify is green and the documentation gate names the same set of mounted plugins"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Runtime documentation is removed and durable documentation is deduplicated with one owner per fact; no surviving page links to a removed file.",
+      "acceptance": [
+        "dated audits, handoffs, proofs, plans and session measurements are gone from docs/",
+        "every reference to a removed file is updated in README, USERGUIDE, rules, profile comments, scripts and code comments",
+        "each surviving durable doc states what it owns, and the repeated sections are cut from the others",
+        "make verify and make test are green"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "A legacy audit finds junk and stale code with evidence: unused plugins and scripts, stale artefacts, dead files; the safe removals are done and the risky candidates are listed with a reason.",
+      "acceptance": [
+        "the audit covers plugins (directory vs inventory vs profile mount), scripts (referenced vs orphan), root artefacts and generated/stale files",
+        "every removal is named with the evidence that nothing references it (and tracked in git so it is recoverable)",
+        "kept candidates carry a one-line reason in the audit",
+        "make verify and make test are green after the removals"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "The orchestrator preset has concrete, costed proposals for preventing the class of defects seen today (a rule in two places, a tool without behaviour, a context the root did not have).",
+      "acceptance": [
+        "the proposal names each guard, where it would live (prompt rule, tool refusal, gate, or test), and its cost",
+        "it separates what can be enforced deterministically from what stays a prompt rule",
+        "each proposal names the decision the owner must take, and none is silently implemented",
+        "the proposal is recorded where the next session will read it (the guide or the task)"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "The cleanup loses no recoverable history: removals are git deletions of tracked files, and the surviving documents agree with the code and the gates.",
+      "acceptance": [
+        "every deleted doc was tracked before removal (recoverable from git)",
+        "make verify and make test are green on the final tree",
+        "the guide's commands were run at least once, and quoted"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-README",
+        "name": "README.md",
+        "responsibility": "The entry point: what the kit is, install, quickstart, doc map, verification.",
+        "owner": "kit",
+        "owns": [
+          "D-README"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-GUIDE",
+        "name": "docs/GUIDE.md",
+        "responsibility": "The single working guide: layout, tools, presets, deployment, verification, traps.",
+        "owner": "kit",
+        "owns": [
+          "D-GUIDE"
+        ],
+        "dependsOn": [
+          "C-README"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "docs/ durable set",
+        "responsibility": "One owner per fact: TERMINOLOGY, PRESET-PLAYBOOKS, CASE-LIBRARY-BEHAVIOUR-DESIGN, DESIGNMAP-V2, HARNESS-OVERVIEW, PRESENTATION-TOOLCHAIN, rules/DEPLOYMENT.md, USERGUIDE.md.",
+        "owner": "kit",
+        "owns": [
+          "D-DOCS"
+        ],
+        "dependsOn": [
+          "C-GUIDE"
+        ]
+      },
+      {
+        "id": "C-AUDIT",
+        "name": "legacy audit",
+        "responsibility": "Inventory of plugins, scripts, artefacts and dead files, with evidence and removals.",
+        "owner": "kit",
+        "owns": [
+          "D-AUDIT"
+        ],
+        "dependsOn": [
+          "C-DOCS"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-README",
+      "name": "README.md",
+      "owner": "kit",
+      "ownerComponentId": "C-README",
+      "description": "The entry point a human or a session opens first."
+    },
+    {
+      "id": "D-GUIDE",
+      "name": "docs/GUIDE.md",
+      "owner": "kit",
+      "ownerComponentId": "C-GUIDE",
+      "description": "The one working guide."
+    },
+    {
+      "id": "D-DOCS",
+      "name": "docs/",
+      "owner": "kit",
+      "ownerComponentId": "C-DOCS",
+      "description": "The durable documentation set, one owner per fact."
+    },
+    {
+      "id": "D-AUDIT",
+      "name": "reports/legacy-audit.md",
+      "owner": "kit",
+      "ownerComponentId": "C-AUDIT",
+      "description": "The evidence of what was removed and what was kept (a report, not runtime docs)."
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-GUIDE",
+      "name": "Documentation ownership",
+      "between": [
+        "C-README",
+        "C-GUIDE",
+        "C-DOCS"
+      ],
+      "change": "additive",
+      "description": "Each fact has one owner: README for what/where, GUIDE for how, DEPLOYMENT for the normative procedure, TERMINOLOGY for words, PLAYBOOKS for per-preset texts, the case design for the library contract."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-RECOVER",
+      "text": "A removed doc was tracked in git, so the removal is recoverable.",
+      "scope": "C-DOCS"
+    },
+    {
+      "id": "INV-LINKS",
+      "text": "No surviving page or code comment cites a removed file.",
+      "scope": "C-DOCS"
+    },
+    {
+      "id": "INV-GATES",
+      "text": "The tree gates stay green after every removal batch.",
+      "scope": "C-AUDIT"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "One new guide file, not a fourth overview",
+      "rationale": "README stays the entry point and the guide owns the working knowledge; USERGUIDE keeps the owner-facing walkthrough and loses the sections the guide now owns. A new file is justified because the working knowledge had no owner at all.",
+      "alternatives": []
+    },
+    {
+      "id": "D2",
+      "decision": "Delete runtime records instead of archiving them in the tree",
+      "rationale": "The owner asked for them gone; git keeps them recoverable, and the case library plus the analysis records already carry the evidence that must survive. An archive directory would recreate the two-kinds-in-one-place problem.",
+      "alternatives": []
+    },
+    {
+      "id": "D3",
+      "decision": "Enforce the legacy audit through evidence, not deletion by vibe",
+      "rationale": "A file that looks unused may be a shipped artefact or a gate input; every removal names the reference search that came back empty.",
+      "alternatives": []
+    },
+    {
+      "id": "D4",
+      "decision": "Keep the orchestrator changes as a proposal, not an implementation",
+      "rationale": "The owner asked what to do; each guard changes delegation behaviour and cost, so the decision and the tradeoff belong to the owner before the prompt or a tool refusal changes.",
+      "alternatives": []
+    },
+    {
+      "id": "D5",
+      "decision": "A documentation-only initiative keeps its evidence in the tree gates and the deletion inventory, not in a red/green TEST",
+      "rationale": "A deleted stale page has no behaviour to drive: the case library needs an observed behaviour, and the guide forbids hand-writing a TEST row. The gates (make verify, make test, the dangling-reference scan, the plugin/tarball inventory) are the measurable acceptance here, and the requirements stay planned until the owner decides whether the analysis gate should accept that form.",
+      "alternatives": []
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "Documentation and repository hygiene inside the existing kit",
+      "One new file plus deletions and rewrites of tracked docs",
+      "The legacy audit removes files but changes no contract; any code change beyond removal is proposed, not made"
+    ]
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-GUIDE",
+      "contractIds": [
+        "CT-GUIDE"
+      ],
+      "dataIds": [
+        "D-GUIDE",
+        "D-README"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [
+        "CT-GUIDE"
+      ],
+      "dataIds": [
+        "D-DOCS"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-AUDIT",
+      "contractIds": [],
+      "dataIds": [
+        "D-AUDIT"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-GUIDE",
+      "contractIds": [],
+      "dataIds": [
+        "D-GUIDE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [
+        "CT-GUIDE"
+      ],
+      "dataIds": [
+        "D-DOCS"
+      ],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "2c40c972e6ff94e4579dde533903792838ff8b30c8dda988caae59877dab0194",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T11:26:08.208Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T11:26:36.042Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 added, FR2 added, FR3 added, FR4 added, NFR1 added"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T11:39:02.033Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T11:39:08.633Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

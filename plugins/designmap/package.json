@@ -1,7 +1,7 @@
 {
   "name": "@cc/dsh-designmap",
-  "version": "1.0.1",
-  "description": "designmap: one Excalidraw page per design map under designmap/pages/, edited through the Project state -> Map editor and through four agent tools (map_list, map_read, map_edit, map_render); a headless Excalidraw run renders a page to PNG/SVG. The host half ships pre-bundled so installing the tarball needs no registry: the kit boot must never depend on one.",
+  "version": "1.0.5",
+  "description": "designmap: one Excalidraw page per design map under designmap/pages/, edited through the Project state -> Map editor (always editable, full screen) and through five agent tools (map_list, map_read, map_lint, map_edit, map_render); map_edit draws a whole scheme with the diagram op, map_lint names every readability defect with a repair, and a headless Excalidraw run renders a clean page to PNG/SVG. The host half ships pre-bundled so installing the tarball needs no registry: the kit boot must never depend on one.",
   "type": "module",
   "main": "dist/index.mjs",
   "exports": {

@@ -1,52 +1,95 @@
 /**
  * The page editor: the panel is an editor over designmap/pages/<slug>.excalidraw.
  *
- * WHAT CHANGED FROM v1. The old panel rendered a server-computed scene and sent back overlay
- * deltas and annotations. This one opens ONE page file, hands its elements to the vendored
- * Excalidraw frame, and writes the frame's elements back to that same file. The file is the
- * only store: nothing is cached across a reload except what the frame holds in this tab.
+ * THE PAGE IS ALWAYS EDITABLE. There is no read mode and no toggle: the frame is built in edit
+ * mode once, a drag or a typed label is saved after the debounce, and the human can draw the
+ * moment the page is in. The page file is the only store: nothing is cached across a reload
+ * except what the frame holds in this tab.
  *
- * READ MODE is the frame with its editing chrome hidden and every save suppressed, so a
- * read-only panel cannot change the file. EDIT MODE rebuilds the frame document (the chrome
- * comes from the document) and every change is debounced and saved: the host re-reads the
- * file before writing it, so a human edit and an agent edit inside one debounce window end in
- * last-writer-wins rather than a silent truncation.
+ * THE FIRST DRAG NEEDS THE FRAME TO OWN FOCUS. An iframe document that was never focused lets
+ * Excalidraw select an injected element and never move it - the pointerdown selects, the move is
+ * ignored, and no `change` is emitted. Measured by bisect in the previous build: a bare document
+ * without our CSS fails the same way, and one click inside the frame flips the outcome. Edit mode
+ * therefore focuses the frame as soon as the page is loaded, so a human's first drag is saved.
+ *
+ * THE VIEWPORT IS NOT CONTENT. Excalidraw emits a change for scroll and zoom too; saving those
+ * would write the file on every pan. The save is scheduled only when the ELEMENTS differ from
+ * the last loaded or saved ones, so the file changes when the drawing changes.
+ *
+ * THE READABILITY PANEL IS THE HUMAN HALF OF map_lint. "Check" asks the host for the same report
+ * the agent gets; every finding that carries a ready repair can be applied from here, through
+ * the same `/designmap` command the canvas saves through.
  */
 import React from 'react'
 import { loadFrameText, frameDocument, FRAME_SOURCE, PANEL_SOURCE } from './frame.js'
 
 const SAVE_DEBOUNCE_MS = 500
+/**
+ * How long after a page is posted into the frame a change is treated as the frame's own load
+ * echo, not as a human edit.
+ *
+ * MEASURED: the vendored frame emits `change` shortly after `loaded` even for a scene nobody
+ * touched (Excalidraw normalizes the elements while loading them, so its own JSON comparison
+ * fails), and the panel saved that echo. Harmless while it writes the same geometry - and
+ * destructive when a Fix or Tidy command has just written a repaired file: the queued echo
+ * save lands afterwards and puts the old scene back (measured 2026-11-27: n2 280 -> 60 -> 280
+ * after one Fix click). The frame suppresses its own changes for 700 ms; this window also
+ * covers the 450 ms change debounce.
+ */
+const LOAD_SETTLE_MS = 1500
 const LOOK = { surface: '#ffffff' }
+const MAX_SHOWN_FINDINGS = 30
 
 function blankScene(page) {
   return { type: 'excalidraw', version: 2, elements: [], appState: { gridSize: null, viewBackgroundColor: '#ffffff' }, files: {}, page }
+}
+
+function repairIsReady(repair) {
+  if (repair === null || typeof repair !== 'object' || typeof repair.op !== 'string') return false
+  return !Object.values(repair).some((value) => typeof value === 'string' && value.includes('<'))
 }
 
 export function PageEditor({ host }) {
   const [pages, setPages] = React.useState([])
   const [slug, setSlug] = React.useState(null)
   const [scene, setScene] = React.useState(null)
-  const [mode, setMode] = React.useState('read')
   const [revision, setRevision] = React.useState(0)
   const [status, setStatus] = React.useState({ kind: 'info', message: 'Loading the pages…' })
   const [saving, setSaving] = React.useState(false)
   const [srcDoc, setSrcDoc] = React.useState(null)
+  const [lint, setLint] = React.useState(null)
+  const [showLint, setShowLint] = React.useState(true)
+  const [expanded, setExpanded] = React.useState(false)
 
+  const rootRef = React.useRef(null)
   const iframeRef = React.useRef(null)
   const frameTextRef = React.useRef(null)
-  const builtModeRef = React.useRef(null)
   const readyRef = React.useRef(false)
   const loadedRef = React.useRef(false)
+  const loadedAtRef = React.useRef(0)
   const pendingRef = React.useRef(null)
   const timerRef = React.useRef(null)
-  const modeRef = React.useRef(mode)
   const slugRef = React.useRef(slug)
   const sceneRef = React.useRef(scene)
-  modeRef.current = mode
+  const signatureRef = React.useRef('')
   slugRef.current = slug
   sceneRef.current = scene
 
   const say = (kind, message) => setStatus({ kind, message })
+
+  /**
+   * Hand the keyboard/pointer to the canvas.
+   *
+   * AN IFRAME THAT DOES NOT OWN FOCUS DRAWS NOTHING. Measured: Excalidraw selects an injected
+   * element on pointerdown and never moves it until the frame document itself has focus. The
+   * page load focuses the frame, but a toolbar button (Full screen, Check, Tidy, Render) moves
+   * the focus to that button, and the next drag then fails - measured 2026-11-27: after
+   * entering full screen the first drag moved nothing. Every action that returns the human to
+   * the canvas gives the focus back.
+   */
+  const focusFrame = React.useCallback(() => {
+    try { iframeRef.current?.focus() } catch { /* a frame that is not mounted cannot take focus */ }
+  }, [])
 
   const loadPages = React.useCallback(async () => {
     const result = await host.pages()
@@ -59,91 +102,24 @@ export function PageEditor({ host }) {
     return list
   }, [host])
 
-  const openPage = React.useCallback(async name => {
-    if (typeof name !== 'string' || name === '') return
-    const result = await host.page(name)
+  const checkPage = React.useCallback(async name => {
+    if (typeof host.lintPage !== 'function') return null
+    const target = typeof name === 'string' && name !== '' ? name : slugRef.current
+    if (target === null || target === '') return null
+    const result = await host.lintPage(target)
     if (result?.ok !== true) {
-      say('error', result?.error?.message ?? `Page "${name}" could not be read.`)
-      return
+      say('error', result?.error?.message ?? 'The readability check failed.')
+      return null
     }
-    setSlug(name)
-    setScene(result.value?.scene ?? blankScene(name))
-    setRevision(value => value + 1)
-    say('info', `designmap/pages/${name}.excalidraw`)
+    setLint({ ...result.value, page: target })
+    focusFrame()
+    return result.value
   }, [host])
-
-  React.useEffect(() => {
-    let alive = true
-    loadPages().then(list => {
-      if (!alive || list.length === 0) {
-        if (alive && list.length === 0) say('info', 'No pages yet: designmap/pages is empty.')
-        return
-      }
-      openPage(list[0].page)
-    })
-    return () => { alive = false }
-  }, [loadPages, openPage])
-
-  // The frame bundle is fetched once; the DOCUMENT is rebuilt whenever the mode changes,
-  // because the editing chrome is fixed in the document itself.
-  React.useEffect(() => {
-    let alive = true
-    loadFrameText()
-      .then(text => {
-        if (!alive) return
-        frameTextRef.current = text
-        builtModeRef.current = modeRef.current
-        setSrcDoc(frameDocument(text, LOOK, { editing: modeRef.current === 'edit' }))
-      })
-      .catch(error => { if (alive) say('error', `The Excalidraw frame did not load: ${error?.message ?? error}`) })
-    return () => { alive = false }
-  }, [])
-
-  React.useEffect(() => {
-    if (frameTextRef.current === null || builtModeRef.current === mode) return
-    builtModeRef.current = mode
-    readyRef.current = false
-    loadedRef.current = false
-    setSrcDoc(frameDocument(frameTextRef.current, LOOK, { editing: mode === 'edit' }))
-    say('info', mode === 'edit' ? 'Edit mode: changes are saved to the page file.' : 'Read mode: the page file cannot change.')
-  }, [mode])
-
-  /**
-   * Post the page into the frame.
-   *
-   * READ MODE LOCKS EVERY ELEMENT it sends. The vendored frame draws the editor with no
-   * `viewModeEnabled` switch and hides only its chrome, so an unlocked element is draggable
-   * even when the panel would refuse to save it - a read-only canvas that lets the human move
-   * a box and then throws the move away is worse than one that refuses the drag. `locked` is a
-   * property of the COPY in the frame: nothing writes it back, and edit mode sends the file's
-   * own elements.
-   */
-  const postLoad = React.useCallback(() => {
-    const current = sceneRef.current
-    if (current === null) return
-    const appState = { gridSize: null, viewBackgroundColor: '#ffffff', ...(current.appState ?? {}) }
-    const readOnly = modeRef.current !== 'edit'
-    const elements = (Array.isArray(current.elements) ? current.elements : []).map(element => (
-      readOnly ? { ...element, locked: true } : element
-    ))
-    iframeRef.current?.contentWindow?.postMessage({
-      source: PANEL_SOURCE,
-      type: 'load',
-      scene: { elements, appState },
-    }, '*')
-  }, [])
-
-  // A page switch, a tidy or a reload replaces the scene: re-frame it once the frame is ready.
-  React.useEffect(() => {
-    if (srcDoc === null || !readyRef.current) return
-    loadedRef.current = false
-    postLoad()
-  }, [srcDoc, revision, postLoad])
 
   const flush = React.useCallback(async () => {
     const name = slugRef.current
     const pending = pendingRef.current
-    if (name === null || pending === null || modeRef.current !== 'edit') return
+    if (name === null || pending === null) return
     pendingRef.current = null
     setSaving(true)
     const base = sceneRef.current ?? blankScene(name)
@@ -159,9 +135,89 @@ export function PageEditor({ host }) {
       say('error', result?.error?.message ?? 'The page could not be saved.')
       return
     }
+    signatureRef.current = JSON.stringify(pending.elements)
     setScene(current => (current === null ? current : { ...current, elements: pending.elements, appState: pending.appState ?? current.appState }))
-    say('ok', `Saved ${result.value?.elements ?? pending.elements.length} element(s) to designmap/pages/${name}.excalidraw.`)
-  }, [host])
+    const report = await checkPage(name)
+    say('ok', `Saved ${result.value?.elements ?? pending.elements.length} element(s)${report === null ? '' : ` · readability ${report.score}/100 ${report.verdict}`}`)
+  }, [host, checkPage])
+
+  const openPage = React.useCallback(async name => {
+    if (typeof name !== 'string' || name === '') return
+    // Flush the page being left BEFORE the slug moves: a pending edit belongs to the page it
+    // was drawn on, and writing it after the switch would send it to the new file.
+    if (pendingRef.current !== null) await flush()
+    const result = await host.page(name)
+    if (result?.ok !== true) {
+      say('error', result?.error?.message ?? `Page "${name}" could not be read.`)
+      return
+    }
+    const loaded = result.value?.scene ?? blankScene(name)
+    setSlug(name)
+    setScene(loaded)
+    setRevision(value => value + 1)
+    setLint(null)
+    say('info', `designmap/pages/${name}.excalidraw`)
+    if (typeof host.lintPage === 'function') {
+      const report = await host.lintPage(name)
+      if (report?.ok === true) setLint({ ...report.value, page: name })
+    }
+  }, [host, flush])
+
+  React.useEffect(() => {
+    let alive = true
+    loadPages().then(list => {
+      if (!alive || list.length === 0) {
+        if (alive && list.length === 0) say('info', 'No pages yet: designmap/pages is empty.')
+        return
+      }
+      openPage(list[0].page)
+    })
+    return () => { alive = false }
+  }, [loadPages, openPage])
+
+  // The frame bundle is fetched once; the DOCUMENT is built once, in edit mode, because the page
+  // is always editable.
+  React.useEffect(() => {
+    let alive = true
+    loadFrameText()
+      .then(text => {
+        if (!alive) return
+        frameTextRef.current = text
+        setSrcDoc(frameDocument(text, LOOK))
+      })
+      .catch(error => { if (alive) say('error', `The Excalidraw frame did not load: ${error?.message ?? error}`) })
+    return () => { alive = false }
+  }, [])
+
+  /**
+   * Post the page into the frame.
+   *
+   * Every element of the file is sent unlocked: the canvas is an editor. A frame that refuses a
+   * write (no command) reports it as a status; it does not make the canvas read-only behind the
+   * human's back.
+   */
+  const postLoad = React.useCallback(() => {
+    // A queued save belongs to the scene being replaced: drop it before posting the new one.
+    if (timerRef.current !== null) { clearTimeout(timerRef.current); timerRef.current = null }
+    pendingRef.current = null
+    const current = sceneRef.current
+    if (current === null) return
+    const appState = { gridSize: null, viewBackgroundColor: '#ffffff', ...(current.appState ?? {}) }
+    const elements = Array.isArray(current.elements) ? current.elements : []
+    signatureRef.current = JSON.stringify(elements)
+    iframeRef.current?.contentWindow?.postMessage({
+      source: PANEL_SOURCE,
+      type: 'load',
+      scene: { elements, appState },
+    }, '*')
+  }, [])
+
+  // A page switch, a fix or a reload replaces the scene: re-frame it once the frame is ready.
+  React.useEffect(() => {
+    if (srcDoc === null || !readyRef.current) return
+    loadedRef.current = false
+    postLoad()
+  }, [srcDoc, revision, postLoad])
 
   const schedule = React.useCallback((elements, appState) => {
     pendingRef.current = { elements, appState }
@@ -184,39 +240,76 @@ export function PageEditor({ host }) {
       }
       if (data.type === 'loaded') {
         loadedRef.current = true
-        // THE FRAME MUST OWN THE FOCUS BEFORE A DRAG. Measured with the panel harness: without a
-        // click inside the frame first, Excalidraw selects the element on pointerdown and then
-        // never moves it (the change it emits carries the unmoved element); one click inside the
-        // frame makes the same drag move it (x 90 -> 190). Nothing in the panel ever focused the
-        // frame, so edit mode focuses it as soon as the page is in - the human's first drag then
-        // works instead of their second.
-        if (modeRef.current === 'edit') iframeRef.current?.focus()
+        loadedAtRef.current = Date.now()
+        focusFrame()
         return
       }
       if (data.type !== 'change') return
-      // Read mode cannot write, and a change that lands before the page is loaded describes
-      // the empty canvas rather than a human edit.
-      if (modeRef.current !== 'edit' || !loadedRef.current) return
-      schedule(Array.isArray(data.elements) ? data.elements : [], data.appState ?? {})
+      // A change that lands before the page is loaded describes the empty canvas rather than a
+      // human edit; one that lands inside the settle window is the frame's own load echo.
+      if (!loadedRef.current) return
+      if (Date.now() - loadedAtRef.current < LOAD_SETTLE_MS) return
+      const elements = Array.isArray(data.elements) ? data.elements : []
+      // Scroll and zoom emit a change too. They are not content: only a different ELEMENT LIST
+      // is worth a write.
+      const signature = JSON.stringify(elements)
+      if (signature === signatureRef.current) return
+      schedule(elements, data.appState ?? {})
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [postLoad, schedule])
 
+  React.useEffect(() => {
+    const onFullscreen = () => {
+      setExpanded(document.fullscreenElement === rootRef.current)
+      // Entering or leaving full screen moves the layout under the pointer; give the canvas
+      // the focus back once the new size has been laid out.
+      window.setTimeout(focusFrame, 50)
+    }
+    document.addEventListener('fullscreenchange', onFullscreen)
+    return () => document.removeEventListener('fullscreenchange', onFullscreen)
+  }, [focusFrame])
+
+  const toggleExpand = async () => {
+    try {
+      if (document.fullscreenElement === rootRef.current) {
+        await document.exitFullscreen()
+      } else if (typeof rootRef.current?.requestFullscreen === 'function') {
+        await rootRef.current.requestFullscreen()
+      } else {
+        say('error', 'This browser does not support full screen.')
+      }
+    } catch (error) {
+      say('error', `Full screen failed: ${error?.message ?? error}`)
+    }
+    window.setTimeout(focusFrame, 60)
+  }
+
+  /** Re-read the page after a write made through the command (tidy, fix). */
+  const reloadScene = async name => {
+    const reloaded = await host.page(name)
+    if (reloaded?.ok !== true) {
+      say('error', reloaded?.error?.message ?? 'The page could not be reloaded.')
+      return
+    }
+    setScene(reloaded.value?.scene ?? null)
+    setRevision(value => value + 1)
+  }
+
   const tidy = async () => {
     if (slug === null) return
+    pendingRef.current = null
+    if (timerRef.current !== null) { clearTimeout(timerRef.current); timerRef.current = null }
     const result = await host.tidyPage(slug)
     if (result?.ok !== true) {
       say('error', result?.error?.message ?? 'Tidy failed.')
       return
     }
     const notes = Array.isArray(result.value?.notes) ? result.value.notes.join('; ') : 'tidied'
-    const reloaded = await host.page(slug)
-    if (reloaded?.ok === true) {
-      setScene(reloaded.value?.scene ?? null)
-      setRevision(value => value + 1)
-    }
-    say('ok', `Tidy: ${notes}`)
+    await reloadScene(slug)
+    const report = await checkPage(slug)
+    say('ok', `Tidy: ${notes}${report === null ? '' : ` · readability ${report.score}/100 ${report.verdict}`}`)
   }
 
   const render = async () => {
@@ -226,20 +319,44 @@ export function PageEditor({ host }) {
       say('error', result?.error?.message ?? 'The SVG render failed.')
       return
     }
-    // One renderer: Excalidraw's own export in a headless browser, the same call map_render
-    // makes. The PNG is always reported; the SVG is Excalidraw's export or its named reason.
     const png = result.value?.png
     const svg = result.value?.svg
     say('ok', `Rendered ${png?.width}x${png?.height} PNG (${png?.bytes} bytes)${svg?.path ? ` + SVG (${svg.bytes} bytes)` : `; SVG: ${svg?.reason ?? 'not produced'}`}`)
+    focusFrame()
   }
 
+  const applyFix = async finding => {
+    if (slug === null) return
+    if (!repairIsReady(finding?.repair) || typeof host.edit !== 'function') {
+      say('info', 'This finding has no ready repair; use Tidy or move the box on the canvas.')
+      return
+    }
+    // The repair is about to replace the scene; a queued save of the scene it replaces would
+    // undo it the moment its timer fires.
+    pendingRef.current = null
+    if (timerRef.current !== null) { clearTimeout(timerRef.current); timerRef.current = null }
+    const result = await host.edit({ ...finding.repair, page: slug })
+    if (result?.ok !== true) {
+      say('error', result?.error?.message ?? 'The repair could not be applied.')
+      return
+    }
+    await reloadScene(slug)
+    const report = await checkPage(slug)
+    const notes = Array.isArray(result.value?.notes) ? result.value.notes.join('; ') : ''
+    say('ok', `Fixed ${finding.code}${notes === '' ? '' : ` (${notes})`}${report === null ? '' : ` · readability ${report.score}/100 ${report.verdict}`}`)
+  }
+
+  const findings = Array.isArray(lint?.findings) ? lint.findings : []
+  const visible = findings.slice(0, MAX_SHOWN_FINDINGS)
+
   return (
-    <div className="dmv">
-      <header className="dmv-header">
+    <div className="dmv" ref={rootRef} data-expanded={expanded ? 'true' : 'false'}>
+      <header className="dmv-toolbar">
         <h1 className="dmv-title">Design map</h1>
-        <label className="dmv-field">
-          <span>Page</span>
+        <label className="dmv-page">
+          <span className="dmv-label">Page</span>
           <select
+            className="dmv-select"
             value={slug ?? ''}
             onChange={event => { openPage(event.target.value) }}
             disabled={pages.length === 0}
@@ -252,19 +369,27 @@ export function PageEditor({ host }) {
             ))}
           </select>
         </label>
-        <button type="button" className="dmv-button" onClick={() => {
+        <button type="button" className="dmv-btn" onClick={() => {
           loadPages().then(list => { if (slug !== null && !list.some(entry => entry.page === slug)) openPage(list[0]?.page) })
-        }}>Reload pages</button>
-        <button
-          type="button"
-          className="dmv-button"
-          aria-pressed={mode === 'edit'}
-          onClick={() => setMode(current => (current === 'edit' ? 'read' : 'edit'))}
-        >
-          {mode === 'edit' ? 'Edit mode: on' : 'Edit mode: off'}
+        }}>Reload</button>
+        <button type="button" className="dmv-btn" onClick={() => checkPage()} disabled={slug === null || typeof host.lintPage !== 'function'}>Check</button>
+        <button type="button" className="dmv-btn" onClick={tidy} disabled={slug === null}>Tidy</button>
+        <button type="button" className="dmv-btn" onClick={render} disabled={slug === null}>Render</button>
+        {lint === null ? null : (
+          <button
+            type="button"
+            className={`dmv-chip ${findings.length === 0 ? 'ok' : lint.score >= 85 ? 'warn' : 'bad'}`}
+            onClick={() => setShowLint(value => !value)}
+            aria-expanded={showLint && findings.length > 0}
+            title={findings.length === 0 ? 'The readability check found nothing' : 'Show or hide the readability findings'}
+          >
+            {lint.score}/100 {lint.verdict}
+          </button>
+        )}
+        <span className="dmv-spacer" />
+        <button type="button" className="dmv-btn" onClick={toggleExpand} aria-pressed={expanded}>
+          {expanded ? 'Exit full screen' : 'Full screen'}
         </button>
-        <button type="button" className="dmv-button" onClick={tidy} disabled={slug === null || mode !== 'edit'}>Tidy</button>
-        <button type="button" className="dmv-button" onClick={render} disabled={slug === null}>Render PNG</button>
         <span className="dmv-status" role="status" data-kind={status.kind}>{saving ? 'Saving…' : status.message}</span>
       </header>
       <div className="dmv-stage">
@@ -273,7 +398,7 @@ export function PageEditor({ host }) {
           : (
             <iframe
               ref={iframeRef}
-              className="dmv-excalidraw"
+              className="dmv-frame"
               title="Design map page"
               srcDoc={srcDoc}
               sandbox="allow-scripts"
@@ -281,6 +406,31 @@ export function PageEditor({ host }) {
             />
           )}
       </div>
+      {showLint && findings.length > 0 ? (
+        <section className="dmv-lint" aria-label="Readability findings">
+          <div className="dmv-lint-head">
+            <h2>Readability {lint.score}/100 · {lint.verdict}</h2>
+            <span>{lint.counts?.high ?? 0} high · {lint.counts?.medium ?? 0} medium · {lint.counts?.low ?? 0} low</span>
+            <span className="dmv-spacer" />
+            <button type="button" className="dmv-btn small" onClick={() => setShowLint(false)}>Hide</button>
+          </div>
+          <ul>
+            {visible.map((finding, index) => (
+              <li key={`${finding.code}-${index}`} className={`dmv-finding ${finding.severity}`}>
+                <div className="dmv-finding-head">
+                  <code>{finding.code}</code>
+                  <span className="dmv-finding-elements">{Array.isArray(finding.elements) ? finding.elements.join(', ') : ''}</span>
+                  {repairIsReady(finding.repair) && typeof host.edit === 'function'
+                    ? <button type="button" className="dmv-btn small" onClick={() => applyFix(finding)}>Fix</button>
+                    : null}
+                </div>
+                <p>{finding.message}</p>
+              </li>
+            ))}
+          </ul>
+          {findings.length > MAX_SHOWN_FINDINGS ? <p className="dmv-more">… {findings.length - MAX_SHOWN_FINDINGS} more; the host's map_lint lists them all.</p> : null}
+        </section>
+      ) : null}
     </div>
   )
 }
