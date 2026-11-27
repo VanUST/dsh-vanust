@@ -17,7 +17,8 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 | draw or read the system design map | [docs/DESIGNMAP-V2.md](docs/DESIGNMAP-V2.md) |
 
 New machine in one line: `./install.sh` then `./start.sh`. Before the first change in this
-repository, read `docs/GUIDE.md` §8-9: the working rules and the traps that already cost a retry.
+repository, read `docs/GUIDE.md` §8-9: where the working rules live, and the traps that already
+cost a retry.
 
 
 
@@ -318,7 +319,7 @@ that instance gets the same tools, and Octocode needs an explicit `octocode inde
 revision (10m32s for 147 files, measured). Adoption so far is **partial** — Serena was
 called, Octocode was never called, and the enhanced arm spent more prompt tokens — so this
 kit makes **no efficiency claim**. Runbook: [§1.2 of rules/DEPLOYMENT.md](rules/DEPLOYMENT.md);
-evidence: [reports/code-search/report.md](reports/code-search/report.md).
+evidence: `reports/code-search/report.md`, a local report (the whole `reports/` tree is gitignored).
 
 **Prompt, skills and model policy are now deployment surfaces.** The harness still owns the
 persona and the request pipeline, but this kit deliberately adds a root/child orchestration
@@ -372,7 +373,6 @@ dsh-kit/
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
 ├── plugins/designmap/        # source of @cc/dsh-designmap (M4: YAML model → ELK scene → panel)
-├── plugins/design-map/       # source of @cc/dsh-design-map (0.2.0, retired in the profile patch)
 ├── plugins/project-rules/    # source of @cc/dsh-project-rules (one frozen rules section + editor panel)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)

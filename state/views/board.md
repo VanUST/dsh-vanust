@@ -2,13 +2,19 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
+## active (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-354 | Закоммитить и запушить работу сессии в origin | — | — | yes |
+
 ## review (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
 
-## done (253)
+## done (265)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -265,8 +271,20 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-335 | Owner status change displays immediately and never lies | REQ-136 | 6/6 | no |
 | TASK-336 | DEVOPS preset and the runtime lane (one live deployment task) | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263, REQ-264 | 10/10 | no |
 | TASK-338 | Project hygiene: one working guide, durable docs, legacy audit, orchestrator proposals | REQ-265, REQ-266, REQ-267, REQ-268, REQ-269 | 7/7 | no |
+| TASK-339 | Правила разработки: один владелец, и правило в проекте = правило в работе | REQ-268, REQ-270 | — | no |
+| TASK-340 | Свести дерево: пересобрать оркестратор и доказать причёсывание документации прогонами | REQ-265, REQ-266, REQ-269 | — | no |
+| TASK-341 | Проверить отчёт аудита легаси против дерева (read-only) | REQ-267 | — | no |
+| TASK-342 | Убрать следы retired-плагина дизайн-карты из README, процедуры и отчёта аудита | REQ-267 | — | no |
+| TASK-343 | `dsh web` делает всё сама: сведение, отказ от устаревшего запуска, явный перезапуск | REQ-271 | — | no |
+| TASK-344 | Сигнал «сервер жив» привязать к порту профиля, замена харнесса остаётся машинной | REQ-272 | — | no |
+| TASK-345 | Сервер, запущенный без `--port`, должен попадать в pid своего порта | REQ-272 | — | no |
+| TASK-346 | Правило порядка в политике: конфликт ≠ зависимость | REQ-273 | — | no |
+| TASK-347 | Отказ `dependency_open`: доска держит порядок шагов | REQ-274 | — | no |
+| TASK-348 | Пересобрать доску и оркестратор: правило порядка в сборке | REQ-274 | — | no |
+| TASK-352 | Триаж машины: что узкое и кто это держит | REQ-275 | — | no |
+| TASK-353 | Освободить корень: карта диска, безопасная чистка, размер ленты сессии | REQ-277 | — | no |
 
-## cancelled (84)
+## cancelled (87)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -354,3 +372,6 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-206 | FR2: бюджеты контекста — ждёт решения о PTC-пресетах | — | — | no |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 | TASK-325 | A command to retire a case, and the two cases that assert removed behaviour | — | — | yes |
+| TASK-349 | Измерить клиент: байты, время до интерактивности, длинные задачи, панели | REQ-275 | — | no |
+| TASK-350 | [проба] шаг-выход: выкатка версии | — | — | yes |
+| TASK-351 | [проба] шаг-вход: тест после выкатки | — | — | yes |

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-hygiene-guide-and-docs",
-  "rev": 6,
+  "rev": 17,
   "status": "ready",
   "createdAt": "2026-11-27T11:26:08.208Z",
-  "updatedAt": "2026-11-27T11:49:51.618Z",
+  "updatedAt": "2026-11-27T12:48:53.571Z",
   "updatedBy": "agent",
   "title": "Project hygiene: one working guide, durable docs only, a legacy audit, and the orchestrator lessons",
   "requestedSolution": "Owner, 2026-11-27: after a day of work, clean the project up. Write ONE guide file for working in the project - tools, deployment principles, available functionality - so future sessions start with the right context, and fold in every problem that came from a wrong or insufficient understanding of that context. Deduplicate and update the documentation, delete everything that is runtime documentation (plans, check results) because it goes stale. Audit the codebase for junk and legacy - the same class of problem hit today. Propose how the orchestrator preset should account for this class of problem.",
@@ -67,7 +67,8 @@
         "README.md is a thin entry point: what the kit is, install, quickstart, doc map, verification, no duplicated guide content",
         "make verify is green and the documentation gate names the same set of mounted plugins"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "Работа выполнена и проверена прогонами: GUIDE связан из README, 8 относительных ссылок разрешаются, make verify exit 0 (0 строк FAIL), make test 80/80; заголовки GUIDE покрывают layout, tools/presets, deployment, verification, traps. Отложено, потому что форма доказательства, которую требует запись анализа — TEST с измеренной парой красный→зелёный на поведении — к прозе и к удалённым страницам неприменима; вопрос формы доказательства для документационных инициатив остаётся решением владельца (D5)."
     },
     {
       "id": "FR2",
@@ -79,7 +80,8 @@
         "each surviving durable doc states what it owns, and the repeated sections are cut from the others",
         "make verify and make test are green"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "Удалено 102 пути (67 docs + 24 spike + 6 .reasonix/tasks + design.excalidraw), в git ls-files ни одного из них нет; висячие ссылки по живому дереву вычищены (остались только фикстуры и датированное историческое упоминание retired-плагина); make verify зелёный. Отложено по той же причине, что FR1: у удалённой страницы нет поведения, на котором можно измерить красный→зелёный (D5)."
     },
     {
       "id": "FR3",
@@ -91,7 +93,8 @@
         "kept candidates carry a one-line reason in the audit",
         "make verify and make test are green after the removals"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "Аудит выполнен и независимо перепроверен: 6 из 8 строк Findings подтверждены, 1 (висячие ссылки) опровергнута и исправлена в дереве, 1 подтверждена с оговоркой; остаток устранён — rules/DEPLOYMENT.md и README больше не выдают retired-плагин за живой, отчёт несёт раздел поправок с командами. Отложено: аудит — это документ и удаления, а не поведение с парой красный→зелёный (D5)."
     },
     {
       "id": "FR4",
@@ -103,7 +106,21 @@
         "each proposal names the decision the owner must take, and none is silently implemented",
         "the proposal is recorded where the next session will read it (the guide or the task)"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "Предложение записано дважды и переживёт сессию: docs/GUIDE.md §10 (шесть детерминированных и три промптовых предложения, с ценой и решением на каждой) и решение D7 в этой записи. Принятые владельцем части реализованы ранее (check-preset-configs, role-spellings, relink). Отложено: доказательство здесь — текст и принятые решения, а не поведение с парой красный→зелёный."
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "A rule written in the kit is in force only in the running deployment: the orchestrator policy states that a policy, persona, preset row or plugin reaches no agent until the machine is converged and the server restarted, names the one command that decides it, and the guide points at the policy instead of copying it.",
+      "acceptance": [
+        "the root policy carries the convergence rule beside the five development rules, naming `node scripts/kit-update.mjs --check --json` and the stop-apply-restart sequence",
+        "docs/GUIDE.md does not repeat the development rules; it points at their owner and keeps only the measured traps",
+        "a tree check fails when the guide re-copies a development rule opening, so the duplication cannot return silently",
+        "the measured evidence is recorded: the kit carried the rules in its source while the machine ran a build that predates them"
+      ],
+      "status": "deferred",
+      "reason": "Сделано и измерено: правило (f) в ROOT_POLICY, GUIDE §8 — указатель, заявка проверки печатает «6 rule(s)» и на возвращённой в GUIDE формулировке даёт красный прогон с названной причиной, после возврата файла снова зелёная (негативный контроль, TASK-342). Отложено: прогон гейта — не TEST с парой красный→зелёный в смысле библиотеки кейсов; вопрос формы — за владельцем (D5)."
     },
     {
       "id": "NFR1",
@@ -114,7 +131,8 @@
         "make verify and make test are green on the final tree",
         "the guide's commands were run at least once, and quoted"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "История не потеряна: 102 удаления сделаны в коммите c52520d, git ls-files по всем путям даёт 0, пять untracked-путей названы невосстановимыми; гейты зелёные (make verify exit 0, make test 80/80). Отложено по той же причине: удалённая страница не имеет поведения для пары красный→зелёный (D5)."
     }
   ],
   "architecture": {
@@ -133,19 +151,30 @@
       {
         "id": "C-GUIDE",
         "name": "docs/GUIDE.md",
-        "responsibility": "The single working guide: layout, tools, presets, deployment, verification, traps.",
+        "responsibility": "The single working guide: layout, tools, presets, deployment, verification, traps; points at the policy for the working rules instead of copying them.",
         "owner": "kit",
         "owns": [
           "D-GUIDE"
         ],
         "dependsOn": [
-          "C-README"
+          "C-README",
+          "C-POLICY"
         ]
+      },
+      {
+        "id": "C-POLICY",
+        "name": "plugins/orchestrator/orchestrator.mjs (ROOT_POLICY)",
+        "responsibility": "The one owner of the development rules every root reads on every step, including the rule that a change in the kit is not in force until the machine is converged.",
+        "owner": "kit",
+        "owns": [
+          "D-POLICY"
+        ],
+        "dependsOn": []
       },
       {
         "id": "C-DOCS",
         "name": "docs/ durable set",
-        "responsibility": "One owner per fact: TERMINOLOGY, PRESET-PLAYBOOKS, CASE-LIBRARY-BEHAVIOUR-DESIGN, DESIGNMAP-V2, HARNESS-OVERVIEW, PRESENTATION-TOOLCHAIN, rules/DEPLOYMENT.md, USERGUIDE.md.",
+        "responsibility": "One owner per fact: TERMINOLOGY, PRESET-PLAYBOOKS, CASE-LIBRARY-BEHAVIOUR-DESIGN, DESIGNMAP-V2, PRESENTATION-TOOLCHAIN, rules/DEPLOYMENT.md.",
         "owner": "kit",
         "owns": [
           "D-DOCS"
@@ -184,6 +213,13 @@
       "description": "The one working guide."
     },
     {
+      "id": "D-POLICY",
+      "name": "ROOT_POLICY in plugins/orchestrator/orchestrator.mjs",
+      "owner": "kit",
+      "ownerComponentId": "C-POLICY",
+      "description": "The development rules text, shipped in the packed orchestrator plugin and read by every root session."
+    },
+    {
       "id": "D-DOCS",
       "name": "docs/",
       "owner": "kit",
@@ -209,6 +245,16 @@
       ],
       "change": "additive",
       "description": "Each fact has one owner: README for what/where, GUIDE for how, DEPLOYMENT for the normative procedure, TERMINOLOGY for words, PLAYBOOKS for per-preset texts, the case design for the library contract."
+    },
+    {
+      "id": "CT-RULES",
+      "name": "Development rules ownership",
+      "between": [
+        "C-POLICY",
+        "C-GUIDE"
+      ],
+      "change": "additive",
+      "description": "The development rules have exactly one owner, ROOT_POLICY in the orchestrator plugin; any other page points at it and never repeats its sentences. The guide keeps the measured traps, which are observations rather than the rule text."
     }
   ],
   "invariants": [
@@ -226,6 +272,11 @@
       "id": "INV-GATES",
       "text": "The tree gates stay green after every removal batch.",
       "scope": "C-AUDIT"
+    },
+    {
+      "id": "INV-RULE-OWNER",
+      "text": "A development rule's text appears in exactly one file; a page that needs it names the owner.",
+      "scope": "C-POLICY"
     }
   ],
   "decisions": [
@@ -264,6 +315,15 @@
       "decision": "Adopt guards 1, 3 and 4 from the proposal set after the owner approved the plan",
       "rationale": "Guard 3 (plugins/orchestrator/test/role-spellings.test.mjs) parses docs/GUIDE.md section 4 and asserts every spelling resolves; guard 4 lets case_update write linkedTaskId, dropping the old verification and keeping the red, so a case can be re-pointed at the implementing task (plugins/test-cases/test/relink.test.mjs); guard 1 shipped as scripts/check-preset-configs.mjs, wired into make verify, validating 147 preset plugin rows against their module schemas (a profile with the devops tool-todo config removed is refused with the missing field). The full server-boot mount proof remains open because it needs a boot budget and a roster API.",
       "alternatives": []
+    },
+    {
+      "id": "D7",
+      "decision": "Split the rule channels by lifetime and give each exactly one owner",
+      "rationale": "Method rules that must never be negotiable live in ROOT_POLICY (one owner, shipped in the packed plugin, read by every root on every step). Rules of THIS project change without a repack, so they belong in .dsh/rules.md, which the human edits in the Rules panel and which every agent reads as a prompt section. The long procedure stays the ponytail skill, loaded when the work is a code change. A sixth rule (f) states the delivery fact the owner's day was lost to: a rule in the kit reaches no agent until the machine is converged and the server restarted, and kit-update --check is the one owner of that answer. The owner chose to apply and restart by hand (2026-11-27), so the change ships in the tree and waits for convergence.",
+      "alternatives": [
+        "A computed prompt section that prints the drift on every turn (a new host plugin): rejected because it would re-implement the drift answer kit-update already owns, and it carries the cache-invalidation risk of a section that changes mid-turn.",
+        "Copying the whole ponytail procedure into the persona: rejected because every step pays for it and the five rules already carry the operative part."
+      ]
     }
   ],
   "openQuestions": [],
@@ -291,7 +351,20 @@
         "D-README"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwyyjv7v-sg4fqz",
+          "role": "DOCS",
+          "at": "2026-11-27T12:28:48.745Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyysopp-y4c885",
+          "role": "DOCS",
+          "at": "2026-11-27T12:40:58.666Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR2",
@@ -304,7 +377,20 @@
         "D-DOCS"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwyyjv7v-sg4fqz",
+          "role": "DOCS",
+          "at": "2026-11-27T12:28:48.745Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyysopp-y4c885",
+          "role": "DOCS",
+          "at": "2026-11-27T12:40:58.666Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR3",
@@ -315,15 +401,43 @@
         "D-AUDIT"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwyyjwok-kio6ez",
+          "role": "REVIEWER",
+          "at": "2026-11-27T12:28:50.647Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyysopp-y4c885",
+          "role": "DOCS",
+          "at": "2026-11-27T12:40:58.666Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR4",
       "processId": "P-TARGET",
       "componentId": "C-GUIDE",
-      "contractIds": [],
+      "contractIds": [
+        "CT-RULES"
+      ],
       "dataIds": [
         "D-GUIDE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TARGET",
+      "componentId": "C-POLICY",
+      "contractIds": [
+        "CT-RULES"
+      ],
+      "dataIds": [
+        "D-POLICY"
       ],
       "status": "planned",
       "tasks": []
@@ -339,11 +453,24 @@
         "D-DOCS"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwyyjv7v-sg4fqz",
+          "role": "DOCS",
+          "at": "2026-11-27T12:28:48.745Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwyysopp-y4c885",
+          "role": "DOCS",
+          "at": "2026-11-27T12:40:58.666Z",
+          "evidence": []
+        }
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "3ab74425f7c4cf811a42ac7856eeed218922984371d692138836bb52948f543c",
+  "fingerprint": "9170fd29706cb71d9f276c651baccc9fa8ce60536b204737e07568a3dd7bd4ac",
   "history": [
     {
       "revision": 1,
@@ -388,6 +515,94 @@
     {
       "revision": 6,
       "at": "2026-11-27T11:49:51.618Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-27T12:26:07.352Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR5 added; impacts: 1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-27T12:26:24.480Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-27T12:28:40.400Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-27T12:28:48.745Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwyyjv7v-sg4fqz -> FR1, FR2, NFR1"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-27T12:28:50.647Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwyyjwok-kio6ez -> FR3"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-27T12:29:08.403Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-27T12:29:12.828Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-27T12:40:58.666Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwyysopp-y4c885 -> FR1, FR2, FR3, NFR1"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-27T12:48:24.555Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwyysopp-y4c885 -> NFR1"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-27T12:48:49.984Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, NFR1 changed; impacts: 6"
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-27T12:48:53.571Z",
       "editedBy": "agent",
       "action": "upsert",
       "status": "ready",

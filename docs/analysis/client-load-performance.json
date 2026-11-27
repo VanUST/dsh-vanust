@@ -1,0 +1,340 @@
+{
+  "schemaVersion": 1,
+  "id": "client-load-performance",
+  "rev": 16,
+  "status": "ready",
+  "createdAt": "2026-11-27T14:12:22.251Z",
+  "updatedAt": "2026-11-27T15:05:29.917Z",
+  "updatedBy": "agent",
+  "title": "Клиент быстрее: измеренное открытие, интерактивность и бюджеты",
+  "requestedSolution": "Владелец, 2026-11-27: «займись оптимизацией клиента — сейчас очень лагает и может долго все грузить — надо понять в чем дело и ускорить».",
+  "businessOutcome": {
+    "problem": "Владелец: «сейчас очень лагает и может долго все грузить». Причина не названа, и без измерения любая правка будет угадыванием: в дереве есть подозреваемые (вендоренный Excalidraw на 3.4 МБ в designmap, несколько клиентских панелей, сборка без разбиения), но ни один не подтверждён числом.",
+    "outcome": "Интерфейс открывается быстро и реагирует без задержек: известны измеренные бюджеты (время до интерактивности, байты на холодном кэше, длинные задачи главного потока), и каждый следующий пакет плагинов проверяется против них.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Клиент грузится целиком и медленно",
+        "actors": [
+          "owner",
+          "browser",
+          "harness"
+        ],
+        "steps": [
+          "Страница открывается и грузит все клиентские плагины профиля",
+          "Часть из них — крупные вендоренные бандлы",
+          "Главный поток занят разбором и инициализацией",
+          "Взаимодействие отстаёт; никто не знает, какой пакет виноват"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Измерено, ранжировано, бюджеты держатся",
+        "actors": [
+          "owner",
+          "browser",
+          "harness",
+          "gate"
+        ],
+        "steps": [
+          "Холодный прогон даёт байты, время до интерактивности и длинные задачи",
+          "Каждый клиентский пакет измерен отдельно (байты и блокирующее время)",
+          "Топ-причины исправлены с доказательством до/после",
+          "Бюджеты записаны как условие приёмки следующего пакета"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Загруженность клиента измерена до правки: байты холодного открытия, время до интерактивности, длинные задачи главного потока и стоимость каждой панели — с методом и повтором прогона.",
+      "acceptance": [
+        "есть таблица: каждый запрос холодного открытия с байтами, и каждый клиентский пакет с размером на диске",
+        "есть тайминги: навигация → первый рендер → интерактивность, и суммарное блокирующее время",
+        "есть измеренная стоимость открытия каждой панели и потока ответа",
+        "топ-3 причины названы числами"
+      ],
+      "status": "deferred",
+      "reason": "Измерено: холодное открытие, длинные задачи, 2693 КБ в 7 запросах, размеры пакетов, H1 опровергнута, доска 35–87 мс, представления 1.2 мс, сервер 0.7–1.7 мс, триаж машины. Не измерены панели и ввод (сессия из чистого контекста не открывается) и не найдена причина 30-секундной загрузки чата: лента сессии — 2.17 МБ сжато / 7.6 МБ распаковано / 1632 записи, что для 30 секунд мало, значит нужен браузерный замер на уже открытой сессии."
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Названная причина устранена: холодное открытие и/или взаимодействие быстрее в измерении до/после, поведение панелей не изменилось.",
+      "acceptance": [
+        "исправление адресует названную измерением причину",
+        "до/после на тех же прогонах: байты и/или блокирующее время падают",
+        "поведение панелей не меняется",
+        "бюджет записан как условие"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Корневой раздел выходит из предела: свободно ≥20 ГБ, при этом данные проекта и гейты не пострадали.",
+      "acceptance": [
+        "есть карта диска с числами и список безопасного к удалению с размерами",
+        "освобождено ≥20 ГБ из кэшей и временных артефактов, df -h / до и после процитирован",
+        "гейты и данные проекта не тронуты: git status до/после, счётчики файлов state/ и docs/",
+        "названо, что оставлено на решение владельца"
+      ],
+      "status": "deferred",
+      "reason": "Выполнено и измерено: освобождено 34 ГБ (855 → 821 ГБ занято, 15 → 49 ГБ свободно, 99 → 95 %), удалены только кэши пакетных менеджеров (.cache/uv 11 ГБ, .npm/_cacache 2.9 ГБ) и временные копии в /tmp; защищённое цело — git status построчно совпадает, state/ 1018 файлов, docs/cases 631, plugins 29 сборок; связанные worktree /tmp/base-check и /tmp/head-check оставлены. Отложено: это разовая уборка, а не поведение с парой красный→зелёный; постоянный страж свободного места — отдельная задача."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-BOOT",
+        "name": "клиентский boot (список клиентских плагинов профиля)",
+        "responsibility": "Собирает список клиентских пакетов и грузит их при открытии страницы.",
+        "owner": "harness+kit",
+        "owns": [
+          "D-BOOT"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PANELS",
+        "name": "панели кита (designmap, project-state-panel, taskboard, project-rules)",
+        "responsibility": "Клиентские половины плагинов кита: сколько байт и сколько работы на главном потоке они добавляют.",
+        "owner": "kit",
+        "owns": [
+          "D-PANELS"
+        ],
+        "dependsOn": [
+          "C-BOOT"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-BOOT",
+      "name": "client boot: список пакетов и их размеры",
+      "owner": "harness+kit",
+      "ownerComponentId": "C-BOOT",
+      "description": "Список клиентских пакетов, которые грузятся при открытии страницы, и их байты."
+    },
+    {
+      "id": "D-PANELS",
+      "name": "клиентские сборки панелей кита",
+      "owner": "kit",
+      "ownerComponentId": "C-PANELS",
+      "description": "Клиентские половины панелей кита и их вклад в байты и длинные задачи."
+    }
+  ],
+  "contracts": [],
+  "invariants": [],
+  "decisions": [],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Межкомпонентная работа: клиентский boot, сборка пакетов и панели кита",
+      "Риск затронуть интерфейс, который уже проверен UI-прогонами",
+      "Без исходного измерения любая правка недоказуема"
+    ]
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-BOOT",
+      "contractIds": [],
+      "dataIds": [
+        "D-BOOT"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz2a6bl-99jtv9",
+          "role": "BACKEND",
+          "at": "2026-11-27T14:13:16.387Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwz3sdeb-lezthm",
+          "role": "BACKEND",
+          "at": "2026-11-27T14:55:24.919Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Измерено: открытие, длинные задачи, байты, пакеты, доска 35–87 мс, представления 1.2 мс, сервер 0.7–1.7 мс. Не измерены панели/ввод и причина 30 секунд: лента 7.6 МБ разбора для этого слишком мала."
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-PANELS",
+      "contractIds": [],
+      "dataIds": [
+        "D-PANELS"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-BOOT",
+      "contractIds": [],
+      "dataIds": [
+        "D-BOOT"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz3vrqf-4h932f",
+          "role": "BACKEND",
+          "at": "2026-11-27T14:57:57.000Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Сделано: 34 ГБ освобождено, защищённое цело; разовая уборка без поведения для пары красный→зелёный."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "7b48caac0259c1e36f542101540f8e6cf07b25134885cc0f1f52570c10d41a12",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T14:12:22.251Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T14:13:01.306Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T14:13:15.046Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T14:24:58.923Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T14:35:06.909Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-27T14:41:42.699Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-27T14:45:13.734Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-27T14:52:57.990Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-27T14:55:23.647Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz3sdeb-lezthm -> FR1"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-27T14:57:04.673Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed; impacts: 1"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-27T14:57:10.520Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-27T14:57:38.063Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 added; impacts: 4"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-27T14:57:50.983Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-27T14:58:02.186Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz3vrqf-4h932f -> FR3"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-27T15:05:24.187Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed; impacts: 3"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-27T15:05:29.917Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

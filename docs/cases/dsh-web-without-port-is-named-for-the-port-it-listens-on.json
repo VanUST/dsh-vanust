@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "id": "dsh-web-without-port-is-named-for-the-port-it-listens-on",
+  "title": "dsh web without --port is named for the port it listens on",
+  "requirement": "A dsh web started without --port (the composed port) is attributed to the TCP port it actually listens on, read from /proc/net/tcp and the process's own descriptors, so `dsh web --restart` can stop it. A portless process that listens nowhere is machine-wide evidence only and appears in no port's pid list; the check's own process tree is never named; the harness-replacement gate still sees every dsh web on the machine.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/test/kit-update-server-scope.test.mjs",
+  "runCommand": "node --test scripts/test/kit-update-server-scope.test.mjs",
+  "steps": [
+    "Start a synthetic dsh web without --port whose bin.js serves HTTP on a free port (SCOPE_LISTEN_PORT).",
+    "Run node scripts/kit-update.mjs --check --json --port <that port>: server.pids must name the process.",
+    "Run the same check for another free port: that process must not appear.",
+    "Start a synthetic dsh web without --port that listens nowhere and check a free port: it must appear in no port list, only in the machine scan.",
+    "On this machine: a check run outside the server's process tree names pid 6272 for --port 3080."
+  ],
+  "expected": "server.pids names the portless server for the port its listening socket is bound to and for no other; a silent portless process stays in the machine scan with port null; the live :3080 server is named for 3080 when the check is not its descendant, and never TERMed.",
+  "tags": [
+    "kit-update",
+    "server-watchdog",
+    "proc-scan",
+    "portless-server"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/kit-update.mjs",
+      "sha256": "167748a7201b5dafb5e9b09c67503d18146da96e213799e4b6f4a864b30a5160"
+    },
+    {
+      "path": "scripts/test/kit-update-server-scope.test.mjs",
+      "sha256": "4310bfcba7e3264e80a73324907faab75e52eb8350ca1c09581947de5ca00523"
+    }
+  ],
+  "linkedTaskId": "task-mwyzvd59-o90csy",
+  "criterionId": "AC-1",
+  "reqId": "AC-1",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+  "purpose": "implementation",
+  "testHash": "4310bfcba7e3264e80a73324907faab75e52eb8350ca1c09581947de5ca00523",
+  "failsWhen": "A dsh web started without --port is no longer attributed to its listening socket (server.pids stays empty for its port, so a restart cannot stop it), or a portless process that listens nowhere is attributed to a port anyway.",
+  "trigger": "The live dsh web server started as `dsh web` with no --port, while kit-update --check --json runs with that server's port.",
+  "oracle": "The kernel's listening-socket table plus the process's descriptors name the port the process actually serves; the requirement is that a restart stops that server, and that no pid is attributed to a port the process does not listen on.",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-27T13:08:57.167Z",
+  "updatedAt": "2026-11-27T13:09:16.170Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T13:09:09.018Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T13:09:16.170Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyzzkpo-r072m-1",
+      "at": "2026-11-27T13:09:09.016Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+        "taskId": "task-mwyzvd59-o90csy"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 6679,
+      "commandSha256": "1af26b2c9ec74ac9e20db81913c0c51c1a97eaba0bf4ddb0853e6f3b3a0209cf",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dsh-web-without-port-is-named-for-the-port-it-listens-on/mwyzzkpo-r072m-1/stdout.log",
+      "stderr": "docs/cases/runs/dsh-web-without-port-is-named-for-the-port-it-listens-on/mwyzzkpo-r072m-1/stderr.log",
+      "summary": "docs/cases/runs/dsh-web-without-port-is-named-for-the-port-it-listens-on/mwyzzkpo-r072m-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyzzrdj-he173-1",
+      "at": "2026-11-27T13:09:16.169Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+        "taskId": "task-mwyzvd59-o90csy"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 5308,
+      "commandSha256": "1af26b2c9ec74ac9e20db81913c0c51c1a97eaba0bf4ddb0853e6f3b3a0209cf",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dsh-web-without-port-is-named-for-the-port-it-listens-on/mwyzzrdj-he173-1/stdout.log",
+      "stderr": "docs/cases/runs/dsh-web-without-port-is-named-for-the-port-it-listens-on/mwyzzrdj-he173-1/stderr.log",
+      "summary": "docs/cases/runs/dsh-web-without-port-is-named-for-the-port-it-listens-on/mwyzzrdj-he173-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-27T13:09:09.018Z",
+    "runId": "mwyzzkpo-r072m-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test scripts/test/kit-update-server-scope.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "/home/iustimov/dsh-kit",
+    "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+      "taskId": "task-mwyzvd59-o90csy"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-27T13:09:16.170Z",
+    "command": "node --test scripts/test/kit-update-server-scope.test.mjs",
+    "exitCode": 0,
+    "runId": "mwyzzrdj-he173-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+      "taskId": "task-mwyzvd59-o90csy"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  }
+}

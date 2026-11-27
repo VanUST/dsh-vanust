@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "dependson-is-expressible-through-the-task-tools-and-blocks-t",
+  "title": "dependsOn is expressible through the task tools and blocks the start",
+  "requirement": "A caller can express order on the board: task_create and task_update declare dependsOn, the update writes it to the row, and a task whose dependency is not done cannot become active (dependency_open naming the task it waits for) until that dependency is done.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/dependency-open.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/dependency-open.test.mjs",
+  "steps": [
+    "Create the dependency task and a second task with dependsOn: [that id] through task_create.",
+    "Patch the second task's dependsOn through task_update and read the row back.",
+    "task_update the second task to active while the dependency is open.",
+    "Repeat on a board whose dependency is done."
+  ],
+  "expected": "Both tool schemas list dependsOn; the created and patched rows carry it; the start is refused with code dependency_open and a message naming the dependency, the row stays open; on a board whose dependency is done the same update returns ok with status active.",
+  "tags": [
+    "taskboard",
+    "lifecycle",
+    "dependsOn",
+    "tool-schema"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "915b5836aca8b7948264aa4cf3bf6bbb24745008f69009c581816000a9a45c95"
+    },
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "a993b306c4b989349c6acc85bbfa1c0651d7cbc8e3a9461278ce048380a01f89"
+    },
+    {
+      "path": "plugins/taskboard/test/dependency-open.test.mjs",
+      "sha256": "8c09089249943e2ae8d32b97469ec73b840cdda5360909afb5bf29c02fbbfe44"
+    }
+  ],
+  "linkedTaskId": "task-mwz1vojd-oatvyh",
+  "criterionId": "AC-1",
+  "reqId": "AC-1",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+  "purpose": "implementation",
+  "testHash": "8c09089249943e2ae8d32b97469ec73b840cdda5360909afb5bf29c02fbbfe44",
+  "revision": 2,
+  "createdAt": "2026-11-27T14:07:23.357Z",
+  "updatedAt": "2026-11-27T14:07:26.653Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T14:07:26.653Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwz22oba-zun2t-1",
+      "at": "2026-11-27T14:07:26.651Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+        "taskId": "task-mwz1vojd-oatvyh"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 431,
+      "commandSha256": "82831b51406df47af80c48e543d33c93c3989c8cf6814207c15979b938ae7595",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dependson-is-expressible-through-the-task-tools-and-blocks-t/mwz22oba-zun2t-1/stdout.log",
+      "stderr": "docs/cases/runs/dependson-is-expressible-through-the-task-tools-and-blocks-t/mwz22oba-zun2t-1/stderr.log",
+      "summary": "docs/cases/runs/dependson-is-expressible-through-the-task-tools-and-blocks-t/mwz22oba-zun2t-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": null
+}

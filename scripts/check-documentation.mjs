@@ -10,6 +10,10 @@
  *   because a table that describes a smaller deployment than the one installed is drift an
  *   agent cannot detect: it has nothing to compare against.
  *
+ *   The rule-ownership claim is the same discipline applied to prose that must not be copied: the
+ *   development rules have exactly one owner (the orchestrator policy), so a copy of one of them
+ *   in the guide fails here instead of drifting from it.
+ *
  * INPUTS
  *   None. Reads the canonical profile patch, the plugin inventory, the procedure and user
  *   documents, and the installer, updater and start scripts, all relative to this script's
@@ -340,6 +344,41 @@ if (inventory.missing === true) {
     'every stated plugin count is the committed inventory count',
     rows.length > 0 && mismatches.length === 0,
     mismatches.length === 0 ? `${tracked} committed plugin(s), every count agrees` : mismatches.join(' | '),
+  )
+}
+
+// 7. THE DEVELOPMENT RULES HAVE ONE OWNER. The five rules every root reads on every step live in
+//    the orchestrator policy; the guide points at them and keeps the traps. A copy in the guide is
+//    the defect the first rule names - two texts that drift, and the copy nobody reads wins -
+//    measured 2026-11-27, when the guide and the policy each claimed to be the rules' home. The
+//    policy is checked for all five openings; the guide for none of them.
+const RULE_OWNER = 'plugins/orchestrator/orchestrator.mjs'
+const RULE_OPENINGS = [
+  'A rule lives in ONE place',
+  'A tool that exists is not a behaviour that changed',
+  'Prove by running, not by reading',
+  'The smallest complete change',
+  'Say what you skipped',
+  // The delivery rule. It was added after the other five and the claim kept passing without it,
+  // so a rule could be deleted from the policy and nothing failed: the check now counts what
+  // the policy actually carries, not what it carried the day it was written.
+  'A rule in the kit is not a rule in force',
+]
+const policy = read(RULE_OWNER)
+const guide = read('docs/GUIDE.md')
+if (policy.missing === true || guide.missing === true) {
+  claim('the development rules have one owner', false, `${policy.missing === true ? RULE_OWNER : 'docs/GUIDE.md'} is missing`)
+} else {
+  const absent = RULE_OPENINGS.filter((opening) => !policy.text.includes(opening))
+  const copied = RULE_OPENINGS.filter((opening) => guide.text.includes(opening))
+  claim(
+    'the development rules have one owner',
+    absent.length === 0 && copied.length === 0,
+    absent.length > 0
+      ? `absent from ${RULE_OWNER}: ${absent.join('; ')}`
+      : copied.length > 0
+        ? `docs/GUIDE.md repeats ${copied.join('; ')} - point at ${RULE_OWNER} instead`
+        : `${RULE_OPENINGS.length} rule(s) in ${RULE_OWNER}, none copied into docs/GUIDE.md`,
   )
 }
 

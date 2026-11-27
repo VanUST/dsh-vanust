@@ -2,15 +2,15 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 269 · TASK 338 · TEST 98 · event 2111
+REQ 277 · TASK 354 · TEST 104 · event 2310
 
 ## Gaps
 
-- REQ without TASK: 267 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 336
+- REQ without TASK: 275 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
+- TASK without reqId: 352
 - TEST without reqId: 52
 
-## Open requirements (19)
+## Open requirements (15)
 
 - REQ-111 proposed: Инструмент начинает вход в OpenAI (ChatGPT Plus/Pro) и отдаёт владельцу ссылку и код подтверждения.
 - REQ-112 proposed: После подтверждения запись llm-pi-ai/openai-codex лежит в хранилище харнесса и маршрут openai-codex 

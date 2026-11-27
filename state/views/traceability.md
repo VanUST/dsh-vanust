@@ -268,11 +268,19 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-262 | done | — | — | — | no |
 | REQ-263 | done | — | — | — | no |
 | REQ-264 | done | — | — | — | no |
-| REQ-265 | proposed | — | — | — | no |
-| REQ-266 | proposed | — | — | — | no |
-| REQ-267 | proposed | — | — | — | no |
-| REQ-268 | proposed | — | — | — | no |
-| REQ-269 | proposed | — | — | — | no |
+| REQ-265 | rejected | — | — | — | no |
+| REQ-266 | rejected | — | — | — | no |
+| REQ-267 | rejected | — | — | — | no |
+| REQ-268 | rejected | — | — | — | no |
+| REQ-269 | rejected | — | — | — | no |
+| REQ-270 | rejected | — | TEST-099 | — | no |
+| REQ-271 | rejected | — | — | — | no |
+| REQ-272 | rejected | — | — | — | no |
+| REQ-273 | rejected | — | TEST-102 | — | no |
+| REQ-274 | rejected | — | — | — | no |
+| REQ-275 | rejected | — | — | — | no |
+| REQ-276 | proposed | — | — | — | no |
+| REQ-277 | rejected | — | — | — | no |
 
 ## Tests
 
@@ -376,3 +384,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-096 | REQ-254 | verified | — |
 | TEST-097 | REQ-255 | verified | — |
 | TEST-098 | REQ-257 | verified | — |
+| TEST-099 | REQ-270 | unverified | — |
+| TEST-100 | AC-1 | verified | — |
+| TEST-101 | AC-1 | verified | — |
+| TEST-102 | REQ-273 | unverified | — |
+| TEST-103 | AC-1 | unverified | — |
+| TEST-104 | AC-1 | unverified | — |

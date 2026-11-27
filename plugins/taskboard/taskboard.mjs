@@ -339,7 +339,7 @@ function batchRefusal(ids, selfId) {
  * and the row came back {ok:true} with nothing written). A test now compares this list with the
  * tool's own parameters, so a field declared and not written fails the suite instead of the caller.
  */
-export const TASK_UPDATE_FIELDS = Object.freeze(['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason', 'reqIds', 'steps', 'stepsDone', 'caseIds', 'verification', 'criteria', 'constraints', 'reviewedTaskIds', 'reviewResults', 'chore', 'choreReason', 'waiver'])
+export const TASK_UPDATE_FIELDS = Object.freeze(['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason', 'reqIds', 'steps', 'stepsDone', 'caseIds', 'verification', 'criteria', 'constraints', 'reviewedTaskIds', 'reviewResults', 'dependsOn', 'chore', 'choreReason', 'waiver'])
 
 /** A task's specialty: a role with its preset, or `inline` for work the owner does itself. */
 function assignmentOf(task) {
@@ -473,6 +473,40 @@ function timeline(task, kind, actor, text, extra = {}, limit = 120) {
 }
 
 /**
+ * The ids this task declares in `dependsOn` that are not accepted yet.
+ *
+ * A missing row counts as open: a dependency this board cannot show as done is not a
+ * dependency anybody can prove is finished, and starting the work on that assumption is
+ * the failure the field exists to prevent.
+ */
+function openDependencies(task, board) {
+  const declared = Array.isArray(task?.dependsOn) ? task.dependsOn.filter((id) => typeof id === 'string' && id !== '') : []
+  if (declared.length === 0) return []
+  const tasks = Array.isArray(board?.tasks) ? board.tasks : []
+  const byId = new Map(tasks.map((entry) => [entry.id, entry]))
+  return declared.filter((id) => {
+    const dependency = byId.get(id)
+    return dependency === undefined || displayStatus(dependency.status) !== 'done'
+  })
+}
+
+/**
+ * Why this task may not become active yet, or null. THE ONE RULE both doors read: the status
+ * patch (transitionRefusal) and the child link (linkChild, which is how delegate_task starts
+ * a task). A rule kept in one of them only would let a delegated task run beside the step it
+ * consumes - a tester measuring half the old build - with every gate green.
+ */
+function dependencyRefusal(task, board) {
+  const waitingOn = openDependencies(task, board)
+  if (waitingOn.length === 0) return null
+  return {
+    code: 'dependency_open',
+    waitingOn,
+    message: `dependency_open: "${task.id}" waits for ${waitingOn.map((id) => `"${id}"`).join(', ')}; a task starts only after the work whose output it consumes is done`,
+  }
+}
+
+/**
  * Why one status change is refused, or null when the Host accepts it.
  *
  * The rules live HERE, not in the panel. A model tool and the human's panel go through
@@ -490,12 +524,16 @@ function timeline(task, kind, actor, text, extra = {}, limit = 120) {
  *   use_resume            any move out of paused through an ordinary update
  *   terminal              any move out of done or cancelled
  *   needs_review          task_close on a task that is not in review
+ *   dependency_open       -> active while a task it depends on is not done (the refusal
+ *                         names those tasks; see dependencyRefusal)
  *
  * @param task - The stored task.
  * @param patch - The requested patch.
+ * @param board - The stored board, for the dependency check. Omitted by a caller that has
+ *   only the row; a task that declares no dependency is decided the same either way.
  * @returns The refusal code, or null.
  */
-function transitionRefusal(task, patch) {
+function transitionRefusal(task, patch, board) {
   if (patch === null || typeof patch !== 'object') return null
   const from = displayStatus(task.status)
   // A BLANK REASON IS NOT A REASON. On the way into blocked it is a missing reason; on an
@@ -515,6 +553,11 @@ function transitionRefusal(task, patch) {
   if (from === 'done' || from === 'cancelled') return 'terminal'
   if (to === 'cancelled' && Array.isArray(task.childSessionIds) && task.childSessionIds.length > 0) return 'use_close'
   if (to === 'active') {
+    // ORDER IS MECHANICAL, NOT REMEMBERED. A task whose `dependsOn` is not done does not
+    // start: "deploy, then measure the deployed build" is a fact on the board, not a note in
+    // the orchestrator's head. Checked before the role rule, because a role does not make a
+    // task startable - the dependency does.
+    if (dependencyRefusal(task, board) !== null) return 'dependency_open'
     // A task that starts moving belongs to somebody: a specialist role with an owner, or
     // inline work the owner does itself. A role without an owner is a task nobody picked up.
     // The assignment may arrive in the same patch (`inline`, `role`, `owner`), which is how
@@ -1593,8 +1636,13 @@ function createService(config, logger, hooks = {}) {
           return { value: { ok: false, code: 'stale', task } }
         }
         const patch = input?.patch !== null && typeof input?.patch === 'object' ? input.patch : input
-        const refusal = transitionRefusal(task, patch)
-        if (refusal !== null) return { value: { ok: false, code: refusal, task } }
+        const refusal = transitionRefusal(task, patch, board)
+        if (refusal !== null) {
+          // dependency_open NAMES THE TASK IT WAITS FOR. A code alone sends the caller
+          // hunting the board for a row it was never told about.
+          const dependency = refusal === 'dependency_open' ? dependencyRefusal(task, board) : null
+          return { value: { ok: false, code: refusal, task, ...(dependency === null ? {} : { waitingOn: dependency.waitingOn, message: dependency.message }) } }
+        }
         if (validWaiver(patch.waiver) && typeof hooks.waive === 'function') hooks.waive(cwd, 'steps_incomplete', patch.waiver, { id })
         if (typeof patch.title === 'string' && patch.title.trim() === '') return { value: { ok: false, code: 'empty_title', task } }
         // The status a legacy row MEANS. A patch that names it is not a transition, so the
@@ -1757,6 +1805,14 @@ function createService(config, logger, hooks = {}) {
         // frame-deletion abort. The link is therefore a LEASE TRANSFER: every other task
         // loses the id, its child row is closed as `moved`, and the move is on its timeline
         // so the old task does not read as "still delegated" with no visible reason.
+        // THE OTHER DOOR INTO active. delegate_task creates the row open and starts the child,
+        // so a dependency rule that lived only in the status patch would let a delegated task
+        // run beside the step it consumes. Refused BEFORE the child id is recorded: a refused
+        // link leaves no session on the row.
+        const dependency = dependencyRefusal(task, board)
+        if (dependency !== null && !['done', 'cancelled', 'paused'].includes(displayStatus(task.status))) {
+          return { value: { ok: false, code: dependency.code, task, waitingOn: dependency.waitingOn, message: dependency.message } }
+        }
         const movedFrom = []
         for (const other of board.tasks) {
           if (other.id === task.id) continue
@@ -2773,6 +2829,7 @@ export function apply(ctx, config = {}) {
       criteria: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', description: 'Stable id, for example AC-1 or REQ-12-C01.' }, text: { type: 'string', description: 'One checkable sentence.' } }, additionalProperties: false, description: 'Acceptance criteria with stable ids. A bare string gets AC-n. A case names one by criterionId, and an independent task closes only when every criterion has an acceptable case.' } },
       constraints: { type: 'array', items: { type: 'string' }, description: 'Standing rules the work must obey (no new dependency, no schema change, keep the public CLI).' },
       reviewedTaskIds: { type: 'array', items: { type: 'string' }, description: 'Batch review: the 2-8 task ids ONE review task covers. The reviewer returns a verdict per id and closes none of them; the orchestrator closes each one itself.' },
+      dependsOn: { type: 'array', items: { type: 'string' }, description: 'The task ids whose OUTPUT this work consumes: it cannot become active until every one of them is done (refused with dependency_open, which names them). Use it instead of remembering an order: deploy, then measure the deployed build.' },
       caseIds: { type: 'array', items: { type: 'string' }, description: 'The cases this task owes for acceptance (their ids). case_record attaches them automatically; set them here to attach or repair by hand. An empty list means the task owes no case.' },
       chore: { type: 'boolean', description: 'true when the work is justified housekeeping rather than a requirement; needs a non-empty choreReason.' },
       choreReason: { type: 'string', description: 'Why this chore is needed; required with chore:true.' },
@@ -2864,6 +2921,7 @@ export function apply(ctx, config = {}) {
       criteria: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, text: { type: 'string' } }, additionalProperties: false, description: 'Acceptance criteria with stable ids; a bare string gets AC-n. An independent task closes only when every criterion is covered by an acceptable case.' } },
       constraints: { type: 'array', items: { type: 'string' }, description: 'Standing rules the work must obey.' },
       reviewedTaskIds: { type: 'array', items: { type: 'string' }, description: 'Batch review: the 2-8 task ids this ONE review task covers.' },
+      dependsOn: { type: 'array', items: { type: 'string' }, description: 'Replace the task ids whose OUTPUT this work consumes. The task cannot become active while any of them is not done (dependency_open names them); an empty list removes the chain.' },
       reviewResults: { type: 'array', items: { type: 'object', properties: { taskId: { type: 'string' }, verdict: { type: 'string', enum: ['pass', 'fail'] }, findings: { type: 'array', items: { type: 'string' } }, evidence: { type: 'array', items: { type: 'string' } } }, additionalProperties: false, description: 'The per-task verdict of a batch review: one entry for every reviewedTaskIds entry. The review task closes only when every reviewed task has a verdict.' } },
       caseIds: { type: 'array', items: { type: 'string' }, description: 'The case ids this task owes for acceptance. Use it to attach a case that case_record could not link (no taskboard mounted at write time) or to detach one. An empty list means the task owes no case.' },
       chore: { type: 'boolean' }, choreReason: { type: 'string' },

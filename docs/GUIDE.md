@@ -277,34 +277,22 @@ and runs its case is refused `SELF_AUTHORED` even when the implementer was anoth
 | L1 | a contained feature inside the existing components | `make verify` + `make test`, a case when the behaviour is worth pinning |
 | L2 | cross-component, contract, data, security, money, migration, concurrency | everything above plus an independent acceptance case (TESTER), red on the wrong product, then green |
 
-## 8. Working rules (the same rules the orchestrator prompt carries)
+## 8. Working rules
 
-1. **A rule lives in ONE place.** Two copies of a rule — a default and the page that states it, a
-   validator and its message, two config keys that move together — drift silently, and the copy
-   nobody reads wins. Fix the owner and make the other copy read it; if the duplication is
-   deliberate (a proof that copies a policy by design), say why in a comment.
-2. **A tool that exists is not a behaviour that changed.** A registered tool, an added config row, a
-   declared default — none is the behaviour it promises until the caller path, the activation and
-   the effect are observed. A required field that is missing fails silently (a preset whose
-   required plugin config was absent mounted nothing and vanished from the roster).
-3. **Prove by running, not by reading.** Defects of the class above are found by running the product,
-   not by reading the diff. End acceptance with a command and its output, or one browser
-   observation, and name what you did not run.
-4. **The smallest complete change.** Reuse what exists; never add a dependency for a few lines;
-   deletion beats addition; fix the root cause once in the shared code; keep every caller, fixture
-   and validation the change touches. Never cut validation at a trust boundary, error handling that
-   prevents data loss, security or accessibility.
-5. **Say what you skipped.** One or two lines at the end: what you did not check and the risk it
-   carries.
-
-Plus the orchestration rules the root reads: answering is not work (no task for a question); report
-once, when the work is done; batch the work into one task; deferred/child work must not interrupt a
-running agent; the running deployment is a shared resource; scope is a claim.
+The rules are not written on this page. Their one owner is the `Development rules` paragraph of
+`ROOT_POLICY` in `plugins/orchestrator/orchestrator.mjs`: every root session reads it on every step,
+and it covers one owner per rule, a registered tool that is not yet a behaviour, a defect found by
+running rather than reading, the smallest change that is complete, what you skipped, and the rule
+that a change in the kit only counts once the machine is converged and restarted. A second copy here
+would drift, and the copy nobody reads is the one that wins — so this page keeps §9 instead: the
+traps each rule prevents. The long form of the smallest-change discipline is the `ponytail` skill,
+loaded when the work is a code change. The orchestration half of the same policy (the taskboard,
+batching, the runtime lane, scope as a claim) is in that text too, and is not restated here.
 
 ## 9. Traps measured here (each cost a retry)
 
 These are the failures this repository produced in one day. The rule beside each is what prevents
-the next one — they are the reason §8 exists.
+the next one — they are the reason §8 points at the rules instead of restating them.
 
 1. **A preset composes but never mounts.** `--dump-config` showed the row, the boot log was silent,
    the composer picker simply lacked it. Cause: `tool-todo` requires its config (`allowParallelInProgress`)
@@ -402,10 +390,12 @@ proposal names its cost and the decision it needs.
    facts it relies on (which doc/contract owns the rule, which command proves the behaviour, which
    resource is shared). A missing fact becomes a CONTEXT brief instead of an edit. Cost: one extra
    sentence per task; no enforcement.
-8. **The defect class is named in the development rules.** The current `Development rules` block
-   already carries one-owner, tool-is-not-behaviour and prove-by-running; extend it with the
-   measured examples (a preset that mounted nothing, a role alias, a self-authored case) so the
-   root recognises the shape. Cost: prompt bytes.
+8. **The defect class is named in the development rules (ADOPTED, 2026-11-27).** The
+   `Development rules` block in `ROOT_POLICY` carries one-owner, tool-is-not-behaviour,
+   prove-by-running, the smallest complete change, what you skipped, and rule (f): a change in the
+   kit is not in force until the machine is converged and the server restarted. Rules (a)-(c) name
+   the measured shapes (a preset that mounted nothing, a role alias, a self-authored case). The
+   guide keeps neither list: §8 is a pointer, and `scripts/check-documentation.mjs` refuses a copy.
 
 **Where the current design already prevents it:** the tool-families allow list (a role cannot use
 what it was not granted), the proof-guard write scope, the analysis gate (L1/L2 needs a record),
@@ -434,4 +424,10 @@ The normative steps live in `rules/DEPLOYMENT.md`: §2 fresh machine (`./install
 restart), §4 rollback (find the commit, check it out, converge on it, prove `drift: null`), §5
 the checks, §6 the rules you must not break, §7 the first-run checks, §8 troubleshooting. This
 guide deliberately does not repeat them.
+
+**`dsh web` is the one command.** The `dsh` on `PATH` is the kit's wrapper
+(`scripts/dsh-wrapper.sh`, installed as `$DSH_HOME/bin/dsh`): it converges the machine when the
+port is free, refuses to boot a stale profile when a server is already up, and `dsh web --restart`
+stops, converges when the kit differs, and starts. §3 of the procedure has the three paths and the
+log file.
 

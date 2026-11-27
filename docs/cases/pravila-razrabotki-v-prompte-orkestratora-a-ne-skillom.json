@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "pravila-razrabotki-v-prompte-orkestratora-a-ne-skillom",
+  "title": "Правила разработки в промпте оркестратора, а не скиллом",
+  "requirement": "Владелец требует, чтобы свод правил разработки действовал в пресете оркестратора в каждой сессии, а не оставался скиллом, который надо загрузить; и чтобы правило «изменение в проекте не действует, пока машина не сведена» было частью этого свода.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "Это требование к тексту системного промпта, а не поведение продукта: наблюдаемого поведения, которое можно прогнать командой, у него нет. Доказательство — проверка дерева (scripts/check-documentation.mjs: правила есть в политике и не скопированы в GUIDE) плюс прогон kit-update --check на машине, где развёртывание отстало. Automated-кейс здесь подменил бы прогон продукта чтением файла.",
+  "steps": [
+    "Прочитать раздел Development rules в ROOT_POLICY (plugins/orchestrator/orchestrator.mjs) и убедиться, что в нём шесть пунктов, включая (f).",
+    "Прочитать docs/GUIDE.md §8 и убедиться, что там указатель на владельца, а не копия пяти формулировок.",
+    "Прогнать node scripts/check-documentation.mjs и увидеть PASS «the development rules have one owner».",
+    "На машине, где применена старая сборка, прогнать node scripts/kit-update.mjs --check --json и увидеть расхождение, называющее оркестратор."
+  ],
+  "expected": "Каждая корневая сессия читает правила разработки в системном промпте без загрузки скилла; копии правил в документации нет; правило о сведении машины называет единственную команду проверки.",
+  "tags": [
+    "orchestrator-policy",
+    "one-owner",
+    "delivery",
+    "intake"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwyyh01g-ocsn5d",
+  "reqId": "REQ-270",
+  "authorRole": "orchestrator",
+  "authorPreset": "orchestrator",
+  "authorSessionId": "session-fe097c33-7034-422a-aec2-67cc91eaefa2",
+  "purpose": "acceptance",
+  "revision": 1,
+  "createdAt": "2026-11-27T12:29:24.972Z",
+  "updatedAt": "2026-11-27T12:29:24.972Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}
