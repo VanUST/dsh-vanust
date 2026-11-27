@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-hygiene-guide-and-docs",
-  "rev": 4,
+  "rev": 6,
   "status": "ready",
   "createdAt": "2026-11-27T11:26:08.208Z",
-  "updatedAt": "2026-11-27T11:39:08.633Z",
+  "updatedAt": "2026-11-27T11:49:51.618Z",
   "updatedBy": "agent",
   "title": "Project hygiene: one working guide, durable docs only, a legacy audit, and the orchestrator lessons",
   "requestedSolution": "Owner, 2026-11-27: after a day of work, clean the project up. Write ONE guide file for working in the project - tools, deployment principles, available functionality - so future sessions start with the right context, and fold in every problem that came from a wrong or insufficient understanding of that context. Deduplicate and update the documentation, delete everything that is runtime documentation (plans, check results) because it goes stale. Audit the codebase for junk and legacy - the same class of problem hit today. Propose how the orchestrator preset should account for this class of problem.",
@@ -258,6 +258,12 @@
       "decision": "A documentation-only initiative keeps its evidence in the tree gates and the deletion inventory, not in a red/green TEST",
       "rationale": "A deleted stale page has no behaviour to drive: the case library needs an observed behaviour, and the guide forbids hand-writing a TEST row. The gates (make verify, make test, the dangling-reference scan, the plugin/tarball inventory) are the measurable acceptance here, and the requirements stay planned until the owner decides whether the analysis gate should accept that form.",
       "alternatives": []
+    },
+    {
+      "id": "D6",
+      "decision": "Adopt guards 1, 3 and 4 from the proposal set after the owner approved the plan",
+      "rationale": "Guard 3 (plugins/orchestrator/test/role-spellings.test.mjs) parses docs/GUIDE.md section 4 and asserts every spelling resolves; guard 4 lets case_update write linkedTaskId, dropping the old verification and keeping the red, so a case can be re-pointed at the implementing task (plugins/test-cases/test/relink.test.mjs); guard 1 shipped as scripts/check-preset-configs.mjs, wired into make verify, validating 147 preset plugin rows against their module schemas (a profile with the devops tool-todo config removed is refused with the missing field). The full server-boot mount proof remains open because it needs a boot budget and a roster API.",
+      "alternatives": []
     }
   ],
   "openQuestions": [],
@@ -337,7 +343,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "2c40c972e6ff94e4579dde533903792838ff8b30c8dda988caae59877dab0194",
+  "fingerprint": "3ab74425f7c4cf811a42ac7856eeed218922984371d692138836bb52948f543c",
   "history": [
     {
       "revision": 1,
@@ -366,6 +372,22 @@
     {
       "revision": 4,
       "at": "2026-11-27T11:39:08.633Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T11:49:46.090Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-27T11:49:51.618Z",
       "editedBy": "agent",
       "action": "upsert",
       "status": "ready",
