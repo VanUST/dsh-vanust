@@ -17,7 +17,7 @@
  *   `lockStaleMs` is removed with a warning instead of blocking the workspace forever.
  */
 
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join, relative, sep } from 'node:path'
 import { parse, serialize } from './format.mjs'
@@ -201,18 +201,102 @@ export function createStateService(options = {}) {
     return events
   }
 
+  /**
+   * THE SEQ COUNTER, next to the journal.
+   *
+   * WHY. `appendJournal` used to read and parse the WHOLE journal before every write, only to
+   * learn the highest `seq`: measured 140 ms on the 7.69 MB / 3158-line journal of
+   * ~/tasks/autolabel_pipeline (2026-11-27), and the cost grew with every event ever written.
+   * `events.seq` holds that number as one line; it is written atomically (temp + rename) right
+   * after the event's own append, so the two cannot disagree by more than one crash.
+   *
+   * WHY THE TAIL IS READ TOO. A crash between the append and the counter write, a journal edited
+   * by hand, or a merged journal all leave the counter behind the file. The last 64 KB of the
+   * journal are parsed on every append (a constant-size read) and the higher of the two wins, so
+   * a number is never handed out twice. Without a counter at all (the first run of this version)
+   * the journal is read once, as before, and the counter is seeded from it.
+   */
+  const SEQ_FILE = 'events.seq'
+
+  /** The highest `seq` in the journal's last 64 KB, or 0. A malformed line is not a source. */
+  async function journalTailSeq() {
+    let handle
+    try {
+      handle = await open(join(root, 'events.jsonl'), 'r')
+    } catch (error) {
+      if (error.code === 'ENOENT') return 0
+      throw error
+    }
+    try {
+      const { size } = await handle.stat()
+      const span = Math.min(size, 64 * 1024)
+      if (span === 0) return 0
+      const buffer = Buffer.alloc(span)
+      await handle.read(buffer, 0, span, size - span)
+      let max = 0
+      for (const line of buffer.toString('utf8').split('\n')) {
+        const text = line.trim()
+        if (text === '' || text[0] !== '{') continue
+        try {
+          const parsed = JSON.parse(text)
+          if (typeof parsed?.seq === 'number' && parsed.seq > max) max = parsed.seq
+        } catch {
+          // A line cut by the 64 KB window, or a malformed one: not a seq source.
+        }
+      }
+      return max
+    } finally {
+      await handle.close()
+    }
+  }
+
+  async function readSeqCounter() {
+    try {
+      const value = Number.parseInt((await readFile(join(root, SEQ_FILE), 'utf8')).trim(), 10)
+      return Number.isSafeInteger(value) && value >= 0 ? value : null
+    } catch {
+      return null
+    }
+  }
+
+  async function writeSeqCounter(seq) {
+    const target = join(root, SEQ_FILE)
+    const temp = `${target}.${process.pid}.tmp`
+    await writeFile(temp, `${seq}\n`, { encoding: 'utf8' })
+    await rename(temp, target)
+  }
+
+  /** The journal's highest `seq`, in constant time; see the counter note above. */
+  async function journalLastSeq() {
+    const counter = await readSeqCounter()
+    if (counter === null) {
+      const events = await readJournal()
+      const migrated = events.reduce((max, entry) => (typeof entry?.seq === 'number' && entry.seq > max ? entry.seq : max), 0)
+      await writeSeqCounter(migrated)
+      return migrated
+    }
+    const tail = await journalTailSeq()
+    if (tail > counter) {
+      await writeSeqCounter(tail)
+      return tail
+    }
+    return counter
+  }
+
   async function appendJournal(event) {
     await mkdir(root, { recursive: true })
-    const events = await readJournal()
     // `seq` is the line number, not an identity: a merged journal can hold a malformed line, so
     // the next number is one past the HIGHEST, never the line count (which would repeat a number).
-    const seq = events.reduce((max, entry) => (typeof entry?.seq === 'number' && entry.seq > max ? entry.seq : max), 0) + 1
+    const seq = (await journalLastSeq()) + 1
     const record = { seq, at: now(), ...event }
     // `eid` is the event's content identity: two machines can write the same change, and the
     // state merge (scripts/state-merge.mjs) deduplicates on it. `seq` cannot serve, because each
     // machine numbers its own lines.
     record.eid = sha256([record.at, record.op ?? '', record.kind ?? '', record.id ?? '', JSON.stringify(record.record ?? null), typeof record.body === 'string' ? record.body : ''].join('|'))
     await writeFile(join(root, 'events.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a', encoding: 'utf8' })
+    // AFTER the append: a counter that ran ahead would leave a hole in the numbering if the
+    // process died here, while a counter that lags is repaired by the tail read above.
+    await writeSeqCounter(seq)
     return record
   }
 
@@ -675,8 +759,8 @@ export function createStateService(options = {}) {
             }
           }
         }
-        const events = await readJournal()
-        const lastSeq = events.reduce((max, event) => (typeof event?.seq === 'number' ? Math.max(max, event.seq) : max), 0)
+        // The counter, not the whole journal: the projections only need the highest seq.
+        const lastSeq = await journalLastSeq()
         const files = renderViews(model, { lastSeq, staleIds })
         const viewsDir = join(root, VIEW_DIR)
         await mkdir(viewsDir, { recursive: true })

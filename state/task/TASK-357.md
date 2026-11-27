@@ -2,10 +2,10 @@
 id: TASK-357
 kind: task
 title: "Анатомия процесса субагента: кто он, от кого, и умирает ли"
-status: review
-revision: 4
+status: done
+revision: 6
 createdAt: 2026-11-27T15:55:56.517Z
-updatedAt: 2026-11-27T15:57:56.448Z
+updatedAt: 2026-11-27T15:59:44.243Z
 boardId: task-mwz5y74t-kcw6c3
 chore: true
 choreReason: "Диагностика утечки процессов субагентов: поведение развёртывания, а не новое требование."
@@ -14,6 +14,8 @@ owner:
   kind: agent
   label: BACKEND
 preset: backend
+resultEvidence: ["`ps -o pid,ppid,pgid,sid,lstart,etime,pcpu,rss,args -p 4179461` → 4179461 6035 4179461 6035 Sl+ pts/0 … `node .../@deepseek-ai/dsh/lib/bin.js web`; цепочка субагента: 4192204 → 4179461 → 6035 (bash) → 5944 (gnome-terminal) → 1805 (systemd --user) → 1.", "cmdline владельца: три элемента (node, lib/bin.js, web), без --port и без флага сессии; окружение 78 переменных, метки субагента нет; cwd=/home/iustimov, Threads 11, VmRSS 819720 kB.", "`ss -tlnp | grep 3080` → LISTEN 127.0.0.1:3080 users:((\"MainThread\",pid=4179461,fd=27)) — сервер, оркестратор и субагент один процесс.", "`ps -eo … | grep 'bin.js web'` → ровно одна строка (4179461/6035/Sl+); pid 4112944, который владелец видел на :3080 в 18:45, к 18:56 мёртв; текущий сервер стартовал 18:53:40 — ДО делегации (~18:55).", "Сэмплер 16 минут (`setsid nohup`, ppid 1805): CENSUS остаётся из одного элемента, листовые дети (per-call runtime, bash) исчезают за 0–1 с, сервер переживает закрытие сессии."]
+resultSummary: "Отдельного процесса субагента нет: субагент живёт внутрипроцессно в том же `bin.js web`, который слушает :3080 и держит оркестратора. Делегация сервер не порождает (текущий стартовал раньше неё), `bin.js web` на машине ровно один, листовые процессы вызова умирают за 0–1 с, сервер переживает закрытие сессии. Версия «каждый субагент = процесс» опровергнута."
 role: BACKEND
 scope: [/tmp/subagent-anatomy/]
 ---

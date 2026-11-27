@@ -82,6 +82,11 @@ if [ "${DSH_KIT_BOOT:-1}" = "0" ] || [ "$SUBCOMMAND" != "web" ] || [ ! -f "$KIT/
   exec "$NODE" "$ENTRY" "$@"
 fi
 
+# Every launch leaves a line before it does anything else. Refusals were logged, launches
+# were not - so a launcher retrying `dsh web` in a loop left NO trace in this file while it
+# burned a core, and the only evidence was a screenshot of `htop`.
+log_line "launch: pid $$ args '$*' port ${PORT:-default}"
+
 # One question, one owner. `unknown` means the check itself failed: that is not
 # evidence of drift, so the boot proceeds and says so.
 STATUS=$(
@@ -175,16 +180,64 @@ fi
 # ONE OWNER OF THE PORT. `dsh web` starts a second server next to a live one without a word,
 # and every extra server is a whole process tree with its own client connections and its own
 # share of CPU - the owner then sees "several processes, one of them eating the CPU" instead
-# of an interface. So a launch that finds the port already served is refused, and the refusal
-# names the two ways forward: replace the running server, or run a second one on purpose.
-# This is the only place the one-owner rule is enforced: `--restart` clears the port above,
-# so the check below also covers the drift path.
+# of an interface. So a launch that finds the port already served does not start a second one.
+#
+# The exit code is the difference between a launcher that waits and a launcher that spins:
+#   - the kit is already converged (state "clean"): the request is SATISFIED by the running
+#     server, so this exits 0. Any supervisor that retries "until it works" stops here instead
+#     of respawning a process per second, and the port keeps its single owner.
+#   - the kit has changes (state "drift"): a human decision is needed (replace the server),
+#     so it exits 1 and says so - that is a real refusal, not a satisfied request.
+# This is the only place the one-owner rule is enforced: `--restart` cleared the port above,
+# so both branches below see the truth of the port, not a remembered value.
 if [ "$SERVER" = "up" ]; then
-  log_line "refused: port ${SERVER_PORT:-?} already serves a dsh web (pids ${PIDS:-?}); not starting a second one"
+  if [ "$STATE" = "drift" ]; then
+    log_line "refused: drift with a live server on port ${SERVER_PORT:-?} (pids ${PIDS:-?})"
+    echo "dsh: a dsh web server is already running on port ${SERVER_PORT:-?} (pid ${PIDS:-?}), and the kit has changes it does not carry." >&2
+    echo "dsh: booting a second server would serve the old profile twice - refusing." >&2
+    echo "dsh: run 'dsh web --restart' to replace it, or 'dsh web --port <other>' to run a second instance on purpose." >&2
+    exit 1
+  fi
+  # Already running and already converged: this launch has nothing to do. Log it once per
+  # few seconds, not once per retry, so a supervisor loop cannot fill the log or the disk.
+  REFUSAL_STAMP="${DSH_HOME:-$HOME/.npm/dsh}/kit-boot.last-served"
+  NOW=$(date +%s)
+  LAST=0
+  [ -f "$REFUSAL_STAMP" ] && LAST=$(cat "$REFUSAL_STAMP" 2>/dev/null || echo 0)
+  case "$LAST" in ''|*[!0-9]*) LAST=0 ;; esac
+  if [ $((NOW - LAST)) -ge 5 ]; then
+    printf '%s' "$NOW" >"$REFUSAL_STAMP" 2>/dev/null || true
+    log_line "already running: port ${SERVER_PORT:-?} serves a dsh web (pids ${PIDS:-?}); nothing to do"
+  fi
   echo "dsh: a dsh web server is already running on port ${SERVER_PORT:-?} (pid ${PIDS:-?})." >&2
-  echo "dsh: starting another one would duplicate the work and the load - refusing." >&2
-  echo "dsh: run 'dsh web --restart' to replace it, or 'dsh web --port <other>' to run a second instance on purpose." >&2
-  exit 1
+  echo "dsh: nothing to do - run 'dsh web --restart' to replace it, or 'dsh web --port <other>' for a second instance on purpose." >&2
+  exit 0
+fi
+
+# LAUNCH STORM GUARD. A launcher outside this script that retries `dsh web` "until it works"
+# never meets the port check: each attempt dies before it can bind, so the port is free again
+# when the next one asks. The machine then respawns a whole harness per second - the owner
+# sees a shell at 142 % CPU and a herd of short-lived servers, and this file records nothing.
+# The signature is time, not state: a second `web` launch inside STORM_WINDOW seconds, with the
+# port free, means the previous one did not survive. Refuse that one instead of feeding the
+# loop, and name the launcher as the thing to fix. `--restart` and an explicit `--port` stay
+# outside the guard: those are deliberate one-shot requests.
+STORM_WINDOW=10
+STORM_STAMP="$HOME_DIR/kit-boot.last-launch"
+if [ "$RESTART" != "1" ] && [ -z "$PORT" ]; then
+  STORM_NOW=$(date +%s)
+  STORM_LAST=0
+  [ -f "$STORM_STAMP" ] && STORM_LAST=$(cat "$STORM_STAMP" 2>/dev/null || echo 0)
+  case "$STORM_LAST" in ''|*[!0-9]*) STORM_LAST=0 ;; esac
+  STORM_ELAPSED=$((STORM_NOW - STORM_LAST))
+  if [ "$STORM_LAST" -ne 0 ] && [ "$STORM_ELAPSED" -lt "$STORM_WINDOW" ]; then
+    log_line "refused: port ${SERVER_PORT:-?} is free but a launch started ${STORM_ELAPSED}s ago (storm window ${STORM_WINDOW}s)"
+    echo "dsh: another 'dsh web' started ${STORM_ELAPSED}s ago and is no longer running." >&2
+    echo "dsh: refusing a third start - that pattern is a launcher retrying in a loop, not a boot." >&2
+    echo "dsh: stop the loop (a script or supervisor calling 'dsh web'), wait ${STORM_WINDOW}s, and run it once by hand." >&2
+    exit 1
+  fi
+  printf '%s' "$STORM_NOW" >"$STORM_STAMP" 2>/dev/null || true
 fi
 
 case "$STATE" in

@@ -2,22 +2,19 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## active (2)
+## active (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-354 | Закоммитить и запушить работу сессии в origin | — | — | yes |
-| TASK-358 | Что растёт в autolabel_pipeline: состояние, логи сессий, стоимость хода | — | — | yes |
+| TASK-366 | Закоммитить и запушить правила обёртки и фиксы плагинов | — | — | yes |
 
-## review (3)
+## review (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
-| TASK-355 | Разгрузить машину: погасить лишние `bin.js web`, найти кто их плодит | — | — | yes |
-| TASK-357 | Анатомия процесса субагента: кто он, от кого, и умирает ли | — | — | yes |
 
-## done (266)
+## done (277)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -286,7 +283,18 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-348 | Пересобрать доску и оркестратор: правило порядка в сборке | REQ-274 | — | no |
 | TASK-352 | Триаж машины: что узкое и кто это держит | REQ-275 | — | no |
 | TASK-353 | Освободить корень: карта диска, безопасная чистка, размер ленты сессии | REQ-277 | — | no |
+| TASK-354 | Закоммитить и запушить работу сессии в origin | — | — | yes |
+| TASK-355 | Разгрузить машину: погасить лишние `bin.js web`, найти кто их плодит | — | — | yes |
 | TASK-356 | Установить правило «один владелец порта» и погасить лишние web-процессы | — | — | yes |
+| TASK-357 | Анатомия процесса субагента: кто он, от кого, и умирает ли | — | — | yes |
+| TASK-358 | Что растёт в autolabel_pipeline: состояние, логи сессий, стоимость хода | — | — | yes |
+| TASK-359 | Чистка spill в autolabel_pipeline и dsh-kit | — | — | yes |
+| TASK-360 | Кэш промпта на длинных сессиях: inputTokens против cacheReadTokens | — | — | yes |
+| TASK-361 | Найти и погасить петлю запуска dsh web (shell 142 % CPU) | — | — | yes |
+| TASK-362 | Где дорожает работа с задачами и состоянием при большой доске | — | — | yes |
+| TASK-363 | Установить антиштормовую обёртку и доказать отказ без запуска второго сервера | — | — | yes |
+| TASK-364 | Убрать зависимость стоимости задачи от размера доски и журнала | REQ-278 | — | no |
+| TASK-365 | Исправить версию project-state: 0.1.89 → 0.1.19 | — | — | yes |
 
 ## cancelled (87)
 

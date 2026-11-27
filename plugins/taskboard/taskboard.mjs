@@ -2063,6 +2063,12 @@ function createService(config, logger, hooks = {}) {
       // The sessions are the row's own: every child it linked, plus the closing session when it is
       // the row's parent. Checking only the closing session let a row closed by the orchestrator
       // walk past a violation its CHILD recorded.
+      // ONE READ OF THE BOARD FOR THE WHOLE CLOSE. The shell audit, the batch-review owner and the
+      // journal row check ask the same question of the same document, and each used to parse the
+      // whole ledger: three reads of a 12.7 MB board (137 ms each) per close. Nothing writes
+      // between them - the close's own write is the `mutate` below, which re-reads under the file
+      // lock and still checks the revision (CAS), so this snapshot decides only the REFUSALS.
+      const boardSnapshot = readBoard(pathFor(cwd))
       {
         let violations = []
         try {
@@ -2071,7 +2077,7 @@ function createService(config, logger, hooks = {}) {
         } catch {
           violations = []
         }
-        const row = readBoard(pathFor(cwd)).tasks.find((entry) => entry.id === id)
+        const row = boardSnapshot.tasks.find((entry) => entry.id === id)
         const sessions = new Set(Array.isArray(row?.childSessionIds) ? row.childSessionIds.filter((value) => typeof value === 'string') : [])
         if (child !== '') sessions.add(child)
         if (typeof row?.parentSessionId === 'string' && row.parentSessionId !== '') sessions.add(row.parentSessionId)
@@ -2100,7 +2106,7 @@ function createService(config, logger, hooks = {}) {
         }
       }
       if (child !== '' && id !== '') {
-        const board = readBoard(pathFor(cwd))
+        const board = boardSnapshot
         const owner = (board.tasks ?? []).find((task) => Array.isArray(task.reviewedTaskIds)
           && task.reviewedTaskIds.includes(id)
           && Array.isArray(task.childSessionIds)
@@ -2122,7 +2128,7 @@ function createService(config, logger, hooks = {}) {
       // saw; a row with no event is legacy (an older tool, a fixture) and closes normally.
       let journalRow
       try {
-        journalRow = readBoard(pathFor(cwd)).tasks.find((entry) => entry.id === id)
+        journalRow = boardSnapshot.tasks.find((entry) => entry.id === id)
       } catch {
         journalRow = undefined
       }
@@ -2479,6 +2485,74 @@ export function apply(ctx, config = {}) {
   // updated task is mirrored into `state/task/` (found again by `boardId`), the requirement
   // gate is enforced, and the projections are regenerated. Without the core the taskboard
   // keeps its old behaviour (the proof scripts exercise that path).
+  /**
+   * VIEW REBUILDS COALESCE.
+   *
+   * A rebuild regenerates every projection under `state/views/` and hashes each one: 513 ms on
+   * the 941-file state of ~/tasks/autolabel_pipeline (2026-11-27), and the plugin ran one after
+   * EVERY mirrored task, so ten closes paid ten rebuilds for the same bytes. A task write now
+   * marks the workspace dirty and at most ONE rebuild is scheduled per `VIEW_REBUILD_MS`; the
+   * timer is unref'd, so it never keeps the process alive. `flushMirror(cwd, {views: true})`
+   * (the default, and what the plugin tests drain with) still rebuilds immediately, so a caller
+   * that asks for fresh projections gets them; the model tools pass `views: false` because a
+   * few seconds of staleness is what the panel's 5 s poll already tolerates.
+   */
+  const VIEW_REBUILD_MS = 3000
+  const viewRebuilds = new Map()
+  const rebuildNow = async (core, cwd) => {
+    const entry = viewRebuilds.get(cwd)
+    if (entry !== undefined) {
+      entry.dirty = false
+      entry.lastAt = Date.now()
+      if (entry.timer !== null) {
+        clearTimeout(entry.timer)
+        entry.timer = null
+      }
+    }
+    try {
+      const state = typeof core.open === 'function' ? core.open(cwd) : core
+      if (state !== null && state !== undefined && typeof state.regenerateViews === 'function') await state.regenerateViews()
+    } catch (error) {
+      ctx.logger?.warn?.(`taskboard: could not regenerate views: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  /**
+   * Mark the projections stale; at most one rebuild per window, trailing.
+   *
+   * @param core - The state core.
+   * @param cwd - Workspace root.
+   * @param id - The task whose mirror asked for it, for the log line only.
+   */
+  const scheduleViews = (core, cwd, id) => {
+    let entry = viewRebuilds.get(cwd)
+    if (entry === undefined) {
+      entry = { dirty: false, lastAt: 0, timer: null }
+      viewRebuilds.set(cwd, entry)
+    }
+    entry.dirty = true
+    if (entry.timer !== null) return entry.timer
+    const wait = Math.max(0, entry.lastAt + VIEW_REBUILD_MS - Date.now())
+    if (wait === 0) {
+      const run = rebuildNow(core, cwd)
+      entry.timer = null
+      return run
+    }
+    entry.timer = setTimeout(() => {
+      entry.timer = null
+      rebuildNow(core, cwd).catch(() => {})
+    }, wait)
+    if (typeof entry.timer.unref === 'function') entry.timer.unref()
+    ctx.logger?.info?.(`taskboard: views of ${id} rebuild after ${wait} ms`)
+    return undefined
+  }
+  /** Rebuild the projections of one workspace now if a task write left them stale. */
+  const flushViews = async (cwd) => {
+    const entry = viewRebuilds.get(cwd)
+    const core = coreOf()
+    if (entry === undefined || entry.dirty !== true || core === undefined || core === null) return
+    await rebuildNow(core, cwd)
+  }
+
   const mirrorQueue = new Map()
   const mirrorResults = new Map()
   const coreOf = () => {
@@ -2527,12 +2601,8 @@ export function apply(ctx, config = {}) {
         ctx.logger?.warn?.(`taskboard: TASK mirror for ${task.id} failed after ${MIRROR_ATTEMPTS} attempt(s): ${result.code ?? 'unknown'} ${result.message ?? ''}`.trim())
         return result
       }
-      try {
-        const state = typeof core.open === 'function' ? core.open(cwd) : core
-        if (typeof state.regenerateViews === 'function') await state.regenerateViews()
-      } catch (error) {
-        ctx.logger?.warn?.(`taskboard: could not regenerate views after mirroring ${task.id}: ${error instanceof Error ? error.message : String(error)}`)
-      }
+      // NOT awaited: the mirror is done, and the projections of a burst of writes rebuild once.
+      scheduleViews(core, cwd, task.id)
       return result
     }
     const previous = mirrorQueue.get(cwd) ?? Promise.resolve()
@@ -2771,8 +2841,11 @@ export function apply(ctx, config = {}) {
       }
     },
   })
-  service.flushMirror = async (cwd) => {
+  service.flushMirror = async (cwd, options = {}) => {
     await (mirrorQueue.get(cwd) ?? Promise.resolve())
+    // The default keeps the old contract: a caller that drained the mirror sees the projections
+    // of its own write. The model tools pass `views: false` and let the coalescer decide.
+    if (options.views !== false) await flushViews(cwd)
     return mirrorResults.get(cwd) ?? null
   }
   const board = ctx.provide('taskboard', service)
@@ -2839,7 +2912,7 @@ export function apply(ctx, config = {}) {
       const cwd = workingDir(exec.agent)
       const task = service.create(cwd, { ...args, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id) }, 'orchestrator')
       if (task !== undefined && task?.ok !== false) {
-        const taskMirror = await service.flushMirror(cwd)
+        const taskMirror = await service.flushMirror(cwd, { views: false })
         return { ...task, ...(taskMirror === null ? {} : { taskMirror }) }
       }
       return task
@@ -2947,7 +3020,7 @@ export function apply(ctx, config = {}) {
       const cwd = workingDir(exec.agent)
       const result = service.update(cwd, { id: args.id, expectedRevision: args.expectedRevision, patch, scope: widened.scope, chatId: rootOf(exec.agent?.id) })
       if (result !== undefined && result?.ok !== false) {
-        const taskMirror = await service.flushMirror(cwd)
+        const taskMirror = await service.flushMirror(cwd, { views: false })
         return { ...result, ...(taskMirror === null ? {} : { taskMirror }) }
       }
       return result
