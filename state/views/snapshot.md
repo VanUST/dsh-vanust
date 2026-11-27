@@ -2,10 +2,10 @@
 
 GENERATED — DO NOT EDIT.
 
-- last journal event: 2495
+- last journal event: 2516
 - REQ: 280
 - DECISION: 0
-- TASK: 378
+- TASK: 379
 - TEST: 104
 - active agents: 1
 
@@ -14,5 +14,5 @@ GENERATED — DO NOT EDIT.
 - active: 1
 - blocked: 1
 - cancelled: 88
-- done: 283
-- review: 5
+- done: 288
+- review: 1

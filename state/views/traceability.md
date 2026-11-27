@@ -279,11 +279,11 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-273 | rejected | — | TEST-102 | — | no |
 | REQ-274 | rejected | — | — | — | no |
 | REQ-275 | rejected | — | — | — | no |
-| REQ-276 | proposed | — | — | — | no |
+| REQ-276 | rejected | — | — | — | no |
 | REQ-277 | rejected | — | — | — | no |
 | REQ-278 | rejected | — | — | — | no |
-| REQ-279 | proposed | — | — | — | no |
-| REQ-280 | proposed | — | — | — | no |
+| REQ-279 | rejected | — | — | — | no |
+| REQ-280 | rejected | — | — | — | no |
 
 ## Tests
 
