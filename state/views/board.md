@@ -2,19 +2,22 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## active (1)
+## active (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-354 | Закоммитить и запушить работу сессии в origin | — | — | yes |
+| TASK-358 | Что растёт в autolabel_pipeline: состояние, логи сессий, стоимость хода | — | — | yes |
 
-## review (1)
+## review (3)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
+| TASK-355 | Разгрузить машину: погасить лишние `bin.js web`, найти кто их плодит | — | — | yes |
+| TASK-357 | Анатомия процесса субагента: кто он, от кого, и умирает ли | — | — | yes |
 
-## done (265)
+## done (266)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -283,6 +286,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-348 | Пересобрать доску и оркестратор: правило порядка в сборке | REQ-274 | — | no |
 | TASK-352 | Триаж машины: что узкое и кто это держит | REQ-275 | — | no |
 | TASK-353 | Освободить корень: карта диска, безопасная чистка, размер ленты сессии | REQ-277 | — | no |
+| TASK-356 | Установить правило «один владелец порта» и погасить лишние web-процессы | — | — | yes |
 
 ## cancelled (87)
 

@@ -172,18 +172,26 @@ if [ "$RESTART" = "1" ] && [ "$SERVER" = "up" ]; then
   stop_running_server
 fi
 
+# ONE OWNER OF THE PORT. `dsh web` starts a second server next to a live one without a word,
+# and every extra server is a whole process tree with its own client connections and its own
+# share of CPU - the owner then sees "several processes, one of them eating the CPU" instead
+# of an interface. So a launch that finds the port already served is refused, and the refusal
+# names the two ways forward: replace the running server, or run a second one on purpose.
+# This is the only place the one-owner rule is enforced: `--restart` clears the port above,
+# so the check below also covers the drift path.
+if [ "$SERVER" = "up" ]; then
+  log_line "refused: port ${SERVER_PORT:-?} already serves a dsh web (pids ${PIDS:-?}); not starting a second one"
+  echo "dsh: a dsh web server is already running on port ${SERVER_PORT:-?} (pid ${PIDS:-?})." >&2
+  echo "dsh: starting another one would duplicate the work and the load - refusing." >&2
+  echo "dsh: run 'dsh web --restart' to replace it, or 'dsh web --port <other>' to run a second instance on purpose." >&2
+  exit 1
+fi
+
 case "$STATE" in
   clean)
     # Nothing to do: the machine is the kit.
     ;;
   drift)
-    if [ "$SERVER" = "up" ]; then
-      log_line "refused: drift with a live server on port ${SERVER_PORT:-?} (pids ${PIDS:-?})"
-      echo "dsh: the kit has changes and a dsh web server is already running (port ${SERVER_PORT:-?}, pid ${PIDS:-?})." >&2
-      echo "dsh: booting now would run the profile the machine already had - refusing." >&2
-      echo "dsh: run 'dsh web --restart' to stop it, converge the kit and start again." >&2
-      exit 1
-    fi
     converge "$SERVER"
     ;;
   *)
