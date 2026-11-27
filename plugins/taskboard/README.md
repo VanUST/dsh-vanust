@@ -169,7 +169,7 @@ so a `subagent/end` after a Host or plugin reload still settles the task.
 ## Model surface
 
 `task_create`, `task_get`, `task_list`, `task_update` (compare-and-set on
-`expectedRevision`), `task_note`, `task_link`, and the lifecycle tools
+`expectedRevision`), `task_note`, `task_link`, `task_batch`, and the lifecycle tools
 `task_pause`, `task_resume`, `task_close` (one task or `ids`, with the result in the same call),
 `task_cancel` (one task or `ids`), `task_stop` (force-stop a task's children or one session
 without changing the status), `task_remove`. The orchestrator's
@@ -182,6 +182,14 @@ state (fail closed). The hook passes the runtime's tagged authority — `{kind: 
 agent}` for a live ancestor, `{kind: 'user', parentSessionId}` for the human/client path — so
 both the orchestrator and the owner can stop a child. `task_stop` is the explicit forced-stop
 primitive; it records the request on the timeline and leaves the status alone.
+
+`task_batch` runs a set of operations — `create`, `update`, `note`, `close`, `cancel` — in the
+order given, in ONE agent step: the board is read once and written once, the report is one compact
+row per operation (`index`, `op`, `id`, `ok`, `status`, `revision`, `code`), and every operation
+runs the same service method and therefore the same gates as its single tool (requirement basis,
+`dependsOn`, cancel reason, proof at close). A refused operation is named in its own row and the
+operations before it stay applied: the batch is partial by design and never reports a whole-batch
+success when one row failed. Closing five tasks with a note each is one call instead of ten steps.
 
 `task_list` takes `scope: chat` (default) or `scope: workspace`; `task_get` reads any task by
 id, because knowing the id is the reason to look. A write from another chat is refused with

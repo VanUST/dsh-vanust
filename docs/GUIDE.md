@@ -133,8 +133,9 @@ The tool list is per preset (§4); the families are:
 - **Web**: `web_search`, `web_fetch` (resources only where the preset allows).
 - **Skills**: `skill` loads a `SKILL.md` procedure; `skill_inventory`/`skill_grow`/`skill_evolve`
   manage the machine-wide library. A skill is a procedure, not a fact: facts live in the tree.
-- **Taskboard**: `task_create`/`task_update`/`task_get`/`task_list`/`task_note`/`task_close`/
-  `task_cancel`/`task_pause`/`task_resume`/`task_stop` — the ledger of work in flight (§6).
+- **Taskboard**: `task_create`/`task_update`/`task_get`/`task_list`/`task_note`/`task_link`/
+  `task_close`/`task_cancel`/`task_pause`/`task_resume`/`task_stop`, and `task_batch` for a set of
+  operations in one step — the ledger of work in flight (§6).
 - **Analysis** (root only): `analysis_read`/`analysis_upsert`/`analysis_check`/`analysis_impact` —
   the design record and its gates (§7.1).
 - **Test cases** (per role): `case_record`/`case_update`/`case_run`/`case_suite`/`case_gate`/
@@ -150,7 +151,12 @@ The tool list is per preset (§4); the families are:
   `todo_write`, `create_goal`/`update_goal`, `skill_*`.
 
 `run_code` runs a TypeScript program against those tools: it can call several tools, filter their
-output and print only what matters. Its output is still a tool result — keep it small.
+output and print only what matters. Its output is still a tool result — keep it small. The SDK
+declarations are not printed in the prompt: a short header lists the visible modules and MCP
+servers, and `sdk_api({ module } | { server } | { names })` called from inside a program returns
+the exact declaration (the answer the prompt used to carry), so an unfamiliar tool is one call
+away. There is no "show me everything" form: one reply is capped, and a larger selection is
+refused with the sizes it would have cost.
 
 ## 4. Roles and presets
 

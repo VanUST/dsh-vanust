@@ -131,6 +131,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mirrorTask, registerStatus } from './mirror.mjs'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { appendRowEvent, checkRow as checkJournalRow } from './lib/journal.mjs'
+import { createStore, SNAPSHOT_EVERY } from './lib/store.mjs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -614,6 +615,13 @@ const RUNTIME_ROOTS = ['state/', '.dsh/']
  */
 const NO_ROW_LIMIT = Number.POSITIVE_INFINITY
 
+/**
+ * The export size under which an operation still rewrites it, byte as before. A board this small
+ * costs a few milliseconds to write, and the panel reads the file directly, so today's behaviour
+ * is kept; the journal path exists for the 13 MB board that made a close cost 453 ms.
+ */
+const EXPORT_LIVE_LIMIT = 512 * 1024
+
 /** The most ids one batch lifecycle call may carry. A cleanup batch is tens of rows, not thousands. */
 const MAX_BATCH = 100
 
@@ -621,18 +629,40 @@ const MAX_BATCH = 100
 const MUTATING_OPS = ['update', 'note', 'link', 'pause', 'resume', 'close', 'cancel', 'remove', 'owner-status']
 
 /**
- * A board read from disk, or the empty board when the file does not exist.
+ * The board's real store: the snapshot plus the journal tail, the genesis migration and the
+ * damaged-snapshot recovery all live in lib/store.mjs. One store per absolute board path per
+ * process, so the second read is two stats.
+ */
+const stores = new Map()
+let storeLogger = null
+
+function storeFor(path) {
+  let store = stores.get(path)
+  if (store === undefined) {
+    store = createStore({ boardPath: path, logger: { warn: (message) => storeLogger?.warn?.(message) } })
+    stores.set(path, store)
+  }
+  return store
+}
+
+/**
+ * A board read through the store: snapshot plus journal tail, or the export when the workspace
+ * has neither (an old board keeps reading as it always did).
  *
  * @param path - Absolute ledger path.
- * @returns The parsed board.
+ * @returns The folded board.
  */
 function readBoard(path) {
-  if (!existsSync(path)) return { version: BOARD_VERSION, revision: 0, tasks: [], agents: [] }
   let parsed
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8'))
+    // A board under EXPORT_LIVE_LIMIT is still written whole on every operation, so its export
+    // IS the current board and it is read exactly as before - the panel, the mirror and the
+    // hash-chained row journal all keep seeing the file they saw. A larger board is read from
+    // the snapshot plus the journal tail, where its export is derived and may lag.
+    const live = existsSync(path) && statSync(path).size <= EXPORT_LIVE_LIMIT
+    parsed = live ? JSON.parse(readFileSync(path, 'utf8')) : storeFor(path).load().board
   } catch (error) {
-    throw new Error(`taskboard: ${path} is not valid JSON: ${error.message}`)
+    throw new Error(`taskboard: ${path} is not readable: ${error.message}`)
   }
   if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.tasks)) {
     throw new Error(`taskboard: ${path} has no tasks array`)
@@ -759,7 +789,31 @@ function withBoardLock(path, operation, options = {}) {
  * @param options - `{waitMs, staleMs}` lock overrides.
  */
 function writeBoard(path, board, options = {}) {
-  withBoardLock(path, () => writeBoardNow(path, board), options)
+  withBoardLock(path, () => {
+    const store = storeFor(path)
+    let known = []
+    try {
+      known = (store.load().board.tasks ?? []).map((task) => task?.id)
+    } catch {
+      known = []
+    }
+    writeBoardNow(path, board)
+    const rows = Array.isArray(board?.tasks) ? board.tasks : []
+    const ids = new Set(rows.map((task) => task?.id))
+    const genesis = !existsSync(store.paths.events) || statSync(store.paths.events).size === 0
+    store.append({
+      at: now(),
+      op: genesis ? 'genesis' : 'board',
+      revision: Number.isSafeInteger(board?.revision) ? board.revision : 0,
+      version: Number.isSafeInteger(board?.version) ? board.version : BOARD_VERSION,
+      rows,
+      removed: known.filter((id) => !ids.has(id)),
+      agents: Array.isArray(board?.agents) ? board.agents : [],
+    })
+    store.writeSnapshot(board)
+    store.adopt({ version: BOARD_VERSION, revision: Number.isSafeInteger(board?.revision) ? board.revision : 0, tasks: rows, agents: Array.isArray(board?.agents) ? board.agents : [] })
+    scheduleRows(path, board)
+  }, options)
 }
 
 /** A role row untouched for this long is a tombstone, not an active specialist. */
@@ -912,6 +966,206 @@ function annotateAgents(board, staleAfterMs = STALE_AFTER_MS) {
 }
 
 /**
+ * The rows file: what the panel draws, in one small document beside the board.
+ *
+ * WHY. The panel reads a workspace file, and a 13 MB board is written whole only on the
+ * snapshot threshold, so the file it read lagged behind the journal. This projection carries
+ * only the fields the panel renders - no timeline, no scope prose - so it costs a fraction of
+ * the board and can be refreshed often without a 13 MB write.
+ */
+const ROWS_FILE = 'taskboard.rows.json'
+/** The panel's poll interval is 2.5 s; the projection is never written more often than this. */
+const ROWS_WINDOW_MS = 2000
+/** The fields the panel renders: the card, the list row and the filter all read only these. */
+const ROW_FIELDS = ['id', 'chatId', 'title', 'status', 'role', 'preset', 'inline', 'priority', 'owner', 'reason', 'childSessionIds', 'revision', 'updatedAt']
+const rowWrites = new Map()
+
+/** The panel's projection of one board: a valid JSON document, one row per line. */
+function rowsText(board) {
+  const tasks = Array.isArray(board?.tasks) ? board.tasks : []
+  const rows = tasks.map((task) => {
+    const row = {}
+    for (const field of ROW_FIELDS) if (task?.[field] !== undefined) row[field] = task[field]
+    return JSON.stringify(row)
+  })
+  return `{"version":${JSON.stringify(board?.version ?? 1)},"revision":${Number.isSafeInteger(board?.revision) ? board.revision : 0},"at":${JSON.stringify(new Date().toISOString())},"tasks":[${rows.length === 0 ? '' : '\n'}${rows.join(',\n')}${rows.length === 0 ? '' : '\n'}]}\n`
+}
+
+/** Write the projection atomically: a reader never sees half a document. */
+function writeRowsNow(path, board) {
+  const target = join(dirname(path), ROWS_FILE)
+  const text = rowsText(board)
+  const temp = `${target}.${process.pid}.tmp`
+  mkdirSync(dirname(target), { recursive: true })
+  writeFileSync(temp, text, 'utf8')
+  renameSync(temp, target)
+  return Buffer.byteLength(text, 'utf8')
+}
+
+/**
+ * Refresh the projection at most once per ROWS_WINDOW_MS, leading edge: the first operation
+ * after an idle window writes at once, a burst costs one more write when it ends. Same shape
+ * as scheduleViews, with its own window because the panel polls faster than the views rebuild.
+ */
+function scheduleRows(path, board) {
+  let entry = rowWrites.get(path)
+  if (entry === undefined) {
+    entry = { board, lastAt: 0, timer: null }
+    rowWrites.set(path, entry)
+  }
+  entry.board = board
+  if (entry.timer !== null) return
+  const wait = Math.max(0, entry.lastAt + ROWS_WINDOW_MS - Date.now())
+  if (wait === 0) {
+    entry.lastAt = Date.now()
+    try { writeRowsNow(path, board) } catch { /* the board itself is already durable */ }
+    return
+  }
+  const timer = setTimeout(() => {
+    entry.timer = null
+    entry.lastAt = Date.now()
+    try { writeRowsNow(path, entry.board) } catch { /* as above */ }
+  }, wait)
+  if (typeof timer.unref === 'function') timer.unref()
+  entry.timer = timer
+}
+
+/** The array methods that write in place; a nested call through one marks its row. */
+const WRITE_ARRAY_METHODS = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin'])
+
+/**
+ * The board a mutate callback sees, with every write recorded.
+ *
+ * WHY A TRACKER AND NOT A DIFF. A callback changes rows in place (`task.title = …`), so "which
+ * rows changed" cannot be read off the callback's result; and diffing the previous board would
+ * mean serializing all 1553 rows (≈90 ms) on every operation - the cost the journal exists to
+ * remove. Rows are wrapped on READ, so only the rows the callback actually touches are ever
+ * wrapped, and a write anywhere inside one records its id.
+ *
+ * @param board - The board about to be handed to the callback.
+ * @returns `{view, delta(after)}`: the board to pass on, and the rows/removals/agents to journal.
+ */
+function trackBoard(board) {
+  const beforeIds = board.tasks.map((task) => task?.id)
+  const beforeSet = new Set(beforeIds)
+  const dirty = new Set()
+  let agentsDirty = false
+  const rawOf = new WeakMap()
+  const proxyOf = new WeakMap()
+
+  const wrap = (value, mark) => {
+    if (value === null || typeof value !== 'object') return value
+    const known = proxyOf.get(value)
+    if (known !== undefined) return known
+    const isArray = Array.isArray(value)
+    const proxy = new Proxy(value, {
+      get(target, key) {
+        const out = Reflect.get(target, key, target)
+        if (isArray && WRITE_ARRAY_METHODS.has(key) && typeof out === 'function') {
+          return (...args) => {
+            mark()
+            return Array.prototype[key].apply(target, args.map((argument) => rawOf.get(argument) ?? argument))
+          }
+        }
+        return out !== null && typeof out === 'object' ? wrap(out, mark) : out
+      },
+      set(target, key, next) {
+        mark()
+        target[key] = rawOf.get(next) ?? next
+        return true
+      },
+      deleteProperty(target, key) {
+        mark()
+        return Reflect.deleteProperty(target, key)
+      },
+    })
+    proxyOf.set(value, proxy)
+    rawOf.set(proxy, value)
+    return proxy
+  }
+
+  const rowProxy = (row) => {
+    if (row === null || typeof row !== 'object') return row
+    const known = proxyOf.get(row)
+    if (known !== undefined) return known
+    return wrap(row, () => dirty.add(String(row.id)))
+  }
+
+  const marker = () => agentsDirty = true
+  const tasks = new Proxy(board.tasks, {
+    get(target, key) {
+      const out = Reflect.get(target, key, target)
+      if (key === 'length' || typeof key === 'symbol') return out
+      if (typeof out === 'function' && WRITE_ARRAY_METHODS.has(key)) {
+        return (...args) => Array.prototype[key].apply(target, args.map((argument) => rawOf.get(argument) ?? argument))
+      }
+      if (typeof out === 'object' && out !== null) return rowProxy(out)
+      return out
+    },
+    set(target, key, next) {
+      target[key] = rawOf.get(next) ?? next
+      return true
+    },
+  })
+
+  const agents = new Proxy(Array.isArray(board.agents) ? board.agents : [], {
+    get(target, key) {
+      const out = Reflect.get(target, key, target)
+      if (key === 'length' || typeof key === 'symbol') return out
+      if (typeof out === 'function' && WRITE_ARRAY_METHODS.has(key)) {
+        return (...args) => {
+          marker()
+          return Array.prototype[key].apply(target, args.map((argument) => rawOf.get(argument) ?? argument))
+        }
+      }
+      if (typeof out === 'object' && out !== null) return wrap(out, marker)
+      return out
+    },
+    set(target, key, next) {
+      marker()
+      target[key] = rawOf.get(next) ?? next
+      return true
+    },
+  })
+
+  const view = new Proxy(board, {
+    get(target, key) {
+      if (key === 'tasks') return tasks
+      if (key === 'agents') return agents
+      return Reflect.get(target, key, target)
+    },
+    set(target, key, next) {
+      if (key === 'agents') agentsDirty = true
+      target[key] = next
+      return true
+    },
+  })
+
+  /** What the callback changed, as the event carries it: full rows, removed ids, agents, order. */
+  const delta = (after) => {
+    const ids = after.tasks.map((task) => task?.id)
+    const afterSet = new Set(ids)
+    const rows = new Map()
+    for (const id of dirty) {
+      const row = after.tasks.find((task) => task?.id === id)
+      if (row !== undefined) rows.set(id, row)
+    }
+    for (const row of after.tasks) if (!beforeSet.has(row?.id)) rows.set(row?.id, row)
+    const keptBefore = beforeIds.filter((id) => afterSet.has(id))
+    const keptAfter = ids.filter((id) => beforeSet.has(id))
+    const reordered = keptBefore.length === keptAfter.length && !keptBefore.every((id, at) => id === keptAfter[at])
+    return {
+      rows: [...rows.values()].map((row) => JSON.parse(JSON.stringify(row))),
+      removed: beforeIds.filter((id) => !afterSet.has(id)),
+      ...(agentsDirty ? { agents: JSON.parse(JSON.stringify(after.agents ?? [])) } : {}),
+      ...(reordered ? { order: ids } : {}),
+    }
+  }
+
+  return { view, delta }
+}
+
+/**
  * Build the ledger service.
  *
  * @param config - Raw plugin config.
@@ -919,6 +1173,7 @@ function annotateAgents(board, staleAfterMs = STALE_AFTER_MS) {
  * @returns The service placed on `ctx.taskboard`.
  */
 function createService(config, logger, hooks = {}) {
+  storeLogger = logger
   const file = typeof config.file === 'string' && config.file !== '' ? config.file : '.dsh/taskboard.json'
   // `maxTasks` keeps its name and its default (200) but counts tasks that can still be
   // ACTED ON; `maxRows` bounds the file itself when a workspace asks for that.
@@ -980,16 +1235,66 @@ function createService(config, logger, hooks = {}) {
    * earlier row. With the
    * lock around both, the second process reads what the first one wrote.
    */
+  /**
+   * ONE READ AND ONE WRITE PER TOP-LEVEL CALL.
+   *
+   * `mutate` is reentrant for the SAME board. A batch opens one frame and then calls the very
+   * service methods the single tools call (`create`/`update`/`note`/`close`/`cancel`); each of
+   * those would otherwise take the lock, read the board again and append its own journal event.
+   * A nested call runs against the open frame's board and marks the frame dirty; only the
+   * outermost frame appends one event and writes the files. The gates are NOT re-implemented
+   * here: the nested calls are the same functions the single tools run, so a batch refuses
+   * exactly what a single call refuses (2026-11-27).
+   */
+  let openFrame = null
   const mutate = (cwd, operation) => {
     const path = pathFor(cwd)
+    if (openFrame !== null && openFrame.path === path) {
+      const nested = operation(openFrame.tracker.view)
+      if (nested?.changed === true) openFrame.changed = true
+      return nested?.value ?? nested
+    }
     return withBoardLock(path, () => {
+      const store = storeFor(path)
+      // An old workspace: the export becomes the snapshot and one genesis event, and the export
+      // file itself is not rewritten (lib/store.mjs migrate()).
+      store.migrate()
       const board = readBoard(path)
       const before = board.revision
-      const result = operation(board)
-      const changed = board.revision !== before || result?.changed === true
+      const tracker = trackBoard(board)
+      const frame = { path, tracker, changed: false }
+      openFrame = frame
+      let result
+      try {
+        result = operation(tracker.view)
+      } finally {
+        openFrame = null
+      }
+      const changed = frame.changed || board.revision !== before || result?.changed === true
       if (changed) {
         board.revision = before + 1
-        writeBoardNow(path, { ...board, tasks: board.tasks, agents: board.agents ?? [] })
+        const delta = tracker.delta(board)
+        store.append({
+          at: now(),
+          op: 'update',
+          revision: board.revision,
+          rows: delta.rows,
+          removed: delta.removed,
+          ...(delta.agents === undefined ? {} : { agents: delta.agents }),
+          ...(delta.order === undefined ? {} : { order: delta.order }),
+        })
+        // The export is DERIVED. A board that still fits one screen's worth of JSON is written
+        // on every operation exactly as before, so the panel and outside readers never see it
+        // lag. Past EXPORT_LIVE_LIMIT the export is written only when the tail passed the
+        // threshold, or on the first write of a workspace: that is the 13 MB write an operation
+        // must not pay (measured: 295 ms against 9.9 ms for one event).
+        const due = store.tailLength() >= SNAPSHOT_EVERY
+        if (due || !store.hasSnapshot()) store.writeSnapshot(board)
+        if (due || !store.hasSnapshot() || store.exportSize() <= EXPORT_LIVE_LIMIT) store.writeExport(board)
+        store.adopt(board)
+        // The panel's small projection, refreshed at most once per window. A small board also
+        // gets its export written above, so the projection is a no-op improvement there.
+        scheduleRows(path, board)
       }
       return result?.value ?? result
     }, { waitMs: lockWaitMs, staleMs: lockStaleMs })
@@ -2126,11 +2431,21 @@ function createService(config, logger, hooks = {}) {
       // refusal names it, so a red case cannot be closed away.
       // THE JOURNAL, WHEN THE BOARD HAS ONE. A row the journal has seen must still be the row it
       // saw; a row with no event is legacy (an older tool, a fixture) and closes normally.
+      // INSIDE AN OPEN FRAME the board on disk is one batch behind by design: an operation
+      // earlier in the same batch updated this row and journaled it, and the file is written
+      // only when the outermost frame closes. Read the row from the open frame then, so a close
+      // after an update in one `task_batch` is compared with the row the journal actually saw
+      // instead of with the pre-batch file (observed 2026-11-27: update then close in one batch
+      // was refused TASK_JOURNAL_MISMATCH while the same two calls one by one succeeded).
       let journalRow
-      try {
-        journalRow = boardSnapshot.tasks.find((entry) => entry.id === id)
-      } catch {
-        journalRow = undefined
+      if (openFrame !== null && openFrame.path === pathFor(cwd)) {
+        journalRow = openFrame.tracker.view.tasks.find((entry) => entry.id === id)
+      } else {
+        try {
+          journalRow = boardSnapshot.tasks.find((entry) => entry.id === id)
+        } catch {
+          journalRow = undefined
+        }
       }
       if (journalRow !== undefined) {
         const journal = checkJournalRow(cwd, journalRow)
@@ -2447,6 +2762,107 @@ function createService(config, logger, hooks = {}) {
       // settled, and it is idempotent (a reconciled row is no longer `active`).
       if (kind === 'reconcile') return this.reconcile(cwd)
       return { ok: false, code: 'unknown_op' }
+    },
+    /**
+     * Apply a batch of task operations in the order given, with ONE board read and ONE board
+     * write.
+     *
+     * WHY: one tool call is one agent step, and a step of a long session costs ~400 k prompt
+     * tokens and 8-13 s of model time (measured 2026-11-27). Closing five tasks with a note each
+     * used to be ten steps. Every operation runs through the same service method the single
+     * tool runs (`create`, `update`, `note`, `close`, `cancel`), so the requirement basis, the
+     * `dependsOn` order, the refusal reason and the proof-at-close gate are the ones the single
+     * tools enforce - not a second copy of them.
+     *
+     * PARTIAL BY DESIGN: a refused operation is reported in its own row with its code and the
+     * operations before it stay applied; nothing is rolled back silently.
+     *
+     * @returns {{ok: boolean, requested: number, applied: number, failed: number, results: object[]}}
+     */
+    applyMany(cwd, ops, actor = 'orchestrator', actorSessionId = '') {
+      const list = Array.isArray(ops) ? ops : []
+      if (list.length === 0) return { ok: false, code: 'invalid', message: 'pass operations: [{op: "close", id: "TASK-1"}, ...]' }
+      if (list.length > MAX_BATCH) return { ok: false, code: 'batch_too_large', max: MAX_BATCH, requested: list.length }
+      const context = {
+        chatId: typeof hooks.rootOf === 'function' && typeof actorSessionId === 'string' && actorSessionId !== ''
+          ? hooks.rootOf(actorSessionId)
+          : actorSessionId,
+        parentSessionId: actorSessionId,
+        actor,
+      }
+      /**
+       * The result fields as the SINGLE tools take them: task_close and task_update both fold
+       * `resultSummary`/`resultEvidence`/`resultArtifacts`/`resultDecisions`/`resultRisks` into
+       * `result`. A batch that passed them flat was refused with `needs_result` on a close and
+       * on an update to review, although the single tool accepted the same call.
+       */
+      const resultFields = (op) => {
+        const result = {}
+        for (const key of ['summary', 'evidence', 'artifacts', 'decisions', 'risks']) {
+          const source = 'result' + key.slice(0, 1).toUpperCase() + key.slice(1)
+          if (op[source] !== undefined) result[key] = op[source]
+        }
+        return Object.keys(result).length === 0 ? null : result
+      }
+      /** One compact row per operation: its outcome, status and revision - never the whole task. */
+      const compact = (row, value) => {
+        if (value === undefined || value === null) { row.ok = false; row.code = 'failed'; return row }
+        if (value.ok === false) {
+          row.ok = false
+          if (typeof value.code === 'string') row.code = value.code
+          if (typeof value.message === 'string' && value.message !== '') row.message = value.message
+        } else row.ok = true
+        const status = value.status ?? value.task?.status
+        if (typeof status === 'string' && status !== '') row.status = status
+        const revision = value.revision ?? value.task?.revision
+        if (Number.isSafeInteger(revision)) row.revision = revision
+        if (value.ok === true && typeof value.id === 'string' && value.id !== '') row.id = value.id
+        return row
+      }
+      const report = mutate(cwd, () => {
+        const rows = []
+        for (const [index, op] of list.entries()) {
+          const kind = typeof op?.op === 'string' ? op.op : ''
+          const row = { index, op: kind === '' ? 'unknown' : kind }
+          if (typeof op?.id === 'string' && op.id !== '') row.id = op.id
+          if (kind === 'create') {
+            const created = this.create(cwd, { ...op, ...context }, actor)
+            rows.push(compact(row, created))
+            if (created !== undefined && created?.ok !== false && typeof created.id === 'string') row.id = created.id
+            continue
+          }
+          if (kind === 'update') {
+            // task_update takes the result flat and folds it into `patch.result`; the batch
+            // must fold it the same way, or an update to `review` is refused with needs_result.
+            const extra = resultFields(op)
+            const patch = extra === null ? op.patch : { ...(op.patch ?? {}), result: { ...(op.patch?.result ?? {}), ...extra } }
+            rows.push(compact(row, this.update(cwd, { ...op, patch, ...context })))
+            continue
+          }
+          if (kind === 'note') {
+            rows.push(compact(row, this.note(cwd, { ...op, ...context })))
+            continue
+          }
+          if (kind === 'close') {
+            // The result travels the way the single tool sends it: task_close folds the flat
+            // result fields into `result`, and closeOne reads `input.result`.
+            const result = resultFields(op)
+            const input = result === null ? op : { ...op, result }
+            rows.push(compact(row, this.close(cwd, { ...input, ...context })))
+            continue
+          }
+          if (kind === 'cancel') {
+            rows.push(compact(row, this.cancel(cwd, { ...op, ...context })))
+            continue
+          }
+          row.ok = false
+          row.code = 'unknown_op'
+          rows.push(row)
+        }
+        const failed = rows.filter((row) => row.ok === false).length
+        return { value: { ok: failed === 0, requested: list.length, applied: rows.length - failed, failed, results: rows } }
+      })
+      return report
     },
     /** Register a child without a task (used by the command path). */
     trackChild(childId, cwd, id) {
@@ -3040,6 +3456,62 @@ export function apply(ctx, config = {}) {
       const widened = workspaceScope(args, exec)
       if (widened.refused !== undefined) return Promise.resolve(widened.refused)
       return Promise.resolve(service.note(workingDir(exec.agent), { ...args, scope: widened.scope, chatId: rootOf(exec.agent?.id) }))
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'task_batch',
+    description: 'Run several task operations in ONE step and ONE board write: create, update, note, close, cancel, applied in the order given. Use it instead of ten separate calls when a set of tasks moves together (close five tasks, each with a note). Every operation runs the same function and the same gates as its single tool - the requirement basis, the dependsOn order, the cancel reason and the proof at close are NOT bypassed. A refused operation is named in its own row and the operations before it stay applied; the report never claims a whole-batch success when one row failed. Returns one compact row per operation (index, op, id, ok, status, revision, code), never the whole task.',
+    parameters: {
+      operations: {
+        type: 'array',
+        required: true,
+        description: 'The operations, in the order they must apply. One row each in the report.',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            op: { type: 'string', required: true, enum: ['create', 'update', 'note', 'close', 'cancel'], description: 'Which single tool this operation stands for.' },
+            id: { type: 'string', description: 'Task id (update, note, close, cancel).' },
+            expectedRevision: { type: 'integer', description: 'For update: the revision you read (compare-and-set, same rule as task_update).' },
+            patch: { type: 'object', additionalProperties: true, description: 'For update: the fields to change, the same fields task_update takes (status, reason, title, objective, scope, nonScope, acceptance, priority, reqIds, steps, stepsDone, dependsOn, resultSummary, resultEvidence, ...).' },
+            title: { type: 'string', description: 'For create: short task title.' },
+            objective: { type: 'string', description: 'For create: the outcome in one paragraph.' },
+            scope: { type: 'array', items: { type: 'string' }, description: 'For create: what the work may touch.' },
+            nonScope: { type: 'array', items: { type: 'string' }, description: 'For create: what it must not touch.' },
+            acceptance: { type: 'array', items: { type: 'string' }, description: 'For create: how the result will be judged.' },
+            role: { type: 'string', description: 'For create: the specialist role, unless inline is true.' },
+            preset: { type: 'string', description: 'For create: the role preset id, when known.' },
+            inline: { type: 'boolean', description: 'For create: true when the caller does the work itself.' },
+            parentId: { type: 'string', description: 'For create: optional parent task id.' },
+            priority: { type: 'string', enum: PRIORITIES, description: 'For create/update: low | normal | high.' },
+            reqId: { type: 'string', description: 'For create: the REQ this task implements.' },
+            reqIds: { type: 'array', items: { type: 'string' }, description: 'For create: several REQs this task covers.' },
+            dependsOn: { type: 'array', items: { type: 'string' }, description: 'For create: task ids whose output this work consumes.' },
+            chore: { type: 'boolean', description: 'For create: justified housekeeping instead of a requirement.' },
+            choreReason: { type: 'string', description: 'For create: why the chore is needed (required with chore:true).' },
+            text: { type: 'string', description: 'For note: the note text.' },
+            reason: { type: 'string', description: 'For cancel: why the task is abandoned.' },
+            resultSummary: { type: 'string', description: 'For close: what was achieved.' },
+            resultEvidence: { type: 'array', items: { type: 'string' }, description: 'For close: at least one command, output or file proving it.' },
+            resultArtifacts: { type: 'array', items: { type: 'string' }, description: 'For close: artifact paths.' },
+            resultDecisions: { type: 'array', items: { type: 'string' }, description: 'For close: decisions worth carrying forward.' },
+            resultRisks: { type: 'array', items: { type: 'string' }, description: 'For close: known risks or unknowns.' },
+          },
+        },
+      },
+    },
+    output: out(),
+    async execute(args, exec) {
+      const cwd = workingDir(exec.agent)
+      const result = service.applyMany(cwd, args.operations, 'orchestrator', exec.agent?.id)
+      // The state mirror runs ONCE for the whole batch, and only when something was written:
+      // a batch that refused every row must not touch state/task/.
+      if (result !== undefined && result?.ok !== false && Number(result?.applied ?? 0) > 0) {
+        const taskMirror = await service.flushMirror(cwd, { views: false })
+        return { ...result, ...(taskMirror === null ? {} : { taskMirror }) }
+      }
+      return result
     },
   }))
 

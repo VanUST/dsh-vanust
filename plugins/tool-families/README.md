@@ -104,6 +104,33 @@ when the prompt is assembled, then freezes the sentence for the session (`INV-GE
 `INV-PROMPT-FROZEN` in `docs/analysis/kit-integrity-p0.json`). A composition without this row
 gets `undefined` from `ctx.get('toolFamilies')` and must assert nothing instead of guessing.
 
+
+## Lazy SDK declarations on a PTC preset
+
+A PTC preset (backend, ux, presenter, gatherer, reviewer, critic, docs) used to carry the
+generated `## Writing code for run_code` section: the TypeScript declaration of every visible
+tool, `mcp__godot__*` and `mcp__playwright__*` included. Measured 2026-11-27 on one backend
+session: 156,600 B of a 165,532 B system prompt, re-sent every step, while the task used a
+handful of tools.
+
+The section is owned by `PtcExecutor.renderSdk()` in `@deepseek-ai/dsh-tool-executor-ptc`
+(installed, not vendored). This row does not edit it: it registers an agent-scoped section with
+the same name (`tools:sdk`), which shadows the preset's section because the preset's plugins are
+a parent scope of the agent scope. The shadow is a short header: what `run_code` is, which
+modules and which MCP servers the agent can see with their tool counts, and the three forms of
+the `sdk_api` call — one module, one MCP server or a few names. It is rendered from the agent's
+own visible set at every assembly, so a restricted family — or `mcp__godot__*` in a project
+without `project.godot` — never appears.
+
+`sdk_api` is registered in the agent's own layer, only while the PTC executor owns that agent.
+It has no "return everything" mode: `module` selects one module, `server` selects one MCP
+server (`mcp__<server>__*`), `names` selects exact visible tools. The reply is capped at
+64,000 B; a selection that would exceed the cap is refused with its size and the modules and
+servers to choose from, so no step pulls hundreds of kilobytes of declarations. Rendering goes
+through the PTC package's own `renderToolsSdk`/`renderToolsSdkPy`, so the answer is the
+declaration the prompt used to carry, not a retelling. A native-executor preset gets neither
+the section nor the tool.
+
 ## Verification
 
 `node scripts/tool-families-proof.mjs` runs the decision table over a synthetic tool list for

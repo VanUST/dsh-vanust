@@ -73,6 +73,7 @@
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { defineTool, projectToolSchema } from '@deepseek-ai/dsh-tools'
 
 /**
  * The tools registry is the only service this row touches.
@@ -85,7 +86,7 @@ import { join } from 'node:path'
  * bridge registers them, so the snapshot is taken there and `restrict` is still called through
  * `agent.ctx` (it refuses a context-global restriction by design).
  */
-export const inject = ['tools']
+export const inject = ['tools', 'systemPrompt']
 
 /** Does a tool name match a pattern? `prefix*` is a family, anything else is exact. */
 export function matches(name, pattern) {
@@ -232,6 +233,167 @@ export function removedBytes(schemas = [], deny = []) {
     .filter((schema) => deny.includes(schema?.name))
     .reduce((total, schema) => total + JSON.stringify(schema).length, 0)
 }
+
+/**
+ * The PTC executor's generated SDK section, shadowed per agent.
+ *
+ * The 2026-11-27 measurement: one backend session carried 156,600 B of system prompt in
+ * `## Writing code for run_code` — the TypeScript declaration of every visible tool,
+ * `mcp__godot__*` and `mcp__playwright__*` included. It is re-sent every step, and a role
+ * uses a handful of those tools per task. The declarations are not the contract: the
+ * registry is. So the agent keeps a short header (what `run_code` is, which modules exist,
+ * how to ask) and fetches the exact declaration on demand with `sdk_api`.
+ *
+ * WHY HERE, AND NOT IN THE PTC PLUGIN: the section is owned by
+ * `PtcExecutor.renderSdk()` in `@deepseek-ai/dsh-tool-executor-ptc`; that package is
+ * installed, not vendored by this kit. A scoped prompt section shadows an ancestor section
+ * with the same name (`SystemPrompt.section()`), and the preset's plugins are mounted as a
+ * parent scope of the agent scope (`dsh-agent-preset-registry` `bindScopeParent`), so a
+ * section registered on `agent.ctx` shadows the preset's `tools:sdk` without touching the
+ * executor or its tool semantics.
+ */
+const SDK_SECTION = 'tools:sdk'
+const SDK_TOOL = 'sdk_api'
+
+/** Label one tool with the module name the prompt header lists (a trailing `_` reads badly). */
+function moduleOf(name) {
+  return familyOf(name).replace(/_{1,2}$/, '')
+}
+
+/** Does a tool belong to the module the agent asked for? */
+function inModule(name, module) {
+  return name === module
+    || name.startsWith(module)
+    || name.startsWith(`mcp__${module}__`)
+    || familyOf(name).startsWith(module)
+}
+
+/** The MCP server a tool belongs to (`mcp__godot__scene_open` → `godot`), or null. */
+function mcpServerOf(name) {
+  if (typeof name !== 'string' || !name.startsWith('mcp__')) return null
+  const parts = name.split('__')
+  return parts.length >= 3 && parts[1] !== '' ? parts[1] : null
+}
+
+/**
+ * The hard ceiling on one `sdk_api` reply.
+ *
+ * MEASURED 2026-11-27: the generated declarations of one backend session were 37,820 B for 27
+ * visible tools (~1.4 KB per tool), and a session that also carried `mcp__godot__*` and
+ * `mcp__playwright__*` reached 156,600 B of system prompt. One module or one MCP server is the
+ * unit of work; two of them are not. 64,000 B admits one server of 30 tools at ~2 KB each and
+ * refuses every combination (two servers measured 92 KB on a synthetic set of the same shape),
+ * so one reply fits one step's context and "give me everything" cannot exist even as a side
+ * effect of a long name list.
+ */
+const SDK_REPLY_LIMIT = 64_000
+
+/**
+ * The short section that replaces the generated SDK.
+ *
+ * It MUST stay sufficient: the agent has to learn that `run_code` exists, which modules it
+ * can reach, and how to ask for their API — otherwise it writes programs against names it
+ * has not seen and the saving becomes blindness.
+ */
+export function sdkHeader(definitions = []) {
+  const modules = new Map()
+  const servers = new Map()
+  for (const definition of definitions) {
+    const name = definition?.name
+    if (typeof name !== 'string' || name === '') continue
+    const server = mcpServerOf(name)
+    if (server !== null) {
+      servers.set(server, (servers.get(server) ?? 0) + 1)
+      continue
+    }
+    const module = moduleOf(name)
+    modules.set(module, (modules.get(module) ?? 0) + 1)
+  }
+  const list = (groups) => [...groups.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([label, count]) => `${label} (${count})`)
+    .join(', ')
+  const serverLine = servers.size > 0
+    ? `\nMCP servers visible in this session (tool count in parentheses): ${list(servers)}`
+    : ''
+  return `## Programming: \`run_code\`
+
+\`run_code\` is the only tool you can call directly; a top-level call naming any other tool fails. Inside a program every visible tool is bound as \`tools.<name>(args)\`. The SDK declarations are NOT printed here — ask for them.
+
+Modules visible in this session (tool count in parentheses): ${list(modules) || '(none)'}${serverLine}
+
+Before writing a program that uses a tool, ask for the exact API of one module, one MCP server or a few names (the reply is capped at ${SDK_REPLY_LIMIT} B; a larger selection is refused and names what to choose instead):
+- \`await tools.sdk_api({ module: 'task' })\` — one module above;
+- \`await tools.sdk_api({ server: 'godot' })\` — one MCP server above;
+- \`await tools.sdk_api({ names: ['read', 'grep'] })\` — named tools.
+The reply is the real \`ToolArgsMap\`/\`ToolOutputMap\` declaration, not a summary. Call only names it declares.
+`
+}
+
+/**
+ * The on-demand declaration tool.
+ *
+ * It renders through the PTC package's own `renderToolsSdk`/`renderToolsSdkPy`, so the
+ * answer is the declaration the prompt used to carry — not a retelling. The visible set is
+ * the agent's own (after `tools.restrict`), so a project without the godot marker sees no
+ * `mcp__godot__*` module at all.
+ */
+const SDK_TOOL_DEFINITION = defineTool({
+  name: SDK_TOOL,
+  description:
+    'Exact SDK declarations for the tools visible in this session, fetched on demand instead of being printed in the system prompt. Call it from inside a run_code program before writing code against an unfamiliar tool: pass one module, one MCP server or a few exact names. Returns the real ToolArgsMap/ToolOutputMap code block, not a summary; a selection whose reply would exceed 64000 B is refused with what to choose instead.',
+  parameters: {
+    names: { type: 'array', items: { type: 'string' }, description: 'Exact tool names, for example read, grep, task_get.' },
+    module: { type: 'string', description: 'One module from the prompt header, for example task, bash or outline.' },
+    server: { type: 'string', description: 'One MCP server from the prompt header, for example godot or playwright.' },
+  },
+  output: {
+    schema: { type: 'string' },
+    render: (_args, value) => [{ type: 'text', text: String(value) }],
+  },
+  async execute(args, exec) {
+    let visible = []
+    try {
+      const view = exec?.toolSet?.view?.(exec?.agent)
+      visible = view === undefined
+        ? (exec?.agent?.ctx?.tools?.definitions?.(exec.agent) ?? [])
+        : [...view.values()]
+    } catch {
+      visible = []
+    }
+    const requested = Array.isArray(args?.names) ? args.names.filter((name) => typeof name === 'string') : []
+    const module = typeof args?.module === 'string' ? args.module.trim().replace(/\*+$/, '') : ''
+    const server = typeof args?.server === 'string'
+      ? args.server.trim().replace(/^mcp__/, '').replace(/_+$/, '')
+      : ''
+    const modulesOf = () => [...new Set(visible.filter((definition) => mcpServerOf(definition?.name) === null).map((definition) => moduleOf(definition?.name)))].sort()
+    const serversOf = () => [...new Set(visible.map((definition) => mcpServerOf(definition?.name)).filter((name) => name !== null))].sort()
+    const choices = () =>
+      `module '<one of: ${modulesOf().join(', ') || '(none)'}>' or server '<one of: ${serversOf().join(', ') || '(none)'}>'`
+    let selected
+    if (requested.length > 0) selected = visible.filter((definition) => requested.includes(definition?.name))
+    else if (module !== '') selected = visible.filter((definition) => mcpServerOf(definition?.name) === null && inModule(definition?.name, module))
+    else if (server !== '') selected = visible.filter((definition) => mcpServerOf(definition?.name) === server)
+    else return `Specify what to declare: ${choices()}, or names: [...].`
+    if (selected.length === 0) {
+      return `Nothing matched. Visible modules: ${modulesOf().join(', ') || '(none)'}. Visible MCP servers: ${serversOf().join(', ') || '(none)'}.`
+    }
+    const { renderToolsSdk, renderToolsSdkPy } = await import('@deepseek-ai/dsh-tool-executor-ptc')
+    const runtime = exec?.agent?.ctx?.get?.('ptcRuntime')
+    const render = runtime?.language === 'python' ? renderToolsSdkPy : renderToolsSdk
+    const schemas = selected.map((definition) => ({
+      ...projectToolSchema(definition, false),
+      output: definition?.output?.schema ?? {},
+    }))
+    const text = render(schemas, runtime?.programFormat)
+    const bytes = Buffer.byteLength(String(text), 'utf8')
+    if (bytes > SDK_REPLY_LIMIT) {
+      return `That selection is ${bytes} B of declarations, over the ${SDK_REPLY_LIMIT} B limit for one reply. Ask for one module or one MCP server instead — ${choices()} — or fewer names.`
+    }
+    return text
+  },
+})
+
 
 /**
  * Bind the policy for the lifetime of `ctx`.
@@ -514,9 +676,76 @@ export function apply(ctx, config = {}) {
     // A context without service provisioning still restricts; it just publishes no facts.
   }
 
+  /**
+   * Install the short SDK section and the on-demand declaration tool for one agent.
+   *
+   * Only while the PTC executor owns this agent: its `sections` array is the registration
+   * contract, so a native-executor preset pays nothing and gets no `sdk_api`. An agent-scoped
+   * section shadows the preset's `tools:sdk`; an agent-scoped tool survives `tools.restrict`
+   * by design, which is why the channel cannot be removed by a role's allow row.
+   */
+  const sdkSeats = new WeakMap()
+  const syncSdk = (agent) => {
+    if (agent === undefined || agent === null) return
+    const current = sdkSeats.get(agent)
+    let ptc = false
+    try {
+      const executor = agent.ctx?.tools?.selectExecutor?.(agent)
+      ptc = Array.isArray(executor?.sections) && executor.sections.some((section) => section?.name === SDK_SECTION)
+    } catch {
+      ptc = false
+    }
+    if (!ptc) {
+      if (current !== undefined) {
+        try {
+          current.disposeTool?.()
+        } catch {
+          // Disposal is best-effort; the next step re-reads the executor anyway.
+        }
+        try {
+          current.disposeSection?.()
+        } catch {
+          // Same.
+        }
+        sdkSeats.delete(agent)
+      }
+      return
+    }
+    if (current !== undefined) return
+    let disposeSection
+    try {
+      const order = agent.ctx?.systemPrompt?.getSectionOrder?.('TOOLS_SDK') ?? 5000
+      disposeSection = agent.ctx.systemPrompt.section({
+        name: SDK_SECTION,
+        order,
+        interpolate: false,
+        // Recomputed each assembly from the agent's own visible set: a preset switch or a
+        // restriction changes the module list, and a project without the godot marker never
+        // sees an `mcp__godot__` module.
+        text: () => {
+          try {
+            return sdkHeader(agent.ctx.tools.definitions(agent))
+          } catch {
+            return ''
+          }
+        },
+      })
+      const disposeTool = agent.ctx.tools.register(SDK_TOOL_DEFINITION)
+      sdkSeats.set(agent, { disposeSection, disposeTool })
+    } catch {
+      try {
+        disposeSection?.()
+      } catch {
+        // Same.
+      }
+      // Leaving the generated section in place is the safe failure: declarations stay visible.
+    }
+  }
+
   ctx.on('agent/created', ({ agent }) => {
     if (agent === undefined || agent === null) return
     applyTo(agent, 'created')
+    syncSdk(agent)
     pending.delete(agent?.session?.id)
   })
   // The retry AND the recompute: `prepend` so it runs before any other contributor derives a
@@ -524,9 +753,12 @@ export function apply(ctx, config = {}) {
   // preset with the one in force, so a preset selected after creation is applied here.
   ctx.on('agent/pre-step', async (payload, next) => {
     const agent = payload?.agent
-    if (agent !== undefined && agent !== null) applyTo(agent, 'pre-step')
+    if (agent !== undefined && agent !== null) {
+      applyTo(agent, 'pre-step')
+      syncSdk(agent)
+    }
     return next()
   }, { prepend: true })
 }
 
-export default { name: '@cc/dsh-tool-families', inject: ['tools'], apply }
+export default { name: '@cc/dsh-tool-families', inject: ['tools', 'systemPrompt'], apply }

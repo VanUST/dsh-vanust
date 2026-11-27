@@ -511,6 +511,7 @@
               - skill
               - skill_evolve
               - skill_inventory
+              - task_batch
               - task_cancel
               - task_close
               - task_create
