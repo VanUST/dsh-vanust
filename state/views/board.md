@@ -2,13 +2,13 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## active (1)
+## review (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-332 | Push what is uncommitted, ledger only | — | — | yes |
+| TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
 
-## done (247)
+## done (253)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -259,6 +259,12 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-329 | State batching and parallel work in the policy, and let the architect search the web | — | — | yes |
 | TASK-330 | A retirement from the shell must update the board too | — | — | yes |
 | TASK-331 | Commit the retirement contour, the policy and the ledger | — | — | yes |
+| TASK-332 | Push what is uncommitted, ledger only | — | — | yes |
+| TASK-333 | Design map: full-height canvas, always-on editing, agent drawing instruments | REQ-251, REQ-252, REQ-253, REQ-254, REQ-255 | 8/8 | no |
+| TASK-334 | Independent acceptance: design map instruments and full-height editor | REQ-251, REQ-252, REQ-253, REQ-254, REQ-255 | — | no |
+| TASK-335 | Owner status change displays immediately and never lies | REQ-136 | 6/6 | no |
+| TASK-336 | DEVOPS preset and the runtime lane (one live deployment task) | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263, REQ-264 | 10/10 | no |
+| TASK-338 | Project hygiene: one working guide, durable docs, legacy audit, orchestrator proposals | REQ-265, REQ-266, REQ-267, REQ-268, REQ-269 | 7/7 | no |
 
 ## cancelled (84)
 

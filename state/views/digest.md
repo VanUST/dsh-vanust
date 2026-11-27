@@ -2,15 +2,15 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 250 · TASK 332 · TEST 88 · event 1875
+REQ 269 · TASK 338 · TEST 98 · event 2101
 
 ## Gaps
 
-- REQ without TASK: 249 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 331
+- REQ without TASK: 267 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
+- TASK without reqId: 336
 - TEST without reqId: 52
 
-## Open requirements (14)
+## Open requirements (19)
 
 - REQ-111 proposed: Инструмент начинает вход в OpenAI (ChatGPT Plus/Pro) и отдаёт владельцу ссылку и код подтверждения.
 - REQ-112 proposed: После подтверждения запись llm-pi-ai/openai-codex лежит в хранилище харнесса и маршрут openai-codex 
@@ -26,8 +26,4 @@ REQ 250 · TASK 332 · TEST 88 · event 1875
 - REQ-234 proposed: Существующие записи schemaVersion 1 остаются закрывающими, пока очередь аудита не пуста; строгий реж
 - REQ-235 proposed: Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.
 - REQ-236 proposed: Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Mak
-
-## Open work (1)
-
-- TASK-332 active: Push what is uncommitted, ledger only
-
+[truncated: the digest budget is 3072 bytes; read index.json or state/req/]

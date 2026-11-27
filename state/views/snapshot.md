@@ -2,15 +2,15 @@
 
 GENERATED — DO NOT EDIT.
 
-- last journal event: 1875
-- REQ: 250
+- last journal event: 2101
+- REQ: 269
 - DECISION: 0
-- TASK: 332
-- TEST: 88
-- active agents: 1
+- TASK: 338
+- TEST: 98
+- active agents: 0
 
 ## Tasks by status
 
-- active: 1
 - cancelled: 84
-- done: 247
+- done: 253
+- review: 1
