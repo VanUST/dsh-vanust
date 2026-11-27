@@ -446,6 +446,16 @@ export const ROOT_COMMON_POLICY = `## Working policy (deployment)
 
 **Batch the work; the task is the unit of acceptance.** One task covers a batch of steps or several requirements: pass \`reqIds\` and \`steps\` to \`task_create\` and the board shows \`done/total\`. A micro-edit inside an open task updates THAT task — no new task, no new \`reqId\`. Several tasks of one kind form a batch: they keep their own acceptance and evidence, and the full gate runs ONCE at the boundary of the batch, not after every edit: a green run per keystroke buys nothing and costs the turn. A one-line change or a question is not delegated: make it inline and keep the speed.`
 
+/**
+ * The work-in-flight ceiling for one chat's board.
+ *
+ * One chat can read ten open rows in a glance; beyond that the queue is the work, and
+ * every new executor makes it longer instead of shorter. The ceiling is the owner's: while
+ * MORE than this many tasks are unclosed, only the checkers (TESTER, CRITIC) may be
+ * delegated. Done and cancelled rows are not work in flight and do not count.
+ */
+export const BOARD_WIP_LIMIT = 10
+
 /** The orchestrator-specific part: roles, delegation and the task ledger claim. */
 export const ROOT_POLICY = `## Orchestration policy (deployment)
 
@@ -466,6 +476,8 @@ That ledger is not bookkeeping for delegation: it is the record that outlives th
 **Outline before the whole file — when the file is big or you need one symbol.** Call \`outline\` first when the target file is longer than ~400 lines, or when you need one symbol in a file you have not read: it returns symbols with line ranges for a few hundred bytes, and then \`read\` only that range. Skip the outline for short files (under ~200 lines), when you need most of the file anyway, or when the outline tool reports it is unavailable. Measured on this kit: outline alone cut 93% of the bytes and outline + the function body 92% versus a full read.
 
 **Delegation is one way to run a task, never the trigger for one.** \`delegate_task\` creates the task and starts a child for it; a task you execute yourself has the same lifecycle and the same record. Create the task first, then choose: do it inline, or delegate it.
+
+**The board has a work-in-flight ceiling.** While this chat's board holds more than ${BOARD_WIP_LIMIT} unclosed tasks — done and cancelled do not count — \`delegate_task\` refuses a NEW task for an executor with \`board_limit\` and allows only the two checkers, TESTER and CRITIC. An attach to an already open task with taskId is allowed — the ceiling is on new work, not on finishing what is open. Close or cancel settled work before adding more.
 
 **Stopping work.** \`task_cancel\`, \`task_pause\` and \`task_close\` interrupt every linked child before they change the task, and \`task_stop\` force-stops one task's children (or one \`sessionId\`) without changing the task status. A refused interrupt leaves the task where it was and names the child. The owner can stop the same children from the Tasks panel: a subagent belongs to both the orchestrator and the human, and both have the authority.
 
@@ -872,7 +884,7 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: 'Create one task (or attach taskId), render a self-contained brief, start a child on the role preset and link its session. Roles: UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS; another role needs an explicit preset. DEVOPS owns the running deployment and runs one live deployment task per chat: a second is refused with devops_lane_busy. A near-duplicate new role is refused unless forceRole. Pass provider/model only when the default route cannot do the work.',
+    description: `Create one task (or attach taskId), render a self-contained brief, start a child on the role preset and link its session. Roles: UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS; another role needs an explicit preset. DEVOPS owns the running deployment and runs one live deployment task per chat: a second is refused with devops_lane_busy. While this chat's board holds more than \${BOARD_WIP_LIMIT} unclosed tasks a NEW task is refused with board_limit and only TESTER and CRITIC may be delegated; attaching to an already open task with taskId stays allowed. A near-duplicate new role is refused unless forceRole. Pass provider/model only when the default route cannot do the work.`,
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
@@ -955,6 +967,24 @@ export function apply(ctx, config = {}) {
       // this chat's rows; the workspace history stays readable for the human and for
       // carry-forward, which is the one place it is wanted.
       const chatId = parent.id
+      // WORK IN FLIGHT HAS A CEILING. A new executor on an already-overfull board does not
+      // shorten the queue, it lengthens it; only the checkers can close work someone else
+      // built. The count is this chat's board, read through the SAME taskboard.list({ chatId })
+      // the devops lane below uses, and done/cancelled rows are not work in flight. An attach
+      // (taskId) adds no unclosed work, so it is not refused: the ceiling is on NEW work.
+      const attachTaskId = typeof args.taskId === 'string' && args.taskId !== '' ? args.taskId : ''
+      if (preset !== 'tester' && preset !== 'critic' && attachTaskId === '') {
+        let unclosed = []
+        try {
+          unclosed = taskboard.list(taskCwd, { chatId }).filter((task) => task !== null && typeof task === 'object'
+            && !['done', 'cancelled'].includes(task.status))
+        } catch {
+          unclosed = []
+        }
+        if (unclosed.length > BOARD_WIP_LIMIT) {
+          throw new Error(`delegate_task: board_limit - this chat's board holds ${unclosed.length} unclosed tasks, more than the limit of ${BOARD_WIP_LIMIT}. While the board is over the limit a NEW task is refused: only the checkers may be delegated a new task (TESTER, CRITIC), and attaching to an already open task with taskId is allowed. Finish or close open work with task_close or task_cancel before delegating a new ${role}.`)
+        }
+      }
       // DEVOPS OWNS THE RUNTIME LANE, AND ONE LANE HOLDS ONE LIVE TASK. The runtime is a
       // shared resource, not a tool: a second deployment restarts or replaces what the
       // open task is still measuring, and the restart ends that task's running child.

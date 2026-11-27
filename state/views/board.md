@@ -6,7 +6,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-379 | Закоммитить и запушить остаток журнала | REQ-280 | — | yes |
+| TASK-382 | Закоммитить и запушить правило-блокер | — | — | yes |
 
 ## review (1)
 
@@ -14,7 +14,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
 
-## done (288)
+## done (291)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -306,6 +306,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-376 | Финальная сборка: taskboard 0.1.92, state-feed, tool-families 0.1.15, зелёный verify | REQ-280 | — | no |
 | TASK-377 | Закоммитить и запушить всю работу сессии | REQ-280 | — | no |
 | TASK-378 | sdk_api: убрать «покажи всё», дать выбор по модулю и MCP-серверу с пределом ответа | — | — | yes |
+| TASK-379 | Закоммитить и запушить остаток журнала | REQ-280 | — | yes |
+| TASK-380 | Блокер: больше 10 незакрытых задач — только проверяющие роли | — | — | yes |
+| TASK-381 | Блокер: выше предела запрещать новую работу, но не прикрепление | — | — | yes |
 
 ## blocked (1)
 
