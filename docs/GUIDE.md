@@ -121,7 +121,7 @@ to the owner, not to a new page.**
 | `docs/analysis/<initiative>.json` | the design record and evidence trail per initiative | general rules |
 | `docs/cases/<id>.json` | the observed acceptance cases | general rules |
 
-**Versions in force:** harness pin `@deepseek-ai/dsh@0.2.2-rc.3` · Node ≥ 24 · pnpm 11.7
+**Versions in force:** harness pin `@deepseek-ai/dsh@0.2.2-rc.5` · Node ≥ 24 · pnpm 11.7
 (corepack). The installers and `rules/DEPLOYMENT.md` carry the same pin; `make verify` fails when
 they disagree.
 

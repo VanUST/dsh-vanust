@@ -1,8 +1,8 @@
 # GENERATED — DO NOT EDIT. The plan summary the state feed delivers in L1,
 # written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.
 schemaVersion: 1
-initiatives: 26
-openTasks: 9
+initiatives: 28
+openTasks: 7
 work:
   - id: "agent-surface-and-shell"
     title: "Открытая поверхность: модель Codex в харнессе, вход внешнег…"
@@ -15,12 +15,6 @@ work:
     stage: "ready"
     confirmed: 0
     requirements: 7
-    openTasks: []
-  - id: "architecture-boundaries"
-    title: "Границы архитектуры: опись и проверка"
-    stage: "ready"
-    confirmed: 0
-    requirements: 1
     openTasks: []
   - id: "batch-execution"
     title: "Пакетная работа: две seats на спайк вместо ребёнка на строку"
@@ -58,13 +52,32 @@ work:
     confirmed: 0
     requirements: 9
     openTasks: []
+  - id: "harness-upgrade-rehearsal"
+    title: "Репетиция обновления харнесса"
+    stage: "ready"
+    confirmed: 0
+    requirements: 1
+    openTasks: []
   - id: "independent-verification"
     title: "Независимая проверка: происхождение доказательства, роль TE…"
     stage: "ready"
     confirmed: 0
     requirements: 11
     openTasks: []
-  # +16 more initiatives with open work: state/views/plan.md
+  # +18 more initiatives with open work: state/views/plan.md
+decisions: 3
+  - id: "DEC-001"
+    status: "accepted"
+    initiative: "documentation-owners"
+    title: "Порядок трёх проблем и правила документации"
+  - id: "DEC-002"
+    status: "accepted"
+    initiative: "architecture-boundaries"
+    title: "Архитектурная консультация при смене контракта, владельца д…"
+  - id: "DEC-003"
+    status: "accepted"
+    initiative: "request-cache"
+    title: "Правила контекста меняются только по замеру; оценка замер н…"
 next:
   - id: "TASK-273"
     status: "open"
@@ -81,7 +94,7 @@ next:
   - id: "TASK-438"
     status: "review"
     title: "Приёмка шва харнесса: обе формы и отсутствие формы в оркест…"
-  - id: "TASK-446"
-    status: "open"
-    title: "Разобрать красный delegation-basis-proof"
-  # +3 more open tasks: state/views/plan.md
+  - id: "TASK-459"
+    status: "active"
+    title: "Репетиция обновления харнесса в изолированном доме"
+  # +1 more open tasks: state/views/plan.md

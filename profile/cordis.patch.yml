@@ -981,6 +981,13 @@
   config:
     welcomeNoticeVersion: 2026-09-28.1
 
+# The `web` bundle stopped declaring `searchProvider: deepseek-search-api` in 0.2.2-rc.5;
+# a harness default is not a contract, so the kit states the route it relies on. Without
+# this row an upgrade silently changes where the web search tools send their requests.
+- id: web
+  config:
+    searchProvider: deepseek-search-api
+
 - id: agent-default-model
   name: '@deepseek-ai/dsh-agent-default-model'
   config:

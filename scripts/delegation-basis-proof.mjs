@@ -38,8 +38,11 @@
  *   - The taskboard mirror is reported as ACTIVE (`mirrorActive`) because that is the mounted
  *     composition: without a project state core the old behaviour (no requirement gate) is
  *     correct and this proof would measure nothing.
- *   - Every harness gets its own board file, so the board_full case cannot inherit rows from
- *     the checks before it.
+ *   - Every harness gets its own workspace directory. The board export has a per-harness name
+ *     (board-N.json), but the journal that IS the board (taskboard.events.ndjson) and its
+ *     snapshot sit BESIDE that export under fixed names (lib/store.mjs, pathsFor), so two
+ *     harnesses in one directory share one journal and the later one hydrates the rows the
+ *     earlier one wrote.
  *   - A throw from the tool is recorded as `{ok:false, code:'threw'}` so one hard refusal
  *     cannot hide the remaining checks.
  */
@@ -83,8 +86,12 @@ let boards = 0
  */
 function harness(options = {}) {
   boards += 1
-  const boardPath = join(dir, `board-${boards}.json`)
-  const linksPath = join(dir, `links-${boards}.json`)
+  // One workspace per harness: the shared journal beside a board export would carry one
+  // harness's rows into the next one's board (lib/store.mjs, pathsFor).
+  const workspace = join(dir, `workspace-${boards}`)
+  mkdirSync(workspace, { recursive: true })
+  const boardPath = join(workspace, `board-${boards}.json`)
+  const linksPath = join(workspace, `links-${boards}.json`)
   writeFileSync(boardPath, `${JSON.stringify({ version: 1, revision: 1, tasks: [], agents: [] }, null, 2)}\n`)
   const calls = { startActivation: [], sendMessage: [], interrupt: [] }
   const services = new Map()
@@ -134,7 +141,7 @@ function harness(options = {}) {
     const tools = new Map()
     const agent = {
       id,
-      session: { header: { id, cwd: dir, agentPreset: 'orchestrator', delegationDepth: 0 } },
+      session: { header: { id, cwd: workspace, agentPreset: 'orchestrator', delegationDepth: 0 } },
       ctx: {
         on: () => {},
         systemPrompt: { getSectionOrder: () => 100, section: () => {} },
@@ -153,7 +160,7 @@ function harness(options = {}) {
       return { ok: false, code: error?.code ?? 'threw', message: error instanceof Error ? error.message : String(error) }
     }
   }
-  return { taskboard, calls, agentFor, call, rows: () => JSON.parse(readFileSync(boardPath, 'utf8')).tasks }
+  return { taskboard, calls, agentFor, call, workspace, rows: () => JSON.parse(readFileSync(boardPath, 'utf8')).tasks }
 }
 
 try {
@@ -174,7 +181,7 @@ try {
     role: 'REVIEWER',
     objective: 'Judge whether the delegation fix carries the task basis.',
     reqIds: ['REQ-148', 'REQ-150'],
-    cwd: dir,
+    cwd: base.workspace,
   }, root.agent)
   const requirementRow = base.rows().at(-1)
   check(
@@ -195,7 +202,7 @@ try {
     objective: 'Attack the current installer for other silent failures.',
     chore: true,
     choreReason: 'a review of existing code implements no requirement of its own',
-    cwd: dir,
+    cwd: base.workspace,
   }, root.agent)
   const choreRow = base.rows().at(-1)
   check(
@@ -216,7 +223,7 @@ try {
     title: 'a review with no basis',
     role: 'DOCS',
     objective: 'Try to start a child without a requirement or a chore reason.',
-    cwd: dir,
+    cwd: base.workspace,
   }, root.agent)
   check(
     'a call with no basis is refused req_required',
@@ -243,13 +250,13 @@ try {
   // 5. The cap is still the ONE case that advises freeing a row.
   const crowded = harness({ maxTasks: 1 })
   const crowdedRoot = crowded.agentFor('root-crowded')
-  crowded.taskboard.create(dir, { title: 'a row already in flight', role: 'BACKEND', reqIds: ['REQ-149'] }, 'orchestrator')
+  crowded.taskboard.create(crowded.workspace, { title: 'a row already in flight', role: 'BACKEND', reqIds: ['REQ-149'] }, 'orchestrator')
   const full = await crowded.call(crowdedRoot.tools, 'delegate_task', {
     title: 'delegation onto a full board',
     role: 'REVIEWER',
     objective: 'Show the board_full advice survives the fix.',
     reqIds: ['REQ-149'],
-    cwd: dir,
+    cwd: crowded.workspace,
   }, crowdedRoot.agent)
   const fullMessage = String(full?.message ?? '')
   check(
@@ -268,13 +275,13 @@ try {
   const attachedRoot = attached.agentFor('root-attached')
   // The row is opened the way `task_create` opens one: on this chat's board, so the attach is
   // allowed to write it (a row with no chat belongs to nobody and the attach is refused).
-  const existing = attached.taskboard.create(dir, { title: 'a row opened before the delegation', role: 'REVIEWER', reqIds: ['REQ-149'], chatId: 'root-attached' }, 'orchestrator')
+  const existing = attached.taskboard.create(attached.workspace, { title: 'a row opened before the delegation', role: 'REVIEWER', reqIds: ['REQ-149'], chatId: 'root-attached' }, 'orchestrator')
   const attachResult = await attached.call(attachedRoot.tools, 'delegate_task', {
     title: 'a row opened before the delegation',
     role: 'REVIEWER',
     objective: 'Attach the child to the row that already exists.',
     taskId: existing.id,
-    cwd: dir,
+    cwd: attached.workspace,
   }, attachedRoot.agent)
   check(
     'an attach with taskId needs no basis and starts one child',
@@ -283,8 +290,8 @@ try {
   )
   check(
     'the attach created no second row',
-    attached.rows().length === 1,
-    { rows: attached.rows().length },
+    attached.rows().length === 1 && attached.rows()[0]?.id === existing.id,
+    { rows: attached.rows().length, ids: attached.rows().map((row) => row.id) },
   )
 } finally {
   if (!keep) rmSync(dir, { recursive: true, force: true })

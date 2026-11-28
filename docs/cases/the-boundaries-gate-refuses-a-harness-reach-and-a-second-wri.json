@@ -1,0 +1,243 @@
+{
+  "schemaVersion": 1,
+  "id": "the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri",
+  "title": "The boundaries gate refuses a harness reach and a second writer, and names its exceptions",
+  "requirement": "REQ-299 AC-2: the architecture-boundaries check refuses (code 1) an import of the harness internals outside the seam and a second writer of a state, while a legal tree passes with 0. AC-3: exceptions are named, each with an owner and a reason, and a stale exception is a finding of its own.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "docs/cases/drivers/boundaries-acceptance.mjs",
+  "runCommand": "node docs/cases/drivers/boundaries-acceptance.mjs",
+  "steps": [
+    "Run node scripts/check-boundaries.mjs --check --json on the kit tree: exit 0, no open or stale findings, every waived exception has owner and reason.",
+    "Copy the excepted files into a fixture tree, add plugins/foreign/foreign.mjs importing @deepseek-ai/dsh-subagent/lib/types.js and calling writeFileSync('taskboard.rows.json'), and run the gate with --root: exit 1 naming I-SEAM-ONLY and I-ONE-WRITER.",
+    "Run the gate with --root on a bare tree without the excepted code: exit 1 and the stale exceptions are reported.",
+    "Repeat on a tree before commit 3896ecb (no scripts/check-boundaries.mjs): the driver refuses."
+  ],
+  "expected": "The kit tree passes the gate with exit 0 and no open or stale findings; every excepted finding names an owner and a reason; a tree with a harness-internals import outside the seam and a foreign board write is refused with exit 1 naming I-SEAM-ONLY and I-ONE-WRITER; a tree where the excepted code is gone is refused with a stale exception.",
+  "tags": [
+    "architecture-boundaries",
+    "check-boundaries",
+    "REQ-299",
+    "AC-2",
+    "I-SEAM-ONLY",
+    "I-ONE-WRITER"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/tool-families/tool-families.mjs",
+      "sha256": "7c2806c00d68879a074dd131e474e25810f5dd18c6f76b92f7e0912939b04a43"
+    }
+  ],
+  "criterionId": "AC-2",
+  "reqId": "REQ-299",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+  "purpose": "acceptance",
+  "testHash": "91df9a157364b024073713c83550ab450c450bb43295c5cf89d92b210ab38057",
+  "failsWhen": "An injected harness reach or second state writer passes the gate, the legal tree is refused, an exception has no owner or reason, a stale exception is not a finding, or a tree without the check is reported as passing.",
+  "trigger": "A kit tree, a copy with an injected harness-internals import and a foreign board write, a tree where the excepted code is gone, and a tree before the check existed are each run through the check command line.",
+  "oracle": "REQ-299 criterion AC-2 (violations are refused with code 1 before acceptance, a legal tree passes with 0) and AC-3 (exceptions are named with an owner and a reason, a stale exception is itself a finding); the invariants are I-SEAM-ONLY and I-ONE-WRITER as the requirement states them, driven only through the script's exit code and JSON report.",
+  "realism": "The boundaries were held only by the orchestrator's memory; the same two reaches that shipped before (a kit module importing a harness package's internals and a second writer of a board state path) are injected into a copy of the tree, and the gate is asked through its public command line.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-28T14:20:00.000Z",
+  "revision": 5,
+  "createdAt": "2026-11-28T14:20:24.053Z",
+  "updatedAt": "2026-11-28T14:20:39.928Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T14:20:28.356Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T14:20:28.356Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The boundaries gate refuses a harness reach and a second writer, and names its exceptions",
+        "requirement": "REQ-299 AC-2: the architecture-boundaries check refuses (code 1) an import of the harness internals outside the seam and a second writer of a state, while a legal tree passes with 0. AC-3: exceptions are named, each with an owner and a reason, and a stale exception is a finding of its own.",
+        "expected": "The kit tree passes the gate with exit 0 and no open or stale findings; every excepted finding names an owner and a reason; a tree with a harness-internals import outside the seam and a foreign board write is refused with exit 1 naming I-SEAM-ONLY and I-ONE-WRITER; a tree where the excepted code is gone is refused with a stale exception.",
+        "steps": [
+          "Run node scripts/check-boundaries.mjs --check --json on the kit tree: exit 0, no open or stale findings, every waived exception has owner and reason.",
+          "Copy the excepted files into a fixture tree, add plugins/foreign/foreign.mjs importing @deepseek-ai/dsh-subagent/lib/types.js and calling writeFileSync('taskboard.rows.json'), and run the gate with --root: exit 1 naming I-SEAM-ONLY and I-ONE-WRITER.",
+          "Run the gate with --root on a bare tree without the excepted code: exit 1 and the stale exceptions are reported.",
+          "Repeat on a tree before commit 3896ecb (no scripts/check-boundaries.mjs): the driver refuses."
+        ],
+        "automated": true,
+        "testPath": "docs/cases/drivers/boundaries-acceptance.mjs",
+        "runCommand": "node docs/cases/drivers/boundaries-acceptance.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null,
+        "linkedTaskId": null
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T14:20:36.524Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T14:20:39.928Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0hzb3k-7mptv-1",
+      "at": "2026-11-28T14:20:28.355Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 275,
+      "commandSha256": "17ee9b653bb92edeb6912e6687885ad0602dcc66735fc79a61ccde14f573a96a",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "3896ecb52eae0188f2c0080d050a112a2beb473c",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzb3k-7mptv-1/stdout.log",
+      "stderr": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzb3k-7mptv-1/stderr.log",
+      "summary": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzb3k-7mptv-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0hzhh2-b5r8k-1",
+      "at": "2026-11-28T14:20:36.522Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 195,
+      "commandSha256": "17ee9b653bb92edeb6912e6687885ad0602dcc66735fc79a61ccde14f573a96a",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-boundaries-ab3a67f",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-boundaries-ab3a67f",
+      "head": "8bfecae2e844ce6fc389d3e3f4cf5d766e321edb",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzhh2-b5r8k-1/stdout.log",
+      "stderr": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzhh2-b5r8k-1/stderr.log",
+      "summary": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzhh2-b5r8k-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0hzk1i-p1mo6-1",
+      "at": "2026-11-28T14:20:39.926Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 255,
+      "commandSha256": "17ee9b653bb92edeb6912e6687885ad0602dcc66735fc79a61ccde14f573a96a",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "3896ecb52eae0188f2c0080d050a112a2beb473c",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzk1i-p1mo6-1/stdout.log",
+      "stderr": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzk1i-p1mo6-1/stderr.log",
+      "summary": "docs/cases/runs/the-boundaries-gate-refuses-a-harness-reach-and-a-second-wri/mx0hzk1i-p1mo6-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-28T14:20:39.928Z",
+    "command": "node docs/cases/drivers/boundaries-acceptance.mjs",
+    "exitCode": 0,
+    "runId": "mx0hzk1i-p1mo6-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": null
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-28T14:20:36.524Z",
+    "runId": "mx0hzhh2-b5r8k-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node docs/cases/drivers/boundaries-acceptance.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-boundaries-ab3a67f",
+    "head": "8bfecae2e844ce6fc389d3e3f4cf5d766e321edb",
+    "dirty": true,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": null
+    }
+  }
+}

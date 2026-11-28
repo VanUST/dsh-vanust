@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-pokazyvaet-resheniya-zhurnala-i-ostaetsya-v-byudzhete-4",
+  "title": "План показывает решения журнала и остаётся в бюджете 4096 B",
+  "requirement": "Долгосрочный порядок работ и условия остановки живут в журнале: DECISION, связанное с REQ, видно в сгенерированном плане (state/plan.yaml и state/views/plan.md) с инициативой из записи анализа, а plan.yaml не превышает 4096 B даже когда решений становится много.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/project-state/test/views.test.mjs",
+  "runCommand": "node --test plugins/project-state/test/views.test.mjs",
+  "steps": [
+    "Создать REQ с analysisRef.initiative и DECISION через ядро состояния, связать DECISION с REQ.",
+    "Вызвать regenerateViews().",
+    "Прочитать state/plan.yaml и state/views/plan.md: ожидается блок decisions с id, статусом, инициативой и правилом.",
+    "Создать 40 решений и перегенерировать: план остаётся в пределах PLAN_YAML_LIMIT_BYTES, лишние строки названы маркером, plan.md перечисляет все."
+  ],
+  "expected": "plan.yaml содержит строку decisions: N с решением и его инициативой и укладывается в 4096 B; plan.md содержит раздел «Решения»; решение в статусе superseded из плана уходит.",
+  "tags": [
+    "plan",
+    "decisions",
+    "state"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state/lib/views.mjs",
+      "sha256": "b5d6e5c3358b77a171fcaac3d9cd87724e10ed760f1d9a5ab7a03c858a6e4b00"
+    }
+  ],
+  "linkedTaskId": "task-mx0h6fz9-h5pvzu",
+  "reqId": "REQ-303",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+  "purpose": "implementation",
+  "testHash": "971314e95384df8339b172edaf5d39747f6c1c2338559288734af0702d5c12ff",
+  "negativeControl": "plan-decisions-section",
+  "revision": 3,
+  "createdAt": "2026-11-28T14:04:17.235Z",
+  "updatedAt": "2026-11-28T14:04:25.213Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T14:04:21.265Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"plan-decisions-section\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T14:04:25.213Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0hekh8-iqc68-1",
+      "at": "2026-11-28T14:04:21.263Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+        "taskId": "task-mx0h6fz9-h5pvzu"
+      },
+      "control": "plan-decisions-section",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 793,
+      "commandSha256": "19ded9ebc9b2b0f45ea247bb2010b62a077fd10a0e2f9d12372743415641cb81",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "3896ecb52eae0188f2c0080d050a112a2beb473c",
+      "dirty": true,
+      "stdout": "docs/cases/runs/plan-pokazyvaet-resheniya-zhurnala-i-ostaetsya-v-byudzhete-4/mx0hekh8-iqc68-1/stdout.log",
+      "stderr": "docs/cases/runs/plan-pokazyvaet-resheniya-zhurnala-i-ostaetsya-v-byudzhete-4/mx0hekh8-iqc68-1/stderr.log",
+      "summary": "docs/cases/runs/plan-pokazyvaet-resheniya-zhurnala-i-ostaetsya-v-byudzhete-4/mx0hekh8-iqc68-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0henjl-4qokf-1",
+      "at": "2026-11-28T14:04:25.211Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+        "taskId": "task-mx0h6fz9-h5pvzu"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 777,
+      "commandSha256": "19ded9ebc9b2b0f45ea247bb2010b62a077fd10a0e2f9d12372743415641cb81",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "3896ecb52eae0188f2c0080d050a112a2beb473c",
+      "dirty": true,
+      "stdout": "docs/cases/runs/plan-pokazyvaet-resheniya-zhurnala-i-ostaetsya-v-byudzhete-4/mx0henjl-4qokf-1/stdout.log",
+      "stderr": "docs/cases/runs/plan-pokazyvaet-resheniya-zhurnala-i-ostaetsya-v-byudzhete-4/mx0henjl-4qokf-1/stderr.log",
+      "summary": "docs/cases/runs/plan-pokazyvaet-resheniya-zhurnala-i-ostaetsya-v-byudzhete-4/mx0henjl-4qokf-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T14:04:21.265Z",
+    "runId": "mx0hekh8-iqc68-1",
+    "exitCode": 1,
+    "control": "plan-decisions-section",
+    "command": "node --test plugins/project-state/test/views.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "C:\\dsh-kit",
+    "head": "3896ecb52eae0188f2c0080d050a112a2beb473c",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+      "taskId": "task-mx0h6fz9-h5pvzu"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T14:04:25.213Z",
+    "command": "node --test plugins/project-state/test/views.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0henjl-4qokf-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+      "taskId": "task-mx0h6fz9-h5pvzu"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

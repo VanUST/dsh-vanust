@@ -19,7 +19,16 @@
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DSH_VERSION="0.2.2-rc.3"        # pinned harness version
+# THE HARNESS PIN HAS ONE OWNER: the `$DSH_VERSION` line of install.ps1. kit-update.mjs reads
+# that same declaration and scripts/check-documentation.mjs compares every document with it, so
+# this installer DERIVES the value instead of carrying a copy: a bump is one edit and the two
+# installers cannot disagree. An empty result stops the install here instead of installing
+# whatever npm resolves.
+DSH_VERSION="$(sed -n "s/^[[:space:]]*\$DSH_VERSION[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p" "${KIT_DIR}/install.ps1" | head -n 1)"
+if [ -z "${DSH_VERSION}" ]; then
+  echo "ERROR: install.ps1 declares no \$DSH_VERSION — this installer will not guess a harness version." >&2
+  exit 1
+fi
 PNPM_VERSION="11.7.0"           # matches the harness workspace toolchain
 DSH_HOME="${DSH_HOME:-$HOME/.npm/dsh}"
 

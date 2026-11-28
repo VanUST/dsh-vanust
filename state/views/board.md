@@ -2,20 +2,18 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (2)
+## open (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
-| TASK-446 | Разобрать красный delegation-basis-proof | — | — | yes |
 
-## active (3)
+## active (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-455 | Кэш и стоимость шага: оркестратор против субагентов | REQ-300 | — | no |
-| TASK-457 | Собрать пакеты и закоммитить батч: границы, план, наблюдение | — | — | yes |
+| TASK-464 | Закоммитить переход на rc.5 и сопутствующий батч | — | — | yes |
 
 ## review (2)
 
@@ -24,7 +22,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
 | TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 
-## done (358)
+## done (366)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -385,7 +383,15 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-452 | Где ушла минута после инъекции состояния | — | — | yes |
 | TASK-453 | Проверка границ архитектуры на одном пилоте | — | — | yes |
 | TASK-454 | Довести план до модели: компактная проекция в инъекции состояния | REQ-298 | — | no |
+| TASK-455 | Кэш и стоимость шага: оркестратор против субагентов | REQ-300 | — | no |
 | TASK-456 | Включить проверку границ в штатные гейты | REQ-301 | — | yes |
+| TASK-457 | Собрать пакеты и закоммитить батч: границы, план, наблюдение | — | — | yes |
+| TASK-458 | Разобрать красный delegation-basis-proof и получить зелёный make test | — | — | yes |
+| TASK-459 | Репетиция обновления харнесса в изолированном доме | REQ-302 | — | no |
+| TASK-460 | Стратегия в журнале: решения и раздел порядка в плане | REQ-303 | — | no |
+| TASK-461 | Подготовить переход на харнесс 0.2.2-rc.5 | REQ-302 | — | no |
+| TASK-462 | Независимая приёмка проверки границ архитектуры | — | — | yes |
+| TASK-463 | Версия харнесса из одного источника | — | — | yes |
 
 ## blocked (1)
 
@@ -393,7 +399,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-372 | Задержка отправки и размер контекста: есть ли связь | — | — | yes |
 
-## cancelled (91)
+## cancelled (92)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -488,3 +494,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-370 | Панель задач читает доску через сервер, а не устаревший файл | REQ-279 | — | no |
 | TASK-423 | Измерить влияние изменений запроса на кэш провайдера | — | — | yes |
 | TASK-424 | Прогнать замер кэша на одном маршруте модели | — | — | yes |
+| TASK-446 | Разобрать красный delegation-basis-proof | — | — | yes |

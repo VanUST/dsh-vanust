@@ -5,9 +5,9 @@
  *   the procedure tells an agent to run, and the plugin set the profile mounts.
  *
  *   The pin claims exist because `kit-update.mjs` converges a machine on the pin it reads
- *   from `install.ps1`/`install.sh`, so those two are the source of truth here and every
- *   other place the version is written is compared to them. The plugin claims exist
- *   because a table that describes a smaller deployment than the one installed is drift an
+ *   from `install.ps1`, so that ONE declaration is the source of truth here: `install.sh`
+ *   derives it, and every document that writes a version is compared with it. The plugin claims
+ *   exist because a table that describes a smaller deployment than the one installed is drift an
  *   agent cannot detect: it has nothing to compare against.
  *
  *   The rule-ownership claim is the same discipline applied to prose that must not be copied: the
@@ -186,15 +186,28 @@ const flagValue = (name) => {
   const at = argv.indexOf(name)
   return at >= 0 && at + 1 < argv.length ? argv[at + 1] : ''
 }
+/** The one exit either fixture mode and the live run share: the marker, or the failures. */
+function finish() {
+  if (failures.length === 0) {
+    process.stdout.write('documentation ok\n')
+    process.exit(0)
+  }
+  for (const failure of failures) process.stderr.write(failure + '\n')
+  process.exit(1)
+}
 if (argv.includes('--documents-only')) {
   const root = flagValue('--root') === '' ? KIT : resolve(flagValue('--root'))
   for (const finding of checkDocuments(root)) claim(`${finding.code} ${finding.path}`, false, finding.detail)
-  if (failures.length === 0) process.stdout.write('documentation ok\n')
-  else {
-    for (const failure of failures) process.stderr.write(failure + '\n')
-    process.exit(1)
-  }
-  process.exit(0)
+  finish()
+}
+// PIN FIXTURE MODE: judge only the pin claims — the declaration, the installer that derives it,
+// the updater that reads it, and the documents that state it — so a test can make a COPY
+// disagree with its source and watch the gate refuse, without editing the kit's own pin or its
+// documents.
+if (argv.includes('--pin-only')) {
+  const root = flagValue('--root') === '' ? KIT : resolve(flagValue('--root'))
+  for (const row of pinClaims(root)) claim(row.name, row.ok, row.detail)
+  finish()
 }
 
 /**
@@ -217,61 +230,127 @@ function* problemPins(text) {
   for (const match of text.matchAll(/@deepseek-ai\/dsh@([^\s"'`),;\\]+)/g)) yield match[1]
 }
 
-// 1. Where the pin is DECLARED. The installers are the source of truth, and they must agree.
-/** Reads an installer's `DSH_VERSION`, falling back to its inline `@deepseek-ai/dsh@x`. */
-const installerPin = (relative) => {
-  const entry = read(relative)
-  if (entry.missing === true) return { relative, pin: null, reason: 'missing' }
-  const pin =
-    /DSH_VERSION\s*=\s*['"]?([0-9][^'"\s]*)/.exec(entry.text)?.[1] ??
-    /@deepseek-ai\/dsh@([0-9][^"'\s]*)/.exec(entry.text)?.[1] ??
-    null
-  return { relative, pin, reason: pin === null ? 'no DSH_VERSION declaration and no inline pin' : 'DSH_VERSION' }
+/*
+ * THE HARNESS PIN HAS ONE OWNER (REQ-…): the `$DSH_VERSION` line of `install.ps1`. Everything
+ * else READS it — `install.sh` derives the value with sed, `kit-update.mjs` reads the same
+ * declaration to converge a machine — and every document that writes a version is compared with
+ * it. Before this, both installers carried a copy: a bump was five edits, and a machine already
+ * on the newer harness was planned back to the pin because one copy still said the old version.
+ *
+ * A FIXTURE ROOT judges the same claims (`--pin-only --root <dir>`), so a test can make a
+ * document disagree with the source without editing the kit's own pin or its documents.
+ *
+ * @param {string} root - a kit checkout, or a fixture that imitates one.
+ * @returns {{name: string, ok: boolean, detail: string}[]} one row per claim, in a fixed order.
+ */
+export function pinClaims(root) {
+  const at = (relative) => {
+    const path = join(root, relative)
+    return existsSync(path) ? readFileSync(path, 'utf8') : null
+  }
+  const rows = []
+  const expect = (name, ok, detail) => {
+    rows.push({ name, ok, detail })
+    return ok
+  }
+  const source = at('install.ps1')
+  const declared = source === null ? null : (/^\$DSH_VERSION\s*=\s*'([0-9][^']*)'\s*$/m.exec(source)?.[1] ?? null)
+  const sourcePin = expect(
+    'install.ps1 declares the harness pin, and it is the one place the version is written',
+    declared !== null,
+    declared ?? (source === null ? 'install.ps1 is missing' : 'no "$DSH_VERSION = \'<version>\'" line in install.ps1'),
+  )
+    ? declared
+    : null
+  const reader = at('install.sh')
+  const copies = reader === null ? false : /^\s*DSH_VERSION\s*=\s*"?[0-9]/m.test(reader)
+  const reads = reader === null ? false : /^\s*DSH_VERSION=.*install\.ps1/m.test(reader)
+  expect(
+    'install.sh derives the pin from install.ps1 instead of copying it',
+    reader !== null && reads && !copies,
+    reader === null
+      ? 'install.sh is missing'
+      : copies
+        ? 'install.sh carries its own version literal again: the copy can disagree with install.ps1'
+        : reads
+          ? 'derived from the install.ps1 declaration'
+          : 'install.sh does not read install.ps1 for $DSH_VERSION',
+  )
+  const updater = at('scripts/kit-update.mjs')
+  const updaterReads = updater !== null && updater.includes("'install.ps1'") && updater.includes('DSH_VERSION\\s*[=:]')
+  expect(
+    'kit-update.mjs reads the pin from install.ps1',
+    updaterReads,
+    updater === null
+      ? 'scripts/kit-update.mjs is missing'
+      : updaterReads
+        ? 'reads the installer declaration'
+        : 'kit-update.mjs no longer reads the install.ps1 declaration: a pin bump would stop converging the machine',
+  )
+  const procedure = at('rules/DEPLOYMENT.md')
+  if (procedure === null) {
+    expect('the deployment procedure exists', false, 'rules/DEPLOYMENT.md is missing')
+  } else {
+    expect('the deployment procedure exists', true, 'rules/DEPLOYMENT.md')
+    // The PROSE statement, matched on its own wording: a version mentioned in passing above the
+    // statement must not stand in for it.
+    const stated = /Pinned harness version:\s*\*\*`([^`]+)`\*\*/.exec(procedure)?.[1] ?? null
+    expect(
+      'the procedure states the pin install.ps1 declares',
+      sourcePin !== null && stated === sourcePin,
+      stated === sourcePin ? stated : `procedure states ${stated ?? 'no "Pinned harness version" line'}, install.ps1 declares ${sourcePin ?? 'nothing usable'}`,
+    )
+    // And every concrete pin the procedure WRITES must be that same one: a command example
+    // elsewhere in the file is what an agent actually runs.
+    const procedurePins = [...problemPins(procedure)].filter((value) => !value.includes('<'))
+    const stray = procedurePins.filter((value) => value !== sourcePin)
+    expect(
+      'every harness version the procedure writes is the install.ps1 pin',
+      stray.length === 0 && (sourcePin === null ? procedurePins.length === 0 : procedurePins.length > 0),
+      stray.length === 0 ? `${procedurePins.length} concrete pin(s), all ${sourcePin ?? 'absent'}` : `writes ${stray.join(', ')} but install.ps1 declares ${sourcePin ?? 'nothing usable'}`,
+    )
+  }
+  // The README a human reads and the working guide that walks a session through the tree: both
+  // tell a reader which version is in force, so both must agree with the one declaration. They
+  // are required to NAME the pin: a version-less install instruction is exactly the unpinned
+  // machine the pin forbids.
+  //
+  // BOTH WORDINGS COUNT. A document states the pin as `@deepseek-ai/dsh@x` in a command and as
+  // "harness pin `x`" in prose; checking only the command form left the prose copy free to keep
+  // the old version through a bump (measured on README.md: two sites, one matched).
+  const writtenPins = (text) => [
+    ...problemPins(text),
+    ...[...text.matchAll(/harness pin\s*`([0-9][^`]*)`/gi)].map((match) => match[1]),
+  ].filter((value) => !value.includes('<'))
+  for (const relative of ['README.md', 'docs/GUIDE.md']) {
+    const text = at(relative)
+    if (text === null) {
+      expect(`${relative} states the harness pin install.ps1 declares`, false, 'missing')
+      continue
+    }
+    const found = writtenPins(text)
+    if (found.length === 0) {
+      expect(`${relative} states the harness pin install.ps1 declares`, false, 'it writes no concrete harness version, so a reader is sent to install an unpinned dsh')
+      continue
+    }
+    const stray = found.filter((value) => value !== sourcePin)
+    expect(
+      `${relative} states the harness pin install.ps1 declares`,
+      stray.length === 0 && sourcePin !== null,
+      stray.length === 0 ? `${[...new Set(found)].join(', ')}` : `writes ${[...new Set(stray)].join(', ')} but install.ps1 declares ${sourcePin ?? 'nothing usable'}`,
+    )
+  }
+  return rows
 }
-const installers = [installerPin('install.sh'), installerPin('install.ps1')]
-const agree = installers.every((entry) => entry.pin !== null) && installers.every((entry) => entry.pin === installers[0].pin)
-claim(
-  'both installers declare the harness pin',
-  agree,
-  agree
-    ? `${installers[0].pin} in ${installers.map((entry) => entry.relative).join(' and ')}`
-    : installers.map((entry) => `${entry.relative}: ${entry.pin ?? 'none'} (${entry.reason})`).join(', '),
-)
-const sourcePin = agree ? installers[0].pin : null
-// Distinguishes "the installers disagree with each other" from "no installer declares a pin
-// at all": both leave sourcePin null, and reporting the second for the first sends a reader
-// to add a declaration that is already there.
-const sourcePinNote =
-  sourcePin ?? (installers.every((entry) => entry.pin === null) ? 'no usable installer pin' : `installers disagree (${installers.map((entry) => `${entry.relative} ${entry.pin ?? 'none'}`).join(', ')})`)
 
-// 2. The procedure: the pin it states, every command example it writes, the scripts it
-//    names, and the plugins it describes.
+// 1. The pin: one owner, its readers, and every document that writes a version.
+for (const row of pinClaims(KIT)) claim(row.name, row.ok, row.detail)
+
+// 2. The procedure: the scripts it names and the plugins it describes. The claims about the
+//    pin it STATES are in pinClaims(), because the fixture mode must judge them on a tree that
+//    holds only the five files a pin claim reads.
 const procedure = read('rules/DEPLOYMENT.md')
-if (procedure.missing === true) {
-  claim('the deployment procedure exists', false, procedure.path)
-} else {
-  // The PROSE statement, matched on its own wording: the earlier first-version-in-the-file
-  // rule matched whatever version-looking string came first, so a version mentioned in
-  // passing above the statement could stand in for it.
-  const stated = /Pinned harness version:\s*\*\*`([^`]+)`\*\*/.exec(procedure.text)?.[1] ?? null
-  const statementHolds = sourcePin !== null && stated === sourcePin
-  claim(
-    'the procedure states the pin the installers declare',
-    statementHolds,
-    statementHolds ? stated : `procedure states ${stated ?? 'no "Pinned harness version" line'}, installers declare ${sourcePin ?? 'nothing usable'}`,
-  )
-  // And every concrete pin the procedure WRITES must be that same one: a command example
-  // elsewhere in the file is what an agent actually runs.
-  const procedurePins = [...problemPins(procedure.text)].filter((value) => !value.includes('<'))
-  const procedureStray = procedurePins.filter((value) => value !== sourcePin)
-  claim(
-    'every harness version the procedure writes is the installer pin',
-    procedureStray.length === 0 && (sourcePin === null ? procedurePins.length === 0 : procedurePins.length > 0),
-    procedureStray.length === 0
-      ? `${procedurePins.length} concrete pin(s), all ${sourcePin ?? 'absent'}`
-      : `writes ${procedureStray.join(', ')} but ${sourcePinNote}`,
-  )
-
+if (procedure.missing !== true) {
   // The name class admits upper case: the scripts this kit ships are upper-case-free, but
   // the claim is about every script the procedure NAMES, and a mixed-case name was invisible
   // to a `[a-z0-9-]` class — `scripts/Check-Missing.mjs` passed this claim without existing.
@@ -311,31 +390,9 @@ if (procedure.missing === true) {
   )
 }
 
-// 3. The README a human reads and the working guide that walks a session through the tree:
-//    both tell a reader which version is in force, so both must agree with the installers. They
-//    are required to NAME the pin — a version-less install instruction is exactly the unpinned
-//    machine the pin forbids.
+// 3. The README and the guide are read here for their clone URL; the claims that they STATE the
+//    pin are in pinClaims(), against the one declaration.
 const readme = read('README.md')
-for (const [relative, document] of [
-  ['README.md', readme],
-  ['docs/GUIDE.md', read('docs/GUIDE.md')],
-]) {
-  if (document.missing === true) {
-    claim(`${relative} states the harness pin the installers declare`, false, 'missing')
-    continue
-  }
-  const found = [...problemPins(document.text)].filter((value) => !value.includes('<'))
-  if (found.length === 0) {
-    claim(`${relative} states the harness pin the installers declare`, false, 'it writes no concrete harness version, so a reader is sent to install an unpinned dsh')
-    continue
-  }
-  const stray = found.filter((value) => value !== sourcePin)
-  claim(
-    `${relative} states the harness pin the installers declare`,
-    stray.length === 0 && sourcePin !== null,
-    stray.length === 0 ? `${[...new Set(found)].join(', ')}` : `writes ${[...new Set(stray)].join(', ')}, ${sourcePinNote}`,
-  )
-}
 
 // 4. No shipped SCRIPT may install the harness without a version. Bounded to the files that
 //    RUN rather than instruct: a document is allowed to show `@<candidate>` as the upgrade

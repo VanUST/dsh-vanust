@@ -288,11 +288,13 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-294 | done | — | TEST-106, TEST-107 | — | no |
 | REQ-295 | done | — | TEST-108 | — | no |
 | REQ-296 | done | — | TEST-109 | — | no |
-| REQ-297 | done | — | TEST-110, TEST-111, TEST-113 | — | no |
-| REQ-298 | done | — | TEST-112 | — | no |
-| REQ-299 | done | — | TEST-114 | — | no |
-| REQ-300 | proposed | — | — | — | no |
+| REQ-297 | done | — | TEST-110, TEST-111, TEST-113 | DEC-001 | no |
+| REQ-298 | done | — | TEST-112 | DEC-003 | no |
+| REQ-299 | done | — | TEST-114, TEST-116 | DEC-002 | no |
+| REQ-300 | rejected | — | — | — | no |
 | REQ-301 | rejected | — | — | — | no |
+| REQ-302 | rejected | — | — | — | no |
+| REQ-303 | done | — | TEST-115 | — | no |
 
 ## Tests
 
@@ -412,3 +414,5 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-112 | REQ-298 | verified | — |
 | TEST-113 | REQ-297 | verified | — |
 | TEST-114 | REQ-299 | verified | — |
+| TEST-115 | REQ-303 | verified | — |
+| TEST-116 | REQ-299 | verified | — |

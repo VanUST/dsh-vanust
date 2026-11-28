@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { createStateService } from '../lib/core.mjs'
+import { PLAN_YAML_LIMIT_BYTES } from '../lib/views.mjs'
 
 const clock = () => '2026-01-02T00:00:00.000Z'
 const sha = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
@@ -202,5 +203,65 @@ test('a retired TEST row stays in the register and stops counting as live work',
   assert.equal(kept.ok, true)
   assert.equal(kept.frontmatter.status, 'deprecated')
   assert.equal(kept.frontmatter.reqId, req.id)
+})
+
+/*
+PROOF: the plan carries the journal's decisions
+Behavior: a DECISION created through the core with a link to a REQ appears in BOTH plan
+  projections — state/plan.yaml (id, status, initiative, title) and state/views/plan.md (a
+  "Решения" table) — where the initiative comes from the linked REQ's analysisRef; a
+  superseded decision leaves the plan; and when the decisions alone would push plan.yaml past
+  PLAN_YAML_LIMIT_BYTES the generator drops rows and names the rest, so the file stays inside
+  the cap and no YAML row is cut in half.
+Fails when: the plan shows initiatives and open tasks but not the order and stop conditions the
+  journal already decided, when a decision cannot be traced to its initiative, or when adding
+  decisions pushes plan.yaml past its byte cap.
+Production path: plugins/project-state/lib/views.mjs (planDecisions, renderPlan, renderPlanYaml)
+  called from core.mjs regenerateViews.
+*/
+test('the plan carries the journal decision with the initiative it was linked to', async () => {
+  const { cwd, state } = await workspace()
+  const req = await state.create('req', { title: 'Docs', criteria: ['three documents'], analysisRef: { initiative: 'documentation-owners', requirementId: 'R1' } })
+  const decision = await state.create('decision', { title: 'Порядок трёх проблем и правила документации', status: 'accepted', body: 'Порядок работ.' })
+  assert.equal(decision.ok, true)
+  const linked = await state.link(decision.id, req.id)
+  assert.equal(linked.ok, true)
+  const regenerated = await state.regenerateViews()
+  assert.equal(regenerated.ok, true)
+  const planYaml = await readFile(join(cwd, 'state', 'plan.yaml'), 'utf8')
+  // The negative control: the harness sets this to prove the assertion can fail at all.
+  if (process.env.CASE_NEGATIVE_CONTROL !== undefined) assert.doesNotMatch(planYaml, /^decisions: /m, `negative control "${process.env.CASE_NEGATIVE_CONTROL}": the plan must not show decisions`)
+  assert.match(planYaml, /^decisions: 1$/m)
+  assert.match(planYaml, new RegExp('  - id: "' + decision.id + '"'))
+  assert.match(planYaml, /^    status: "accepted"$/m)
+  assert.match(planYaml, /^    initiative: "documentation-owners"$/m)
+  const plan = await readFile(join(cwd, 'state', 'views', 'plan.md'), 'utf8')
+  assert.match(plan, /## Решения \(1\)/)
+  assert.match(plan, new RegExp('\\| ' + decision.id + ' \\| accepted \\| documentation-owners \\|'))
+  // A retired decision is history: the plan shows the rules that still hold.
+  const successor = await state.create('decision', { title: 'Порядок работ, редакция вторая', status: 'accepted', body: 'Порядок работ.' })
+  const current = await state.get(decision.id)
+  const retired = await state.update(decision.id, { expectedRevision: current.frontmatter.revision, status: 'superseded', supersededBy: successor.id, reason: 'replaced by the second wording' })
+  assert.equal(retired.ok, true)
+  assert.equal((await state.regenerateViews()).ok, true)
+  const after = await readFile(join(cwd, 'state', 'plan.yaml'), 'utf8')
+  assert.doesNotMatch(after, new RegExp('  - id: "' + decision.id + '"'))
+  assert.match(after, new RegExp('  - id: "' + successor.id + '"'))
+})
+
+test('the plan drops decision rows instead of leaving plan.yaml past its byte cap', async () => {
+  const { cwd, state } = await workspace()
+  for (let index = 0; index < 40; index += 1) {
+    const created = await state.create('decision', { title: 'Правило ' + String(index).padStart(2, '0') + ': правило контекста меняется только по замеру до и после', status: 'accepted', body: 'Правило.' })
+    assert.equal(created.ok, true)
+  }
+  const regenerated = await state.regenerateViews()
+  assert.equal(regenerated.ok, true)
+  const planYaml = await readFile(join(cwd, 'state', 'plan.yaml'), 'utf8')
+  assert.ok(Buffer.byteLength(planYaml, 'utf8') <= PLAN_YAML_LIMIT_BYTES, 'plan.yaml is ' + Buffer.byteLength(planYaml, 'utf8') + ' bytes; the cap is ' + PLAN_YAML_LIMIT_BYTES)
+  assert.match(planYaml, /^decisions: 40$/m)
+  assert.match(planYaml, /# \+\d+ more decisions: state\/views\/plan\.md/)
+  const plan = await readFile(join(cwd, 'state', 'views', 'plan.md'), 'utf8')
+  assert.match(plan, /## Решения \(40\)/)
 })
 

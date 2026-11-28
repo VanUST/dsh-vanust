@@ -399,7 +399,7 @@ the row as JSON and preserves it; if a boot lands between install and sync, repa
 `$DSH_HOME/cordis.patch.yml`; to disable it without uninstalling, add a profile/home patch
 row `- id: hindsight disabled: true`.
 
-Pinned harness version: **`0.2.2-rc.3`**. Node ≥ 24. The kit is the only source of the
+Pinned harness version: **`0.2.2-rc.5`**. Node ≥ 24. The kit is the only source of the
 deployment's own files; Hindsight is the documented third-party exception above, and a
 machine is otherwise a projection of the kit.
 
@@ -846,7 +846,7 @@ cd ~/dsh-kit
 ```
 
 `install.sh` / `install.ps1` are idempotent: Node check → pinned `npm i -g
-@deepseek-ai/dsh@0.2.2-rc.3` → profile files under `$DSH_HOME/profiles/web` → every
+@deepseek-ai/dsh@0.2.2-rc.5` → profile files under `$DSH_HOME/profiles/web` → every
 `plugins/*.tgz` installed into that profile → `$DSH_HOME/DEPLOYMENT.md`.
 
 Every MANDATORY step in that list is followed by an exit-code check, because Windows

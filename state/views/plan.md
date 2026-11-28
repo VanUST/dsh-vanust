@@ -2,7 +2,7 @@
 
 Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.
 
-Инициатив: 51; с открытыми задачами: 0; с несделанными требованиями: 26.
+Инициатив: 53; с открытыми задачами: 0; с несделанными требованиями: 27.
 
 | Инициатива | Этап | Подтверждено | Осталось | Открытые задачи |
 |---|---|---|---|---|
@@ -22,7 +22,6 @@
 | preset-playbooks — Плейбуки пресетов: правильный ход работы и два типа ложного завершения | ready | 0 из 3 | FR1, FR2, NFR1 | — |
 | project-hygiene-guide-and-docs — Project hygiene: one working guide, durable docs only, a legacy audit, and the orchestrat… | ready | 0 из 6 | FR1, FR2, FR3, FR4 +2 | — |
 | proof-guard-resolution — Запись проверки оболочки: разрешение и авторство | ready | 1 из 1 | — | — |
-| request-cache — Замер повторного использования префикса | ready | 1 из 2 | R2 | — |
 | risk-closure — Закрытие остаточных рисков независимой проверки | ready | 0 из 1 | FR1 | — |
 | state-panel-hide-chores — Скрыть chore-задачи из вида доски задач | ready | 1 из 1 | — | — |
 | task-order-and-dependencies — Порядок шагов как контракт: правило в политике и отказ доски `dependency_open` | ready | 0 из 2 | FR1, FR2 | — |
@@ -42,14 +41,17 @@
 | documentation-owners — Документация: три владельца вместо расползания | completed | 1 из 1 | — | — |
 | harness-hardening-non-ui — Устойчивость харнесса без изменения интерфейса: проекция, жизненный цикл задачи, доска, п… | completed | 3 из 7 | FR4, FR5, FR6, NFR1 | — |
 | harness-seam — Шов харнесса: запуск субагента в одном месте | completed | 1 из 1 | — | — |
+| harness-upgrade-rehearsal — Репетиция обновления харнесса | completed | 0 из 1 | R1 | — |
 | kit-integrity-p0 — Целостность кита перед экосистемой состояния (P0) | completed | 8 из 8 | — | — |
 | kit-tool-surface — Поверхность инструментов: удалить мёртвое, вернуть нужное, добиться outline | completed | 7 из 7 | — | — |
 | presenter-role — Роль presentation maker: пресет и инструменты визуализации | completed | 9 из 9 | — | — |
+| program-decisions — Стратегия в журнале: решения и порядок в плане | completed | 1 из 1 | — | — |
 | project-state-ecosystem — Экосистема состояния проекта и экономика контекста — v1 | completed | 20 из 21 | FR16 | — |
 | project-state-merge — Проектный журнал state/ и слияние после пула | completed | 4 из 4 | — | — |
 | ptc-preset-migration — PTC для пресетов kit: волна 1 — gatherer и reviewer | completed | 5 из 5 | — | — |
 | ptc-wave2-tool-families — PTC волна 2, безопасный рестарт и исправление tool-families | completed | 4 из 4 | — | — |
 | ptc-wave3-audit-close — PTC волна 3, удаление babysitter и закрытие аудита | completed | 4 из 4 | — | — |
+| request-cache — Замер повторного использования префикса | completed | 1 из 2 | R2 | — |
 | shell-panel-navigation — Навигация панелей: выход в чат, скрытие окон, без дубля Tasks | completed | 6 из 7 | FR1 | — |
 | speed-over-bureaucracy — Скорость и группировка: противовес бюрократии для всех корневых агентов | completed | 4 из 5 | NFR1 | — |
 | state-counts-and-task-list — Счётчики у State и режим списка задач с сортировкой | completed | 3 из 3 | — | — |
@@ -58,14 +60,12 @@
 | state-task-specifics — Карточка задачи в реестре состояния: конкретика и переход к сессии субагента | completed | 4 из 4 | — | — |
 | taskboard-write-integrity — Доска задач: запись строки и её проверка при закрытии | completed | 2 из 2 | — | — |
 
-## Открытые задачи журнала (8)
+## Открытые задачи журнала (6)
 - TASK-273 (open): Codex sign-in tool: codex_signin_start/status/cancel
 - TASK-337 (review): Independent acceptance case: devops role and the one-live-deployment lane
 - TASK-372 (blocked): Задержка отправки и размер контекста: есть ли связь
 - TASK-383 (active): Отказ board_limit: назвать причину — долг проверки и minimal viable change
 - TASK-438 (review): Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе
-- TASK-446 (open): Разобрать красный delegation-basis-proof
-- TASK-455 (active): Кэш и стоимость шага: оркестратор против субагентов
-- TASK-457 (active): Собрать пакеты и закоммитить батч: границы, план, наблюдение
+- TASK-464 (active): Закоммитить переход на rc.5 и сопутствующий батч
 
 Записи анализа: docs/analysis/<initiative>.json.

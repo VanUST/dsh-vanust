@@ -113,3 +113,62 @@ test('a review date older than the file the document references is refused', () 
   assert.match(result.stderr, /document_stale docs\/GUIDE\.md/)
   assert.match(result.stderr, /scripts\/x\.mjs/)
 })
+
+/*
+PROOF: the harness pin has one owner
+Behavior: scripts/check-documentation.mjs --pin-only --root <fixture> passes a tree where
+  install.ps1 declares the version, install.sh derives it, kit-update.mjs reads that declaration
+  and README.md / docs/GUIDE.md / rules/DEPLOYMENT.md state the same version; and it refuses a
+  document left on another version, an installer that copies the version again, a source without
+  a declaration and an updater that stopped reading it.
+Fails when: a stale document passes, a copied pin passes, a missing declaration passes, or a kit
+  whose one source, its readers and its documents agree is refused.
+Production path: scripts/check-documentation.mjs (pinClaims, the --pin-only fixture mode).
+*/
+const pinFiles = (overrides = {}) => ({
+  'install.ps1': "# the one owner of the harness pin\n$DSH_VERSION = '1.2.3-rc.4'\n",
+  'install.sh': 'DSH_VERSION="$(cat "${KIT_DIR}/install.ps1")\n',
+  'scripts/kit-update.mjs': "for (const script of ['install.ps1', 'install.sh']) {}\n// DSH_VERSION\\s*[=:]\n",
+  'README.md': '# kit\n\n**Versions:** harness pin `1.2.3-rc.4`\n',
+  'docs/GUIDE.md': '# guide\n\n**Versions in force:** harness pin `@deepseek-ai/dsh@1.2.3-rc.4`\n',
+  'rules/DEPLOYMENT.md': '# deployment\n\nPinned harness version: **`1.2.3-rc.4`**.\n\n```sh\nnpm i -g @deepseek-ai/dsh@1.2.3-rc.4\n```\n',
+  ...overrides,
+})
+function runPin(root) {
+  try {
+    const stdout = execFileSync(process.execPath, [SCRIPT, '--pin-only', '--root', root], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    return { code: 0, stdout, stderr: '' }
+  } catch (error) {
+    return { code: error.status ?? 1, stdout: String(error.stdout ?? ''), stderr: String(error.stderr ?? '') }
+  }
+}
+
+test('one source, its readers and the documents that state it pass', () => {
+  const result = runPin(fixture(pinFiles()))
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /documentation ok/)
+})
+
+test('a document left on another version is refused', () => {
+  const result = runPin(fixture(pinFiles({ 'README.md': '# kit\n\n**Versions:** harness pin `1.2.3-rc.3`\n' })))
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /README\.md states the harness pin install\.ps1 declares/)
+})
+
+test('an installer that copies the version instead of reading it is refused', () => {
+  const result = runPin(fixture(pinFiles({ 'install.sh': 'DSH_VERSION="1.2.3-rc.4"\n' })))
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /install\.sh derives the pin from install\.ps1/)
+})
+
+test('a source without a declaration is refused', () => {
+  const result = runPin(fixture(pinFiles({ 'install.ps1': '# no declaration here\n' })))
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /install\.ps1 declares the harness pin/)
+})
+
+test('an updater that stopped reading the declaration is refused', () => {
+  const result = runPin(fixture(pinFiles({ 'scripts/kit-update.mjs': '// reads nothing\n' })))
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /kit-update\.mjs reads the pin from install\.ps1/)
+})

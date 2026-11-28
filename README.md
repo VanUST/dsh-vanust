@@ -347,7 +347,7 @@ too — `plugins/notify/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
 `plugins/proof-guard/`, `plugins/taskboard/` and `plugins/orchestrator/`. Two things come from
 outside it, and both are steps the installer performs rather than files a clone could
-carry: the harness itself (`npm i -g @deepseek-ai/dsh@0.2.2-rc.3`, so npm must be
+carry: the harness itself (`npm i -g @deepseek-ai/dsh@0.2.2-rc.5`, so npm must be
 reachable) and your API credentials (per machine, configured at first run — never in
 the repository). The kit's own checks read the checkout only, so they run on a fresh
 clone with nothing else installed.
@@ -468,6 +468,6 @@ candidate and rebuild the plugins against its checkout first:
 for each plugin, and only then touch the live profile. Details: **`rules/DEPLOYMENT.md`**
 §3–4 (the short version).
 
-**Versions:** harness pin `0.2.2-rc.3` · Node ≥ 24 · pnpm 11.7 (corepack).
+**Versions:** harness pin `0.2.2-rc.5` · Node ≥ 24 · pnpm 11.7 (corepack).
 
 **License:** MIT (see `LICENSE`); third-party attributions in `NOTICE`.

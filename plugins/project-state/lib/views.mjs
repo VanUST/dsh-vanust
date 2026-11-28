@@ -72,6 +72,10 @@ export function buildModel({ reqs = [], tasks = [], tests = [], decisions = [] }
     tasks: [...(tasksByReq.get(req.id) ?? [])].sort(byId).map((task) => task.id),
     tests: [...(testsByReq.get(req.id) ?? [])].sort(byId).map((test) => test.id),
     decisions: [...(decisionsByReq.get(req.id) ?? [])].sort(byId).map((decision) => decision.id),
+    // The plan names the INITIATIVE a decision belongs to: a DECISION links to a REQ, and the REQ
+    // carries `analysisRef.initiative`. The renderers below read this; `renderIndex` lists its own
+    // fields, so the machine contract does not grow.
+    analysisRef: req.analysisRef !== null && typeof req.analysisRef === 'object' ? { initiative: req.analysisRef.initiative ?? null, requirementId: req.analysisRef.requirementId ?? null } : null,
   }))
   const testRows = tests.map((test) => ({
     id: test.id,
@@ -295,6 +299,10 @@ const PLAN_TITLE_LIMIT = 90
 /** Rows the compact `plan.yaml` carries; the rest of the plan stays in `plan.md`. */
 export const PLAN_INITIATIVE_ROWS = 10
 export const PLAN_TASK_ROWS = 6
+/** DECISION rows the compact `plan.yaml` carries; the rest stays in `plan.md`. */
+export const PLAN_DECISION_ROWS = 4
+/** A decision in one of these statuses is history: the plan shows the rules that still hold. */
+const RETIRED_DECISION_STATUSES = new Set(['superseded', 'deprecated', 'dropped'])
 /** Hard cap of `state/plan.yaml`: it travels inside L1, so it must stay a few kilobytes. */
 export const PLAN_YAML_LIMIT_BYTES = 4096
 /** A title in `plan.yaml` is cut shorter than in `plan.md`: this file travels inside L1. */
@@ -353,6 +361,33 @@ function planSections(initiatives, model = { tasks: [] }) {
 }
 
 /**
+ * The live DECISION rows of the journal, oldest first, each with the initiative it belongs to.
+ *
+ * WHY THE PLAN CARRIES THEM. The plan answered "which initiatives exist"; it could not answer
+ * "in what order do we work and when do we stop". That order is a decision, so it lives in the
+ * journal as a DECISION and the plan shows it instead of repeating it: one derivation here, and
+ * both plan projections read it.
+ *
+ * A DECISION links to a REQ, and that REQ's `analysisRef` names the initiative; when a decision
+ * links nothing the initiative cell stays empty rather than inventing one.
+ *
+ * @param {{reqs?: object[], decisions?: object[]}} [model] - output of `buildModel`.
+ */
+function planDecisions(model = {}) {
+  const reqs = new Map((Array.isArray(model.reqs) ? model.reqs : []).map((req) => [req.id, req]))
+  return (Array.isArray(model.decisions) ? model.decisions : [])
+    .filter((decision) => decision !== null && typeof decision === 'object' && typeof decision.id === 'string')
+    .filter((decision) => !RETIRED_DECISION_STATUSES.has(String(decision.status)))
+    .sort(byId)
+    .map((decision) => {
+      const link = (Array.isArray(decision.links) ? decision.links : []).find((entry) => entry !== null && typeof entry === 'object' && entry.kind === 'req' && typeof entry.id === 'string')
+      const req = link === undefined ? undefined : reqs.get(link.id)
+      const initiative = typeof req?.analysisRef?.initiative === 'string' && req.analysisRef.initiative !== '' ? req.analysisRef.initiative : (link?.id ?? '')
+      return { id: decision.id, title: decision.title, status: String(decision.status ?? 'unknown'), initiative }
+    })
+}
+
+/**
  * `plan.md`: the initiatives of the analysis records, their stage, what is confirmed, what is
  * left, and which tasks are still open - ONE LINE PER INITIATIVE plus a short list of the work in
  * flight. The aim is a new session's minute, not the archive: requirement TEXTS stay in the
@@ -375,8 +410,10 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
     'Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.',
     '',
   ]
+  const decisions = planDecisions(model)
   if (records.length === 0) {
     lines.push('Записей анализа нет.')
+    lines.push(...decisionSection(decisions))
     return lines.join('\n') + '\n'
   }
   lines.push(`Инициатив: ${rows.length}; с открытыми задачами: ${inFlight.length}; с несделанными требованиями: ${withRemaining.length}.`)
@@ -386,6 +423,7 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
   for (const row of rows) {
     lines.push(`| ${row.record.id} — ${shortTitle(row.record.title)} | ${String(row.record.status ?? 'unknown')} | ${row.confirmed.length} из ${row.requirements.length} | ${idCell(row.remaining.map((requirement) => requirement.id))} | ${idCell(row.openTasks.map((task) => task.id))} |`)
   }
+  lines.push(...decisionSection(decisions))
   if (inFlight.length > 0) {
     lines.push('', '## Открытые задачи')
     for (const row of inFlight) {
@@ -399,6 +437,25 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
   }
   lines.push('', 'Записи анализа: docs/analysis/<initiative>.json.')
   return `${lines.join('\n').replace(/\n+$/, '')}\n`
+}
+
+
+/**
+ * The plan's decisions block: one row per live DECISION, the initiative it belongs to and the rule
+ * it states. The same derivation feeds `plan.yaml`, so the two views cannot disagree. It renders
+ * even when the workspace has no analysis records yet: a decision is the journal's, not the
+ * initiative's.
+ */
+function decisionSection(decisions) {
+  if (decisions.length === 0) return []
+  const lines = ['', `## Решения (${decisions.length})`, '', 'Порядок работ и условия остановки: строка — одно решение журнала; полный текст и причина — в файле решения.', '']
+  lines.push('| Решение | Статус | Инициатива | Правило |')
+  lines.push('|---|---|---|---|')
+  for (const decision of decisions) {
+    lines.push(`| ${decision.id} | ${cell(decision.status)} | ${cell(decision.initiative) === '' ? '—' : cell(decision.initiative)} | ${shortTitle(decision.title)} |`)
+  }
+  lines.push('', 'Файлы решений: state/decision/<ID>.md.')
+  return lines
 }
 
 /** A YAML double-quoted scalar: JSON string escaping is a valid YAML 1.2 quoted scalar. */
@@ -445,16 +502,43 @@ export function renderPlanYaml(initiatives = [], model = { tasks: [] }) {
   if (live.length > PLAN_INITIATIVE_ROWS) {
     lines.push(`  # +${live.length - PLAN_INITIATIVE_ROWS} more initiatives with open work: state/views/plan.md`)
   }
-  lines.push(openJournalTasks.length === 0 ? 'next: []' : 'next:')
+  const next = [openJournalTasks.length === 0 ? 'next: []' : 'next:']
   for (const task of openJournalTasks.slice(0, PLAN_TASK_ROWS)) {
-    lines.push(`  - id: ${yamlString(task.id)}`)
-    lines.push(`    status: ${yamlString(String(task.status ?? 'unknown'))}`)
-    lines.push(`    title: ${yamlString(shortTitle(task.title, PLAN_YAML_TITLE_LIMIT))}`)
+    next.push(`  - id: ${yamlString(task.id)}`)
+    next.push(`    status: ${yamlString(String(task.status ?? 'unknown'))}`)
+    next.push(`    title: ${yamlString(shortTitle(task.title, PLAN_YAML_TITLE_LIMIT))}`)
   }
   if (openJournalTasks.length > PLAN_TASK_ROWS) {
-    lines.push(`  # +${openJournalTasks.length - PLAN_TASK_ROWS} more open tasks: state/views/plan.md`)
+    next.push(`  # +${openJournalTasks.length - PLAN_TASK_ROWS} more open tasks: state/views/plan.md`)
   }
-  return `${lines.join('\n')}\n`
+  // THE DECISIONS COME BEFORE THE OPEN WORK: the order and the stop conditions are what a new
+  // session has to know first. The cap is enforced here rather than hoped for, because this is
+  // the one block that grows with every accepted decision: the newest rows are dropped last and
+  // named by a marker (never a half row), and `plan.md` still lists all of them.
+  const decisions = planDecisions(model)
+  const decisionBlock = (shown) => {
+    if (decisions.length === 0) return []
+    const block = [`decisions: ${decisions.length}`]
+    for (const decision of shown) {
+      block.push(`  - id: ${yamlString(decision.id)}`)
+      block.push(`    status: ${yamlString(decision.status)}`)
+      block.push(`    initiative: ${yamlString(decision.initiative)}`)
+      block.push(`    title: ${yamlString(shortTitle(decision.title, PLAN_YAML_TITLE_LIMIT))}`)
+    }
+    if (shown.length < decisions.length) block.push(`  # +${decisions.length - shown.length} more decisions: state/views/plan.md`)
+    return block
+  }
+  let shown = decisions.slice(0, PLAN_DECISION_ROWS)
+  let block = decisionBlock(shown)
+  const compose = () => `${[...lines, ...block, ...next].join('\n')}\n`
+  while (shown.length > 0 && utf8(compose()) > PLAN_YAML_LIMIT_BYTES) {
+    shown = shown.slice(0, -1)
+    block = decisionBlock(shown)
+  }
+  // Even the count line can be one line too many: then the block leaves the file and plan.md
+  // stays the only place a plan reader sees the decisions.
+  if (shown.length === 0 && utf8(compose()) > PLAN_YAML_LIMIT_BYTES) block = []
+  return compose()
 }
 
 /**

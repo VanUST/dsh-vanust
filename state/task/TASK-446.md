@@ -2,10 +2,10 @@
 id: TASK-446
 kind: task
 title: "Разобрать красный delegation-basis-proof"
-status: open
-revision: 1
+status: cancelled
+revision: 2
 createdAt: 2026-11-28T13:24:06.693Z
-updatedAt: 2026-11-28T13:24:06.693Z
+updatedAt: 2026-11-28T14:00:57.604Z
 boardId: task-mx0fytp5-7wuhgr
 chore: true
 choreReason: "Полный make test остановился на проверке основания делегирования: «the attach created no second row {rows:3}» — нужно понять, регрессия это или хрупкая проверка."

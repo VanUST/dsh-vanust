@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "id": "program-decisions",
+  "rev": 3,
+  "status": "completed",
+  "createdAt": "2026-11-28T13:57:57.268Z",
+  "updatedAt": "2026-11-28T14:11:58.081Z",
+  "updatedBy": "agent",
+  "title": "Стратегия в журнале: решения и порядок в плане",
+  "requestedSolution": "Записать решения о порядке и границах через ядро состояния и показывать их в сгенерированном плане, не раздувая инъекцию.",
+  "businessOutcome": {
+    "problem": "Долгосрочный порядок работ живёт в голове оркестратора и в чате: в журнале ноль строк решений, а план показывает только инициативы и их счётчики.",
+    "outcome": "Новая сессия читает порядок работ и условия остановки из плана, а не восстанавливает их из переписки.",
+    "successMetrics": [
+      "Решения о порядке работ и границах есть в журнале и видны в плане.",
+      "План остаётся компактным (не более 4096 B на plan.yaml).",
+      "Изменение решения меняет состояние и попадает в дельту."
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Порядок работ",
+        "actors": [
+          "оркестратор"
+        ],
+        "steps": [
+          "Порядок обсуждается в чате.",
+          "Новая сессия восстанавливает его из переписки или теряет."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Порядок работ",
+        "actors": [
+          "оркестратор",
+          "журнал"
+        ],
+        "steps": [
+          "Порядок записан решениями со связями на инициативы.",
+          "План показывает решения и условия остановки.",
+          "Изменение решения видно в следующей дельте."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "R1",
+      "kind": "FR",
+      "text": "Долгосрочный порядок работ и условия остановки записаны решениями журнала и видны в сгенерированном плане.",
+      "acceptance": [
+        "AC-1: В журнале есть строки DECISION о порядке трёх проблем, о триггере архитектурной консультации и о правиле «правила контекста — только по замеру», каждая со связью на инициативу.",
+        "AC-2: Сгенерированный план содержит раздел решений; plan.yaml не превышает 4096 B.",
+        "AC-3: Изменение решения меняет хеш состояния и попадает в дельту."
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-STATE",
+        "name": "ядро состояния",
+        "responsibility": "Единственный писатель журнала: решения, требования, задачи, тесты.",
+        "owner": "plugins/project-state",
+        "owns": [
+          "D-DECISIONS"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PLAN",
+        "name": "вид плана",
+        "responsibility": "Сгенерированный план: инициативы и порядок работ с условиями остановки.",
+        "owner": "plugins/project-state",
+        "owns": [],
+        "dependsOn": [
+          "C-STATE"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-DECISIONS",
+      "name": "решения журнала",
+      "owner": "kit",
+      "ownerComponentId": "C-STATE",
+      "description": "Строки DECISION в state/decisions с связями на инициативы."
+    }
+  ],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "I-ONE-WRITER",
+      "text": "Решения пишутся только через ядро состояния, не правкой файлов.",
+      "scope": ""
+    }
+  ],
+  "decisions": [],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": []
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "R1",
+      "processId": "P-TARGET",
+      "componentId": "C-PLAN",
+      "contractIds": [],
+      "dataIds": [
+        "D-DECISIONS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mx0h6fz9-h5pvzu",
+          "role": "BACKEND",
+          "at": "2026-11-28T14:05:00.000Z",
+          "evidence": [
+            "DEC-001, DEC-002, DEC-003 записаны ядром состояния (create + link + regenerateViews, exit 0), связаны с REQ-297/299/298, события в журнале seq 3375/3377/3379.",
+            "state/plan.yaml: блок decisions: 3, размер 3 977 из 4 096 B; state/views/plan.md — раздел «Решения (3)» с инициативой и правилом; повторная regenerateViews даёт идентичные байты.",
+            "Хеш состояния сдвинулся: b8985983… → bcb710e5…; снимок DECISION 0 → 3.",
+            "Тесты: project-state + state-feed 62/62, все потребители видов 160/160; кейс plan-pokazyvaet-resheniya… красный по контролю (exit 1) и зелёный (exit 0), verified (TEST-115)."
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "e5c3f2965ede026cbf01174a1b25bf337ce8ae6ddb6b47a4f64c675c97dad01b",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:57:57.268Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:58:01.342Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0h6fz9-h5pvzu -> R1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T14:11:58.081Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}
