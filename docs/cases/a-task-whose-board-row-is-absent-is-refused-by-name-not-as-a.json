@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "a-task-whose-board-row-is-absent-is-refused-by-name-not-as-a",
+  "title": "A task whose board row is absent is refused by name, not as a missing revision",
+  "requirement": "REQ-136: the owner changes a task status by hand in the Project state panel through the board; when the TASK names a boardId that the board does not carry, the refusal names the absent row instead of blaming a row without a revision, and a row that is on the board still changes for every status.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "The status control lives in the browser panel bundle (window.__ModuleLoader__ factory), and the decisive run mutates a live ledger; the task scope allows no test file, so the run is recorded against the product command transport instead of a test.",
+  "steps": [
+    "Copy .dsh/ and state/ into a disposable tree (.tmp/panel-status/base).",
+    "Run the product transport: command /taskboard {\"op\":\"get\",\"id\":\"<boardId>\"} for a row that is absent (TASK-383, TASK-372, TASK-337) and for one that is present (TASK-438, TASK-273).",
+    "Run the panel sequence for a present row: get -> owner-status with the revision it returned -> get, for active, blocked, review, done and cancelled.",
+    "Read state/task/TASK-273.md after each step to see the mirror move the status."
+  ],
+  "expected": "get for an absent row answers {\"kind\":\"error\",\"text\":\"taskboard: not_found; no board row <id>\"}; get for a present row answers the task with its revision; every status change returns ok with revision+1 and the TASK file carries the new status. No refusal says \"carries no revision\".",
+  "tags": [
+    "panel",
+    "status",
+    "taskboard",
+    "get",
+    "not_found"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "42478d394257fbab5825135d16e875c3dc4275bbe8e90f10c50ca0e560ffcfb7"
+    },
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "a5d6df7f93dfcf82159dc8f7f23452c444c53d6ab824a6bd80e6f2bd1ce18720"
+    }
+  ],
+  "linkedTaskId": "task-mx0n1t8o-bhh4ge",
+  "reqId": "REQ-136",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+  "purpose": "implementation",
+  "revision": 1,
+  "createdAt": "2026-11-28T16:49:09.546Z",
+  "updatedAt": "2026-11-28T16:49:09.546Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

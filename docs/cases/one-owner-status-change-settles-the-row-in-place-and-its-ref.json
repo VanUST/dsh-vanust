@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "one-owner-status-change-settles-the-row-in-place-and-its-ref",
+  "title": "One owner status change settles the row in place and its refusal is announced",
+  "requirement": "In the Project state panel over the workspace's 484-task projection, changing one task status from the list must cost one entity read and two commands (get + owner-status), repaint the 484-row table twice instead of four times, and a refused status must be announced by a live region that exists before the message and stay readable instead of clearing itself.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": true,
+  "testPath": ".tmp/panel-ux/run.mjs",
+  "runCommand": "node .tmp/panel-ux/run.mjs verify",
+  "steps": [
+    "Run node .tmp/panel-ux/run.mjs verify: it opens harness.html in Chrome, mounts the production plugins/project-state-panel/client.js over the workspace's state/views/index.json (484 tasks, copied by index.data.js) with mocked workspaceFiles/commands that count every call.",
+    "Switch to the Board tab and change one row's status through the native select; the driver records reads, commands and the elements the production render built.",
+    "Reload, force a board row without a revision, and change a status; check that a role=status region existed empty before the message and still holds it 11 s later.",
+    "Press ArrowDown on a focused status select and check the status changed with focus still on the select.",
+    "Set a requirement filter and count the rows it draws."
+  ],
+  "expected": "1 read and 2 commands per status change, 970 table rows built (two renders of 485), an empty live region before the refusal, the refusal still visible after 11 s, ArrowDown changing the status with focus retained, and the filter drawing its rows; the pre-fix client fails four of these and exits 1.",
+  "tags": [
+    "panel",
+    "ux",
+    "requests",
+    "rendering",
+    "a11y"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "f144a4edc3495f86ab78fc90b834758599e0ccfeb9aebb2d37e6a6125ef2af75"
+    },
+    {
+      "path": ".tmp/panel-ux/run.mjs",
+      "sha256": "b493118d225e57fca5222244c759e1ec23b10144c95971209388fc162601106e"
+    }
+  ],
+  "linkedTaskId": "task-mx0nclbb-32pklw",
+  "reqId": "REQ-306",
+  "authorRole": "ux",
+  "authorPreset": "ux",
+  "authorSessionId": "7f24c213-e87a-495b-b738-78c72c201fe1",
+  "purpose": "implementation",
+  "testHash": "b493118d225e57fca5222244c759e1ec23b10144c95971209388fc162601106e",
+  "failsWhen": "The status write re-reads state/views/index.json (statusChangeReads > 1), the panel repaints the 484-row table more than twice per status (statusChangeTableRowsBuilt > 970), the live region is created together with its message (liveRegionsBeforeRefusal < 2), the refusal clears itself before it can be read (refusalVisibleAfter11s = 0), or ArrowDown on a focused status select stops changing the status.",
+  "trigger": "The owner opens Board in the panel over the workspace's 484-task index and picks a status in one row's select; then, with a board row that carries no revision, picks another status.",
+  "oracle": "The panel's own contract in plugins/project-state-panel/README.md: the board answers with the row it wrote and 'the command mirrored it before answering', so the write needs no re-read of the projection (one entity read + two commands); MDN 'ARIA live regions' requires the region to exist before its content changes.",
+  "realism": "Production-shaped data: the workspace's own state/views/index.json (484 tasks, 295 reqs, 119 tests, 221 KB) copied into the harness; requests and renders counted from the production bundle, not a mock page.",
+  "checks": [
+    {
+      "name": "statusChangeReads",
+      "metric": "statusChangeReads",
+      "op": "<=",
+      "threshold": 1,
+      "unit": "files"
+    },
+    {
+      "name": "statusChangeCommands",
+      "metric": "statusChangeCommands",
+      "op": "==",
+      "threshold": 2,
+      "unit": "commands"
+    },
+    {
+      "name": "statusChangeTableRowsBuilt",
+      "metric": "statusChangeTableRowsBuilt",
+      "op": "<=",
+      "threshold": 970,
+      "unit": "tr elements"
+    },
+    {
+      "name": "liveRegionsBeforeRefusal",
+      "metric": "liveRegionsBeforeRefusal",
+      "op": ">=",
+      "threshold": 2,
+      "unit": "regions"
+    },
+    {
+      "name": "refusalVisibleAfter11s",
+      "metric": "refusalVisibleAfter11s",
+      "op": "==",
+      "threshold": 1,
+      "unit": "notice"
+    },
+    {
+      "name": "filterRows",
+      "metric": "filterRows",
+      "op": ">=",
+      "threshold": 1,
+      "unit": "rows"
+    }
+  ],
+  "revision": 1,
+  "createdAt": "2026-11-28T17:08:55.818Z",
+  "updatedAt": "2026-11-28T17:08:55.818Z",
+  "createdBy": "ux",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

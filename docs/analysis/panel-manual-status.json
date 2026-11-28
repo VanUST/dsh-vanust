@@ -1,0 +1,340 @@
+{
+  "schemaVersion": 1,
+  "id": "panel-manual-status",
+  "rev": 16,
+  "status": "ready",
+  "createdAt": "2026-11-28T16:42:15.209Z",
+  "updatedAt": "2026-11-28T17:19:17.911Z",
+  "updatedBy": "agent",
+  "title": "Панель: ручная смена статуса и ревью клиента",
+  "requestedSolution": "Починить чтение ревизии в клиенте панели; затем пройти клиентскую часть ревью производительности и удобства.",
+  "businessOutcome": {
+    "problem": "Панель отказывает в смене статуса с «the board row carries no revision»: клиент читает строку доски и не находит ревизию, поэтому переход не отправляется. Владелец не может управлять доской руками.",
+    "outcome": "Владелец меняет статус любой задачи из панели, без ошибок и без обхода.",
+    "successMetrics": [
+      "Смена статуса работает для каждой группы статусов и для старых строк без ревизии.",
+      "Отказ называет причину и не врёт про отсутствие ревизии, если строка есть.",
+      "Клиентская часть панели проходит ревью производительности и удобства."
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Ручная смена статуса",
+        "actors": [
+          "владелец",
+          "панель"
+        ],
+        "steps": [
+          "Панель читает задачу реестра и строку доски.",
+          "Строка приходит без ревизии.",
+          "Переход не отправляется."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Ручная смена статуса",
+        "actors": [
+          "владелец",
+          "панель",
+          "доска"
+        ],
+        "steps": [
+          "Панель получает строку с ревизией или добирает её.",
+          "Переход отправляется сравнением-установкой.",
+          "Отказ объясняет причину."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "R1",
+      "kind": "FR",
+      "text": "Владелец меняет статус задачи из панели; ошибка «the board row carries no revision» уходит вместе с причиной.",
+      "acceptance": [
+        "AC-1: Смена статуса через панель проходит для каждой группы статусов на строках, которые есть на доске.",
+        "AC-2: Причинный дефект назван и закрыт в одном месте: get отказывает not_found, панель называет отсутствующую строку.",
+        "AC-3: Отказ панели больше не утверждает «no revision», если ревизия есть."
+      ],
+      "status": "deferred",
+      "reason": "Проверено прогоном; автотеста с парой красный→зелёный к REQ-305 нет."
+    },
+    {
+      "id": "R2",
+      "kind": "NFR",
+      "text": "Клиентская часть панели проходит ревью производительности и удобства, найденное исправлено.",
+      "acceptance": [
+        "AC-1: Ревью клиента перечисляет конкретные проблемы с числами или воспроизведением.",
+        "AC-2: Две главные проблемы исправлены и доказаны: лишнее перечитывание и необъявляемый отказ.",
+        "AC-3: Оставленные находки (axe critical, контраст, шапка, виртуализация) либо исправлены, либо названы с владельцем."
+      ],
+      "status": "deferred",
+      "reason": "Измерено и исправлено на одном драйвере: прежний бандл exit 1 с шестью провалами, новый exit 0, axe 0 нарушений, контраст 1.8 → 5.51 и 4.33 → 5.38 (тёмная тема 11.53 и 7.88), смена статуса 2 чтения → 1 и 4 перерисовки → 2, тесты панели 23/23, кейс TEST-122. Оставлены с числами: закреплённая шапка и виртуализация списка 484 строк. Кейс записан как исполнительский — независимой приёмки нет."
+    },
+    {
+      "id": "R3",
+      "kind": "FR",
+      "text": "Старые задачи без строки на доске перерегистрируются, чтобы владелец снова мог менять их статус руками.",
+      "acceptance": [
+        "AC-1: Скрипт находит задачи реестра без строки на доске и в режиме отчёта перечисляет их без записи.",
+        "AC-2: С флагом записи строка создаётся один раз и повторный прогон ничего не добавляет.",
+        "AC-3: После перерегистрации панель меняет статус этих задач."
+      ],
+      "status": "deferred",
+      "reason": "Проверено на живой доске: 3 из 383 сирот записаны, повтор ничего не добавил; автотеста нет."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-PANEL",
+        "name": "клиент панели состояния",
+        "responsibility": "Список задач, органы управления статусом, вкладка редактирования; пишет только через tool-транспорт.",
+        "owner": "plugins/project-state-panel",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-BOARD",
+        "name": "доска задач",
+        "responsibility": "Строки задач, ревизии, CAS-переходы.",
+        "owner": "plugins/taskboard",
+        "owns": [
+          "D-ROWS"
+        ],
+        "dependsOn": [
+          "C-PANEL"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-ROWS",
+      "name": "строки задач",
+      "owner": "kit",
+      "ownerComponentId": "C-BOARD",
+      "description": "Строки доски с ревизией и задачи реестра с boardId."
+    }
+  ],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "I-CAS",
+      "text": "Ручной переход идёт сравнением-установкой по прочитанной ревизии; при устаревшей ревизии отказ называет её.",
+      "scope": "panel"
+    }
+  ],
+  "decisions": [],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": []
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "R1",
+      "processId": "P-TARGET",
+      "componentId": "C-PANEL",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mx0n1t8o-bhh4ge",
+          "role": "BACKEND",
+          "at": "2026-11-28T16:35:00.000Z",
+          "evidence": [
+            "get → not_found; панель различает no_board_row; пять групп статусов 2→3…6→7; тесты доски 78/78."
+          ]
+        }
+      ],
+      "reason": "Прогон есть, автотеста нет."
+    },
+    {
+      "requirementId": "R2",
+      "processId": "P-TARGET",
+      "componentId": "C-PANEL",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mx0nclbb-32pklw",
+          "role": "UX/UI",
+          "at": "2026-11-28T17:00:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mx0o2mwh-culpm0",
+          "role": "UX/UI",
+          "at": "2026-11-28T17:11:01.013Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "R3",
+      "processId": "P-TARGET",
+      "componentId": "C-BOARD",
+      "contractIds": [],
+      "dataIds": [
+        "D-ROWS"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mx0ncf0q-qnlp7x",
+          "role": "BACKEND",
+          "at": "2026-11-28T17:05:00.000Z",
+          "evidence": [
+            "Отчёт: 3 без строки из 383 сирот.",
+            "Запись --write --only-open: adopted 3 row(s) at revision 995, 107 → 110 строк; повтор — nothing to append.",
+            "Поток панели на живой доске: каждая задача сменила статус и вернулась (ревизия 1→2→3), sessions сохранены."
+          ]
+        }
+      ],
+      "reason": "Живая запись и проверка есть; автотеста нет."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "6f7e654c6f727dc7bdbd66dbcb4bf9f069e64655c87ed4ec0b471ee65ee34039",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T16:42:15.209Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T16:42:22.956Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0n1t8o-bhh4ge -> R1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T16:50:13.008Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: R1 changed; impacts: 1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T16:50:30.209Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: R1 changed, R3 added"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T16:50:37.747Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0ncf0q-qnlp7x -> R3"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T16:50:45.898Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0nclbb-32pklw -> R2"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T17:00:26.214Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0ncf0q-qnlp7x -> R3"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-28T17:01:09.405Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0ncf0q-qnlp7x -> R3"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T17:02:00.315Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T17:02:06.819Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: R1 changed, R3 changed; impacts: 2"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-28T17:02:13.406Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-28T17:10:23.677Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: R2 changed, R3 changed; impacts: 2"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-28T17:10:39.875Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-28T17:10:52.146Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: R2 changed; impacts: 1"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-28T17:11:01.013Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0o2mwh-culpm0 -> R2"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-28T17:19:17.911Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: R2 changed, R3 changed; impacts: 2"
+    }
+  ]
+}

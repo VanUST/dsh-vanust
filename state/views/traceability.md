@@ -139,7 +139,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-133 | rejected | — | — | — | no |
 | REQ-134 | done | — | — | — | no |
 | REQ-135 | rejected | — | — | — | no |
-| REQ-136 | done | TASK-335 | TEST-072 | — | no |
+| REQ-136 | done | TASK-335 | TEST-072, TEST-119, TEST-120 | — | no |
 | REQ-137 | done | — | TEST-073 | — | no |
 | REQ-138 | done | — | TEST-075 | — | no |
 | REQ-139 | rejected | — | — | — | no |
@@ -296,6 +296,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-302 | rejected | — | — | — | no |
 | REQ-303 | done | — | TEST-115, TEST-117 | — | no |
 | REQ-304 | rejected | — | — | — | no |
+| REQ-305 | rejected | — | — | — | no |
+| REQ-306 | rejected | — | TEST-121, TEST-122 | — | no |
+| REQ-307 | rejected | — | — | — | no |
 
 ## Tests
 
@@ -419,3 +422,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-116 | REQ-299 | verified | — |
 | TEST-117 | REQ-303 | verified | — |
 | TEST-118 | REQ-009 | verified | — |
+| TEST-119 | REQ-136 | unverified | — |
+| TEST-120 | REQ-136 | unverified | — |
+| TEST-121 | REQ-306 | unverified | — |
+| TEST-122 | REQ-306 | unverified | — |

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "a-register-task-with-no-board-row-is-adopted-from-the-task-a",
+  "title": "A register TASK with no board row is adopted from the TASK, at revision 1, idempotently",
+  "requirement": "REQ-136 (also REQ-138): a TASK whose boardId has no row on the board is reported with the fields needed to adopt it, and with --write the row is created again from the TASK at revision 1 through the board journal and lock; a second run writes nothing and the owner can change that status in the panel.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "The behaviour is a maintenance script against a live ledger; the only test path would be plugins/taskboard/test/, which is outside this task scope, and the decisive run mutates a board.",
+  "steps": [
+    "Copy .dsh/ and state/ of the workspace into a disposable tree.",
+    "node scripts/taskboard-adopt.mjs --cwd <copy> lists every register TASK whose boardId has no row, with boardId, status, owner, role, dependsOn and title, and writes nothing.",
+    "node scripts/taskboard-adopt.mjs --cwd <copy> --write --only-open creates the rows of the tasks whose work is not over.",
+    "Run the list again and the write again: both report nothing left to adopt and the ledger revision does not move.",
+    "Run the panel flow (get -> owner-status) for TASK-383, TASK-372 and TASK-337 on the same copy."
+  ],
+  "expected": "The report names 3 open-work tasks (TASK-337 review, TASK-372 blocked, TASK-383 active) among 383 TASKs without a row; the write appends them at revision+1 with revision 1 per row; the second write appends nothing; each of the three then changes status (revision 1 -> 2) and the TASK file follows. Finished tasks stay without a row unless --write runs without --only-open.",
+  "tags": [
+    "taskboard",
+    "adopt",
+    "boardId",
+    "panel",
+    "idempotent"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/taskboard-adopt.mjs",
+      "sha256": "e44caba91f854f0ba61bd88e1f52efcc9137e241cf83e739ace1b86edd74e244"
+    }
+  ],
+  "linkedTaskId": "task-mx0ncf0q-qnlp7x",
+  "reqId": "REQ-136",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+  "purpose": "implementation",
+  "revision": 1,
+  "createdAt": "2026-11-28T16:55:26.397Z",
+  "updatedAt": "2026-11-28T16:55:26.397Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

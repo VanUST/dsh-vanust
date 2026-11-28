@@ -1,7 +1,7 @@
 # GENERATED — DO NOT EDIT. The plan summary the state feed delivers in L1,
 # written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.
 schemaVersion: 1
-initiatives: 28
+initiatives: 29
 openTasks: 6
 work:
   - id: "agent-surface-and-shell"
@@ -64,7 +64,7 @@ work:
     confirmed: 0
     requirements: 2
     openTasks: []
-  # +18 more initiatives with open work: state/views/plan.md
+  # +19 more initiatives with open work: state/views/plan.md
 decisions: 4
   - { id: "DEC-004", initiative: "request-cache", title: "Резерв под ответ на маршруте Codex — 32 768" }
   - { id: "DEC-003", initiative: "request-cache", title: "Правила контекста меняются только по замеру; оценка замер н…" }
@@ -83,9 +83,9 @@ next:
   - id: "TASK-383"
     status: "active"
     title: "Отказ board_limit: назвать причину — долг проверки и minima…"
-  - id: "TASK-438"
-    status: "review"
-    title: "Приёмка шва харнесса: обе формы и отсутствие формы в оркест…"
-  - id: "TASK-481"
+  - id: "TASK-486"
+    status: "open"
+    title: "Политика не должна требовать документов, которых нет в прое…"
+  - id: "TASK-488"
     status: "active"
-    title: "Собрать батч к одному перезапуску: outline, политика, профи…"
+    title: "Собрать батч: правила документации и панель"

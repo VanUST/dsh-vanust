@@ -3,9 +3,9 @@ id: TASK-383
 kind: task
 title: "Отказ board_limit: назвать причину — долг проверки и minimal viable change"
 status: active
-revision: 2
+revision: 6
 createdAt: 2026-11-27T22:29:58.555Z
-updatedAt: 2026-11-27T22:29:58.935Z
+updatedAt: 2026-11-28T17:01:23.768Z
 acceptance:
   - text: "Отказ `board_limit` объясняет **причину**: предел существует, чтобы не копить долг проверки — каждое изменение должно быть доказано рабочим до начала следующего (minimal viable change); больше десяти незакрытых задач означает накопление непроверенной работы, а не прогресс."
     done: false
@@ -28,7 +28,6 @@ nonScope: ["Не менять предел и роли.", "Не трогать �
 owner:
   kind: agent
   label: BACKEND
-  sessionId: 92878f18-48d0-4b9d-a788-0c3a12d51957
 preset: backend
 role: BACKEND
 scope: [plugins/orchestrator/, /tmp/push/]

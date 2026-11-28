@@ -3,9 +3,9 @@ id: TASK-337
 kind: task
 title: "Independent acceptance case: devops role and the one-live-deployment lane"
 status: review
-revision: 5
+revision: 9
 createdAt: 2026-11-27T11:09:22.754Z
-updatedAt: 2026-11-28T10:48:45.803Z
+updatedAt: 2026-11-28T17:01:28.878Z
 acceptance:
   - text: "one automated case recorded with source agent (your preset), testPath, runCommand, checks and surfaceFiles"
     done: false
@@ -24,7 +24,6 @@ nonScope: ["product files", "the live :3080 server and its profile", commits, "t
 owner:
   kind: agent
   label: TESTER
-  sessionId: 2b024beb-4447-4bfe-bbc1-0b042caa4a4b
 preset: tester
 reqId: ""
 role: TESTER

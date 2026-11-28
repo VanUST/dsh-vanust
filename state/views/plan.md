@@ -2,7 +2,7 @@
 
 Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.
 
-Инициатив: 54; с открытыми задачами: 0; с несделанными требованиями: 28.
+Инициатив: 55; с открытыми задачами: 0; с несделанными требованиями: 29.
 
 | Инициатива | Этап | Подтверждено | Осталось | Открытые задачи |
 |---|---|---|---|---|
@@ -19,6 +19,7 @@
 | independent-verification — Независимая проверка: происхождение доказательства, роль TESTER и условие приёмки без сам… | ready | 0 из 11 | BR1, FR1, FR2, FR3 +7 | — |
 | kit-boot-convergence — Одна команда `dsh web`: сведение кита, отказ вместо тихого устаревшего запуска и явный пе… | ready | 0 из 2 | FR1, FR2 | — |
 | openai-codex-signin — Вход в OpenAI Codex по подписке ChatGPT Plus/Pro без кнопки в GUI | ready | 0 из 4 | FR1, FR2, FR3, NFR1 | — |
+| panel-manual-status — Панель: ручная смена статуса и ревью клиента | ready | 0 из 3 | R1, R2, R3 | — |
 | preset-playbooks — Плейбуки пресетов: правильный ход работы и два типа ложного завершения | ready | 0 из 3 | FR1, FR2, NFR1 | — |
 | project-hygiene-guide-and-docs — Project hygiene: one working guide, durable docs only, a legacy audit, and the orchestrat… | ready | 0 из 6 | FR1, FR2, FR3, FR4 +2 | — |
 | proof-guard-resolution — Запись проверки оболочки: разрешение и авторство | ready | 1 из 1 | — | — |
@@ -79,7 +80,7 @@
 - TASK-337 (review): Independent acceptance case: devops role and the one-live-deployment lane
 - TASK-372 (blocked): Задержка отправки и размер контекста: есть ли связь
 - TASK-383 (active): Отказ board_limit: назвать причину — долг проверки и minimal viable change
-- TASK-438 (review): Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе
-- TASK-481 (active): Собрать батч к одному перезапуску: outline, политика, профиль
+- TASK-486 (open): Политика не должна требовать документов, которых нет в проекте
+- TASK-488 (active): Собрать батч: правила документации и панель
 
 Записи анализа: docs/analysis/<initiative>.json.

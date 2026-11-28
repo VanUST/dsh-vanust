@@ -2937,7 +2937,16 @@ function createService(config, logger, hooks = {}) {
       // (it changes no task field) and leaves the status to the runtime's settle event.
       if (kind === 'stop') return this.stop(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
       if (kind === 'remove') return this.remove(cwd, { ...op, chatId, actor })
-      if (kind === 'get') return { ok: true, task: this.get(cwd, op.id) }
+      // A GET FOR AN ABSENT ROW IS A REFUSAL, NOT A SUCCESS WITH NO PAYLOAD. It used to answer
+      // `{ok:true}` with the task key dropped by JSON, and every caller then read the missing
+      // field as its own problem: the Project state panel blamed a row with "no revision" for a
+      // row that is not on the board at all (2026-11-28). The CAS path above already answers
+      // `not_found` for the same fact; `get` says the same thing in the same shape.
+      if (kind === 'get') {
+        const task = this.get(cwd, op.id)
+        if (task === undefined) return { ok: false, code: 'not_found', message: `no board row ${String(op.id ?? '')}` }
+        return { ok: true, task }
+      }
       if (kind === 'list') return { ok: true, tasks: this.list(cwd, { chatId, all: op.all === true }) }
       if (kind === 'agents') return { ok: true, agents: this.agents(cwd) }
       // Board-level, so it takes no revision: it acts only on rows whose own children are all

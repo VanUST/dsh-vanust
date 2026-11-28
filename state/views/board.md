@@ -2,27 +2,27 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (1)
+## open (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
+| TASK-486 | Политика не должна требовать документов, которых нет в проекте | — | — | yes |
 
 ## active (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-481 | Собрать батч к одному перезапуску: outline, политика, профиль | — | — | yes |
+| TASK-488 | Собрать батч: правила документации и панель | — | — | yes |
 
-## review (2)
+## review (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
-| TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 
-## done (383)
+## done (389)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -409,6 +409,12 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-478 | Outline: включить инструмент или убрать объявление из промпта | — | — | yes |
 | TASK-479 | Outline: запуск Windows-шима через PATHEXT и shell | — | — | yes |
 | TASK-480 | Починить выбор веб-провайдера: research-first блокирует создание файлов | — | — | yes |
+| TASK-481 | Собрать батч к одному перезапуску: outline, политика, профиль | — | — | yes |
+| TASK-482 | Панель: ручная смена статуса не находит ревизию строки | REQ-305 | — | no |
+| TASK-483 | Восстановить строки доски для старых задач | REQ-307 | — | no |
+| TASK-484 | Ревью и оптимизация клиента панели состояния | REQ-306 | — | no |
+| TASK-485 | Почему web_fetch работает у корня и падает у детей | — | — | yes |
+| TASK-487 | Панель: критичный axe, контраст и правдивый README | REQ-306 | — | no |
 
 ## blocked (1)
 
@@ -416,7 +422,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-372 | Задержка отправки и размер контекста: есть ли связь | — | — | yes |
 
-## cancelled (92)
+## cancelled (93)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -511,4 +517,5 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-370 | Панель задач читает доску через сервер, а не устаревший файл | REQ-279 | — | no |
 | TASK-423 | Измерить влияние изменений запроса на кэш провайдера | — | — | yes |
 | TASK-424 | Прогнать замер кэша на одном маршруте модели | — | — | yes |
+| TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 | TASK-446 | Разобрать красный delegation-basis-proof | — | — | yes |

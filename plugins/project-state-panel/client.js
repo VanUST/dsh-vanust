@@ -268,8 +268,15 @@ window.__ModuleLoader__.load({
       const got = await runTaskboard(remote, sessionId, { op: 'get', id: plan.boardId })
       if (got.ok !== true) return got
       const boardTask = got.payload.task
-      if (boardTask === null || typeof boardTask !== 'object' || !Number.isSafeInteger(boardTask.revision)) {
-        return { ok: false, code: 'command_result_invalid', message: 'the board row carries no revision' }
+      // TWO FACTS, TWO CODES. A TASK whose `boardId` is not on the board has no row to compare a
+      // revision against, and blaming "no revision" sent the owner looking for a stale row that
+      // was never there. The board answers `not_found` for that case now; this branch keeps a
+      // server that still answers `{ok:true}` from reading as a revision problem.
+      if (boardTask === null || typeof boardTask !== 'object') {
+        return { ok: false, code: 'no_board_row', message: `the board has no row ${plan.boardId}, so the panel cannot change this status` }
+      }
+      if (!Number.isSafeInteger(boardTask.revision)) {
+        return { ok: false, code: 'command_result_invalid', message: `the board row ${plan.boardId} carries no revision` }
       }
       const applied = await runTaskboard(remote, sessionId, {
         op: 'owner-status',
@@ -532,6 +539,13 @@ window.__ModuleLoader__.load({
   --ps-surface-2: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, var(--dsw-alias-bg-base));
   --ps-surface-3: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, var(--dsw-alias-bg-base));
   --ps-open: #93C5FD;
+  /* THE TWO SMALL-TEXT INKS. --ps-open and --ps-ok stay the accent colours for dots, borders and
+     card edges, where no contrast minimum applies; as 10.5-11 px text they read at 1.8:1 and
+     4.3:1 on the light theme (axe: color-contrast). Each ink is the same colour mixed with the
+     theme ink, so it darkens on light and lightens on dark and keeps following the shell theme
+     instead of pinning a hex. */
+  --ps-open-ink: color-mix(in srgb, var(--ps-open) 50%, var(--ps-ink));
+  --ps-ok-ink: color-mix(in srgb, var(--ps-ok) 85%, var(--ps-ink));
   --ps-violet: #C4B5FD;
   --ps-ink: var(--dsw-alias-label-primary);
   --ps-muted: var(--dsw-alias-label-secondary);
@@ -562,7 +576,7 @@ window.__ModuleLoader__.load({
 .ps-mode[aria-selected="true"] { background: var(--ps-surface); color: var(--ps-ink); box-shadow: 0 0 0 1px var(--ps-line); }
 .ps-mode:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
 .ps-spacer { flex: 1; }
-.ps-ro { display: inline-flex; align-items: center; gap: 5px; border: 1px solid color-mix(in srgb, var(--ps-ok) 38%, var(--ps-line)); background: color-mix(in srgb, var(--ps-ok) 8%, transparent); color: var(--ps-ok); border-radius: 999px; padding: 2px 8px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+.ps-ro { display: inline-flex; align-items: center; gap: 5px; border: 1px solid color-mix(in srgb, var(--ps-ok) 38%, var(--ps-line)); background: color-mix(in srgb, var(--ps-ok) 8%, transparent); color: var(--ps-ok-ink); border-radius: 999px; padding: 2px 8px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
 .ps-ro:before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .ps-meta { color: var(--ps-muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ps-counts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -601,9 +615,9 @@ window.__ModuleLoader__.load({
 .ps-status.warn { color: var(--ps-warn); border-color: color-mix(in srgb, var(--ps-warn) 35%, var(--ps-line)); background: color-mix(in srgb, var(--ps-warn) 8%, transparent); }
 .ps-status.info { color: var(--ps-accent); border-color: color-mix(in srgb, var(--ps-accent) 35%, var(--ps-line)); background: color-mix(in srgb, var(--ps-accent) 8%, transparent); }
 .ps-status.muted { color: var(--ps-muted); border-style: dashed; }
-.ps-status.open { color: var(--ps-open); border-color: color-mix(in srgb, var(--ps-open) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-open) 10%, transparent); }
+.ps-status.open { color: var(--ps-open-ink); border-color: color-mix(in srgb, var(--ps-open) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-open) 10%, transparent); }
 .ps-status.proposed { color: var(--ps-violet); border-color: color-mix(in srgb, var(--ps-violet) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-violet) 10%, transparent); }
-.ps-status.unverified { color: var(--ps-open); border-color: color-mix(in srgb, var(--ps-open) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-open) 10%, transparent); }
+.ps-status.unverified { color: var(--ps-open-ink); border-color: color-mix(in srgb, var(--ps-open) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-open) 10%, transparent); }
 .ps-status.active, .ps-status.running { color: var(--ps-accent); border-color: color-mix(in srgb, var(--ps-accent) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-accent) 12%, transparent); }
 .ps-status.review, .ps-status.stale { color: var(--ps-warn); border-color: color-mix(in srgb, var(--ps-warn) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-warn) 10%, transparent); }
 .ps-status.blocked, .ps-status.failing, .ps-status.rejected { color: var(--ps-bad); border-color: color-mix(in srgb, var(--ps-bad) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-bad) 10%, transparent); }
@@ -660,7 +674,7 @@ window.__ModuleLoader__.load({
 .ps-input:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
 .ps-reason { width: 170px; font-size: 11px; padding: 2px 6px; }
 .ps-notice { border: 1px solid var(--ps-line); border-radius: 8px; padding: 6px 9px; margin-bottom: 10px; font-size: 12px; line-height: 1.4; }
-.ps-notice.ok { border-color: color-mix(in srgb, var(--ps-ok) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-ok) 10%, transparent); color: var(--ps-ok); }
+.ps-notice.ok { border-color: color-mix(in srgb, var(--ps-ok) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-ok) 10%, transparent); color: var(--ps-ok-ink); }
 .ps-notice.bad { border-color: color-mix(in srgb, var(--ps-bad) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-bad) 10%, transparent); color: var(--ps-bad); }
 .ps-notice code { font-weight: 700; }
 .ps-card .t { font-size: 12.4px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
@@ -2207,15 +2221,24 @@ window.__ModuleLoader__.load({
      * changed. The patch therefore runs BEFORE the command, and after a refusal it is undone
      * with the same helper. It touches the index row and the loaded entity, nothing else.
      */
-    function applyTaskStatus(data, taskId, status) {
+    function applyTaskStatus(data, taskId, status, written = null) {
       if (data === null || typeof data !== 'object') return data
       if (data.phase !== 'ready' && data.phase !== 'refreshing') return data
       if (data.index === null || typeof data.index !== 'object' || !Array.isArray(data.index.tasks)) return data
-      const tasks = data.index.tasks.map((row) => (row.id === taskId ? { ...row, status } : row))
+      // THE BOARD ALREADY ANSWERED WITH THE ROW IT WROTE. Its revision and updatedAt are the
+      // same facts a re-read of the projection would return, so the row is patched from the
+      // reply instead of reloading 484 rows for one status (REQ-306). A caller that has no
+      // reply (the optimistic paint, a restore after a refusal) passes nothing.
+      const patch = { status }
+      if (written !== null && typeof written === 'object') {
+        if (Number.isSafeInteger(written.revision)) patch.revision = written.revision
+        if (typeof written.updatedAt === 'string' && written.updatedAt !== '') patch.updatedAt = written.updatedAt
+      }
+      const tasks = data.index.tasks.map((row) => (row.id === taskId ? { ...row, ...patch } : row))
       const entities = new Map(data.entities)
       const current = entities.get(taskId)
       if (current !== undefined && current.frontmatter !== undefined) {
-        entities.set(taskId, { ...current, frontmatter: { ...current.frontmatter, status } })
+        entities.set(taskId, { ...current, frontmatter: { ...current.frontmatter, ...patch } })
       }
       return { ...data, index: { ...data.index, tasks }, entities }
     }
@@ -2385,7 +2408,10 @@ window.__ModuleLoader__.load({
       const [statusNotice, setStatusNotice] = useState(null)
       const [statusBusy, setStatusBusy] = useState(null)
       useEffect(() => {
-        if (statusNotice === null) return undefined
+        // A REFUSAL STAYS. An error that erased itself after nine seconds left the owner with
+        // one unannounced flash ("no revision" reached nobody); it now stays until the next
+        // status action, while a success notice still clears.
+        if (statusNotice === null || statusNotice.tone === 'bad') return undefined
         const timer = setTimeout(() => setStatusNotice(null), 9000)
         return () => clearTimeout(timer)
       }, [statusNotice])
@@ -2414,13 +2440,18 @@ window.__ModuleLoader__.load({
             }
             // The board answered with the row it wrote and the command mirrored it before
             // answering; keep the optimistic value (the controlled select must not flicker) and
-            // re-read the projection in the background.
-            setData((previous) => applyTaskStatus(previous, taskId, status))
+            // settle the row from that reply. NO FULL RE-READ FOR ONE STATUS: a reload replaced
+            // the whole workspace object, so 484 rows went through React again and the 221 KB
+            // index was fetched a second time for a revision the reply already carried
+            // (REQ-306). Only a terminal status changes OTHER rows - the board stops the linked
+            // children - so only then is the projection re-read.
+            const written = result.payload !== null && typeof result.payload === 'object' ? result.payload.task ?? null : null
+            setData((previous) => applyTaskStatus(previous, taskId, status, written))
             setStatusNotice({ tone: 'ok', code: null, message: `${taskId} is now ${status}; the state journal records the change` })
             if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
               window.dispatchEvent(new CustomEvent(STATE_CHANGED_EVENT))
             }
-            setReloadToken((value) => value + 1)
+            if (status === 'done' || status === 'cancelled') setReloadToken((value) => value + 1)
           },
           (error) => {
             setStatusBusy(null)
@@ -2573,6 +2604,15 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'ps-root', role: 'main', 'aria-label': 'Project state' },
         h('style', null, CSS),
+        // THE ANNOUNCEMENT, not the visible notice. A live region created together with its
+        // text is not reliably announced (MDN: establish the region first, start empty), and
+        // the refusal used to arrive as a notice nobody heard. This one is in the first paint
+        // and only its text changes; the visible .ps-notice stays for the eye.
+        h('p', { className: 'ps-visually-hidden', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' },
+          statusNotice !== null
+            ? `${statusNotice.code === null || statusNotice.code === undefined ? '' : `${statusNotice.code}: `}${statusNotice.message}`
+            : (entityNotice !== null && entityNotice !== undefined ? entityNotice.message : ''),
+        ),
         h('div', { className: 'ps-top' },
           h('button', { type: 'button', className: 'ps-btn icon ps-back', onClick: () => props.layout.selectPanel(null), title: 'Back to chat', 'aria-label': 'Back to chat' }, h(BackIcon, { size: 16 })),
           h('h1', { className: 'ps-title' }, 'Project state'),
@@ -2647,7 +2687,7 @@ window.__ModuleLoader__.load({
           h('section', { className: mode === 'map' ? 'ps-main ps-main-map' : 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
             statusNotice === null
               ? null
-              : h('div', { className: `ps-notice ${statusNotice.tone}`, role: 'status', 'aria-live': 'polite' },
+              : h('div', { className: `ps-notice ${statusNotice.tone}` },
                   statusNotice.code === null || statusNotice.code === undefined ? null : h('code', null, `${statusNotice.code}: `),
                   statusNotice.message,
                 ),
@@ -2660,8 +2700,12 @@ window.__ModuleLoader__.load({
                   ? h(MapMode, { remote, sessionId })
                   : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
           ),
-          railOpen && drawer !== null ? h('div', { className: 'ps-rail', id: 'ps-rail' },
-            h(Drawer, {
+          // THE COLUMN EXISTS EVEN WHEN IT IS CLOSED. The header's right-column toggle names it
+          // with aria-controls; an IDREF to an element that is absent while the drawer is closed is
+          // exactly what axe reports as aria-valid-attr-value (critical). Hidden, the element takes
+          // no grid cell and draws nothing, so the panel looks the same.
+          h('div', { className: 'ps-rail', id: 'ps-rail', hidden: !(railOpen && drawer !== null) },
+            railOpen && drawer !== null ? h(Drawer, {
                   drawer,
                   data,
                   analysisLinks,
@@ -2681,8 +2725,8 @@ window.__ModuleLoader__.load({
                   onReleaseField: releaseEntityField,
                   entityBusy,
                   entityNotice,
-                }),
-          ) : null,
+                }) : null,
+          ),
         ) : null,
         h('p', { className: 'ps-visually-hidden', 'aria-live': 'polite' },
           filter === null ? 'No requirement filter.' : `Filtered by ${filter}.`,

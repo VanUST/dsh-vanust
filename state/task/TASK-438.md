@@ -2,10 +2,10 @@
 id: TASK-438
 kind: task
 title: "Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе"
-status: review
-revision: 4
+status: cancelled
+revision: 5
 createdAt: 2026-11-28T13:02:39.177Z
-updatedAt: 2026-11-28T14:18:15.517Z
+updatedAt: 2026-11-28T16:40:56.714Z
 boardId: task-mx0f7811-uqvohi
 nonScope: ["Не пересобирать пакет и не устанавливать; не менять harness-seam.mjs и orchestrator.mjs; не трогать работающее развёртывание."]
 owner:

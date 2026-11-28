@@ -3,9 +3,9 @@ id: TASK-372
 kind: task
 title: "Задержка отправки и размер контекста: есть ли связь"
 status: blocked
-revision: 4
+revision: 8
 createdAt: 2026-11-27T17:15:02.612Z
-updatedAt: 2026-11-27T17:17:58.568Z
+updatedAt: 2026-11-28T17:01:26.319Z
 boardId: task-mwz8rwwt-rxsapw
 chore: true
 choreReason: "Измерение по вопросу владельца: почему отправка сообщения в длинной сессии занимает секунды, а в короткой нет."

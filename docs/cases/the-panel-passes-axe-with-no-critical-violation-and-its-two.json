@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "id": "the-panel-passes-axe-with-no-critical-violation-and-its-two",
+  "title": "The panel passes axe with no critical violation and its two small texts meet 4.5:1 in both themes",
+  "requirement": "In the Project state panel the header's right-column toggle must name an element that exists while the drawer is closed (no axe critical), and the two small texts that failed contrast — the open status chip and the header badge — must read at 4.5:1 or better on the light and the dark theme, without removing the relationship the toggle declares.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": true,
+  "testPath": ".tmp/panel-ux/run.mjs",
+  "runCommand": "node .tmp/panel-ux/run.mjs verify",
+  "steps": [
+    "Run node .tmp/panel-ux/run.mjs verify: it mounts the production plugins/project-state-panel/client.js over the workspace's 484-task index in Chrome and scans the whole panel with the pinned axe-core.",
+    "Print the axe impact counts and the id of every violation.",
+    "Measure the WCAG contrast of .ps-status.open and .ps-ro against the background each is painted on, once under the light tokens and once with body[data-ds-dark-theme].",
+    "Confirm #ps-rail exists and is hidden while no card is open, opens with a task click, and hides again on Escape.",
+    "Negative control: the same run over the pre-fix bundle (.tmp/panel-ux/client.axe-before.js) reports 1 critical aria-valid-attr-value, 2 color-contrast nodes, 1.8:1 and 4.33:1, and exits 1."
+  ],
+  "expected": "axe reports 0 violations, 0 critical; .ps-status.open is 5.51:1 (light) and 11.53:1 (dark); .ps-ro is 5.38:1 (light) and 7.88:1 (dark); #ps-rail is present and hidden while closed, shows the drawer on a task click and hides on Escape.",
+  "tags": [
+    "panel",
+    "a11y",
+    "axe",
+    "contrast",
+    "dark-theme"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "daacf31b42c2bf8bf1f2ac2cfd51fc22929a11876322fbe54f2d3bcaae227917"
+    },
+    {
+      "path": ".tmp/panel-ux/run.mjs",
+      "sha256": "0f9205a0eadb838fd47d50980346e2dd11e8f7710dac5cf999fa07e23a336309"
+    }
+  ],
+  "linkedTaskId": "task-mx0o2mwh-culpm0",
+  "reqId": "REQ-306",
+  "authorRole": "ux",
+  "authorPreset": "ux",
+  "authorSessionId": "7f24c213-e87a-495b-b738-78c72c201fe1",
+  "purpose": "implementation",
+  "testHash": "0f9205a0eadb838fd47d50980346e2dd11e8f7710dac5cf999fa07e23a336309",
+  "failsWhen": "The header toggle names an element that is absent while the drawer is closed (axe aria-valid-attr-value, critical), the status chip or the header badge falls below 4.5:1 on either theme, or the always-present rail element stops opening the drawer.",
+  "trigger": "A user opens the panel with no card open — the header's right-column toggle is on screen and its aria-controls points at the closed column — then opens and closes a task card; axe scans that first screen.",
+  "oracle": "WCAG 2.1 AA 1.4.3 (4.5:1 for text under 18.66 px bold / 24 px) and the axe rule aria-valid-attr-value: every IDREF must resolve to an element in the document.",
+  "realism": "Production-shaped data (the workspace's own state/views/index.json, 484 tasks) rendered by the production bundle; axe-core 4.14.0 and Chrome as installed, both themes from the shell's own token CSS.",
+  "checks": [
+    {
+      "name": "axeCritical",
+      "metric": "axeCritical",
+      "op": "==",
+      "threshold": 0,
+      "unit": "violations"
+    },
+    {
+      "name": "axeSerious",
+      "metric": "axeSerious",
+      "op": "==",
+      "threshold": 0,
+      "unit": "violations"
+    },
+    {
+      "name": "contrastOpenLight",
+      "metric": "contrastOpenLight",
+      "op": ">=",
+      "threshold": 4.5,
+      "unit": "ratio"
+    },
+    {
+      "name": "contrastMetaLight",
+      "metric": "contrastMetaLight",
+      "op": ">=",
+      "threshold": 4.5,
+      "unit": "ratio"
+    },
+    {
+      "name": "contrastOpenDark",
+      "metric": "contrastOpenDark",
+      "op": ">=",
+      "threshold": 4.5,
+      "unit": "ratio"
+    },
+    {
+      "name": "contrastMetaDark",
+      "metric": "contrastMetaDark",
+      "op": ">=",
+      "threshold": 4.5,
+      "unit": "ratio"
+    },
+    {
+      "name": "railIdPresent",
+      "metric": "railIdPresent",
+      "op": "==",
+      "threshold": 1,
+      "unit": "element"
+    }
+  ],
+  "revision": 1,
+  "createdAt": "2026-11-28T17:18:38.856Z",
+  "updatedAt": "2026-11-28T17:18:38.856Z",
+  "createdBy": "ux",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

@@ -82,12 +82,22 @@ just read — and a refusal puts the previous value back with its code. The writ
 their five-second poll, and a reload no longer repaints the cached pre-write index over live
 data. The board does the rest:
 it stops the linked children for `done`/`cancelled`, mirrors the TASK, regenerates the projections
-and writes a `waiver` event with code `owner_status_override` into `state/events.jsonl`. Then the
-panel re-reads `index.json` and paints the new status. The change overrides the lifecycle rules on
+and writes a `waiver` event with code `owner_status_override` into `state/events.jsonl`.
+
+**The panel does not re-read `index.json` after a status change.** The `owner-status` reply carries
+the row the board wrote, so the panel settles that row in place — status, `revision`, `updatedAt` —
+and the list is painted twice (the optimistic pick, then the settled row) instead of four times.
+One status change is therefore one read of the TASK (for its `boardId`) and two commands
+(`get`, then `owner-status`); measured over the workspace's 484-task projection, the read of the
+221 KB `index.json` that used to follow is gone. A terminal status (`done`, `cancelled`) is the one
+exception: the board has just stopped the linked children, so the panel re-reads `index.json` once
+to show their new state. The change overrides the lifecycle rules on
 purpose: it is the owner's door, and it is not exposed to the agent. A refusal is quoted with its
 code (`stale`, `needs_revision`, `not_found`, `no_board_row`, `command_unavailable`) in the panel's
-notice line, and a `stale` refusal triggers one re-read so the next attempt carries the new
-revision. A TASK with no `boardId` cannot be changed here (`no_board_row`); without a command
+notice line, which now stays until the next status action instead of clearing itself after nine
+seconds, and the same text is announced through the panel's live region (`role="status"`,
+`aria-live="polite"`), which is in the first paint so a screen reader hears the refusal. A `stale`
+refusal triggers one re-read so the next attempt carries the new revision. A TASK with no `boardId` cannot be changed here (`no_board_row`); without a command
 transport the badge renders as the read-only chip.
 
 A task linked through a batch (`reqIds`, no `reqId`) shows **every** requirement in the card, the
@@ -141,8 +151,8 @@ keeps the row and says `Open unavailable`.
 **The list carries the assignment.** Columns: Status, Task, **Role** (role + preset, or
 `inline`), Requirement, Progress, Subagents, Updated — and Updated reads as elapsed time
 (`сейчас`, `5 мин назад`, `2 ч назад`, `3 дн назад`; older than a month drops to a date), with
-the full timestamp in the cell's title. The drawer footer does the same for updated/created. The right column exists only while a card
-is open — the always-on evidence rail was removed on the owner's request, so the board gets the
+the full timestamp in the cell's title. The drawer footer does the same for updated/created. The right column is visible only while a card
+is open (its element stays in the DOM, hidden, so the header's `aria-controls` target resolves) — the always-on evidence rail was removed on the owner's request, so the board gets the
 full width; a task's details open in the drawer and close with it.
 
 **A task being `active` does not mean a child is working.** The task stays active until it is
