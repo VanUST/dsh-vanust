@@ -3,15 +3,12 @@
  *   Analysis before decomposition: one repo-tracked Analysis Record per initiative, four
  *   root-only tools over it, and a short root policy. The record keeps the business outcome
  *   separate from the requested solution and traces every requirement through its process,
- *   component, task and evidence. The taskboard stays a lifecycle ledger and the design map
- *   stays a scene; `designRef.mapRev` is the only link between them.
+ *   component, task and evidence. The taskboard stays a lifecycle ledger; the design map is a
+ *   drawing the record may name in prose, and nothing in the record reads it.
  *
  * INPUTS
  *   Config (all optional):
  *     dir            record directory relative to the session workspace. Default 'docs/analysis'.
- *     designMapFile  design-map file whose `rev` the record references, relative to the
- *                    workspace. Default 'designmap/manifest.json'; a legacy
- *                    'design.excalidraw' scene is still read for a rollback configuration.
  *     promptSection  false turns the short root policy off. Default true.
  *
  * OUTPUTS
@@ -22,7 +19,7 @@
  *
  * KEYWORDS
  *   analysis, analysis record, analysis_required, analysis_stale, L0/L1/L2, traceability,
- *   requirement, process, component, task, evidence, designMapRev
+ *   requirement, process, component, task, evidence
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The plugin provides its service even when mounted without the orchestrator; the
@@ -203,11 +200,11 @@ export const ANALYSIS_POLICY = `## Analysis before decomposition (deployment)
 An **L0 local edit** is a local fix with no contract, architecture or data change - a typo, a copy change, a one-file correction inside an existing behaviour. Do it **inline**: no Analysis Record, no case per requirement, no delegation; the task record and the report are enough. When the change touches a contract, the architecture or the data, it is not L0: an L1/L2 change starts with ONE Analysis Record in \`docs/analysis/<initiative>.json\` before you create or delegate tasks. A question needs no change at all.
 
 - \`analysis_upsert\` records the business outcome (separate from the requested solution), the process, BR/FR/NFR with acceptance, architecture and data ownership, contract impact, invariants, decisions, open questions and a trace row per requirement. Every edit of an existing record needs the \`expectedRev\` it read.
-- \`analysis_check\` must pass before the record can be \`ready\`. It names missing acceptance, missing component/data ownership, missing contract impact, a moved design map and an unresolved trace; it also reports completion as proven vs explicitly deferred.
+- \`analysis_check\` must pass before the record can be \`ready\`. It names missing acceptance, missing component/data ownership, missing contract impact and an unresolved trace; it also reports completion as proven vs explicitly deferred.
 - \`delegate_task\` for L1/L2 needs \`changeClass\`, \`analysisId\` and the \`requirementIds\` it implements. A missing/unready record is refused \`analysis_required\`; an affected record is refused \`analysis_stale\`. L0 passes without a record. Read-only RESEARCH/CONTEXT/REVIEWER/CRITIC work and a legacy \`taskId\` attach (no changeClass/analysisId) are exempt.
-- When a requirement, architecture, contract or the design map changes mid-work, \`analysis_upsert\` records a pending impact and reopens the record. Update it, pass \`resolveImpacts\`, and re-check before delegating again. Adding or removing a requirement also counts; a requirement with traced tasks cannot be removed — mark it rejected or deferred with a reason.
+- When a requirement, architecture or contract changes mid-work, \`analysis_upsert\` records a pending impact and reopens the record. Update it, pass \`resolveImpacts\`, and re-check before delegating again. Adding or removing a requirement also counts; a requirement with traced tasks cannot be removed — mark it rejected or deferred with a reason.
 - \`task_close\` is refused while a task traced in the record points at a planned requirement, or at a proven requirement without task evidence. \`update_goal action:"complete"\` is refused while a record that names that \`goalId\` is not completed.
-- Finish with every requirement proven with a task and its evidence, or explicitly deferred with a reason. The design map revision is captured as \`designRef\`. A bare \`designRef\` bump reopens the record rather than clearing drift.`
+- Finish with every requirement proven with a task and its evidence, or explicitly deferred with a reason.`
 
 function workingDir(agent) {
   const cwd = agent?.session?.header?.cwd
@@ -231,7 +228,6 @@ function refused(error) {
 export function apply(ctx, config = {}) {
   const service = createService({
     dir: config.dir,
-    designMapFile: config.designMapFile,
     historyLimit: config.historyLimit,
   }, ctx.logger)
   const provided = ctx.provide('analysis', service)
@@ -253,7 +249,7 @@ export function apply(ctx, config = {}) {
 
   const readTool = defineTool({
     name: 'analysis_read',
-    description: 'Read one Analysis Record from docs/analysis/<initiative>.json, or list the records when initiative is omitted. Returns the revision, status, semantic fingerprint and whether it still matches (with the recognised legacy version when the stored hash is an earlier algorithm), ambiguousOwnership when legacy data ownership needs resolution, the design-map revision it references, the completeness check and the proven/deferred completion summary. Call it before reusing an analysis in a new chat: the file, not the conversation, is the state.',
+    description: 'Read one Analysis Record from docs/analysis/<initiative>.json, or list the records when initiative is omitted. Returns the revision, status, semantic fingerprint and whether it still matches (with the recognised legacy version when the stored hash is an earlier algorithm), ambiguousOwnership when legacy data ownership needs resolution, the completeness check and the proven/deferred completion summary. Call it before reusing an analysis in a new chat: the file, not the conversation, is the state.',
     parameters: {
       initiative: { type: 'string', description: 'Initiative id (kebab-case, e.g. "analysis-before-decomposition"). Omit to list every record with its status and staleness.' },
     },
@@ -371,7 +367,7 @@ export function apply(ctx, config = {}) {
 
   const impactTool = defineTool({
     name: 'analysis_impact',
-    description: 'Record that a requirement, component, contract, data item, invariant or the design map changed, and return what the change affects: requirement ids, process ids, component ids, contract/data ids and the task ids already traced to them. It reopens the record as draft and records a pending impact, so the next L1/L2 delegation is refused analysis_stale until the record is updated and resolveImpacts clears it. Call this before continuing after any mid-work change.',
+    description: 'Record that a requirement, component, contract, data item or invariant changed, and return what the change affects: requirement ids, process ids, component ids, contract/data ids and the task ids already traced to them. It reopens the record as draft and records a pending impact, so the next L1/L2 delegation is refused analysis_stale until the record is updated and resolveImpacts clears it. Call this before continuing after any mid-work change.',
     parameters: {
       initiative: { type: 'string', required: true, description: 'Initiative id whose analysis must absorb the change.' },
       expectedRev: { type: 'integer', required: true, description: 'The revision you read; a stale one is refused.' },

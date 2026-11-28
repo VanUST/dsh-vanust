@@ -10,6 +10,10 @@
  *   because a table that describes a smaller deployment than the one installed is drift an
  *   agent cannot detect: it has nothing to compare against.
  *
+ *   The rule-ownership claim is the same discipline applied to prose that must not be copied: the
+ *   development rules have exactly one owner (the orchestrator policy), so a copy of one of them
+ *   in the guide fails here instead of drifting from it.
+ *
  * INPUTS
  *   None. Reads the canonical profile patch, the plugin inventory, the procedure and user
  *   documents, and the installer, updater and start scripts, all relative to this script's
@@ -172,14 +176,14 @@ if (procedure.missing === true) {
   )
 }
 
-// 3. The README a human reads and the user guide that walks them through install: both tell
-//    a person which version to install, so both must agree with the installers. They are
-//    required to NAME the pin — a version-less install instruction is exactly the unpinned
+// 3. The README a human reads and the working guide that walks a session through the tree:
+//    both tell a reader which version is in force, so both must agree with the installers. They
+//    are required to NAME the pin — a version-less install instruction is exactly the unpinned
 //    machine the pin forbids.
 const readme = read('README.md')
 for (const [relative, document] of [
   ['README.md', readme],
-  ['USERGUIDE.md', read('USERGUIDE.md')],
+  ['docs/GUIDE.md', read('docs/GUIDE.md')],
 ]) {
   if (document.missing === true) {
     claim(`${relative} states the harness pin the installers declare`, false, 'missing')
@@ -294,8 +298,9 @@ function statedPluginCounts(text) {
 }
 
 // 5. Every document that describes the shipped plugin set must agree with the inventory.
-//    A user guide that denies the existence of a shipped plugin is the same class of lie as
-//    a rule with no enforcement point: it reads as authoritative and nothing contradicted it.
+//    The README is the catalog (one row per plugin) and the working guide points at it; a
+//    catalog that denies the existence of a shipped plugin is the same class of lie as a rule
+//    with no enforcement point: it reads as authoritative and nothing contradicted it.
 const inventory = read('plugins/inventory.json')
 if (inventory.missing === true) {
   claim('the plugin inventory is readable', false, 'missing')
@@ -306,7 +311,7 @@ if (inventory.missing === true) {
   } catch (error) {
     claim('the plugin inventory is readable', false, String(error))
   }
-  for (const relative of ['README.md', 'USERGUIDE.md']) {
+  for (const relative of ['README.md']) {
     const document = read(relative)
     if (document.missing === true) {
       claim(`${relative} names every shipped plugin`, false, 'missing')
@@ -326,7 +331,7 @@ if (inventory.missing === true) {
   //    describe (the reviewed kit is the committed one).
   const tracked = countTrackedPlugins(rows)
   const mismatches = []
-  for (const relative of ['README.md', 'USERGUIDE.md', 'rules/DEPLOYMENT.md']) {
+  for (const relative of ['README.md', 'docs/GUIDE.md', 'rules/DEPLOYMENT.md']) {
     const document = read(relative)
     if (document.missing === true) { mismatches.push(`${relative}: missing`); continue }
     const stated = statedPluginCounts(document.text)
@@ -339,6 +344,41 @@ if (inventory.missing === true) {
     'every stated plugin count is the committed inventory count',
     rows.length > 0 && mismatches.length === 0,
     mismatches.length === 0 ? `${tracked} committed plugin(s), every count agrees` : mismatches.join(' | '),
+  )
+}
+
+// 7. THE DEVELOPMENT RULES HAVE ONE OWNER. The five rules every root reads on every step live in
+//    the orchestrator policy; the guide points at them and keeps the traps. A copy in the guide is
+//    the defect the first rule names - two texts that drift, and the copy nobody reads wins -
+//    measured 2026-11-27, when the guide and the policy each claimed to be the rules' home. The
+//    policy is checked for all five openings; the guide for none of them.
+const RULE_OWNER = 'plugins/orchestrator/orchestrator.mjs'
+const RULE_OPENINGS = [
+  'A rule lives in ONE place',
+  'A tool that exists is not a behaviour that changed',
+  'Prove by running, not by reading',
+  'The smallest complete change',
+  'Say what you skipped',
+  // The delivery rule. It was added after the other five and the claim kept passing without it,
+  // so a rule could be deleted from the policy and nothing failed: the check now counts what
+  // the policy actually carries, not what it carried the day it was written.
+  'A rule in the kit is not a rule in force',
+]
+const policy = read(RULE_OWNER)
+const guide = read('docs/GUIDE.md')
+if (policy.missing === true || guide.missing === true) {
+  claim('the development rules have one owner', false, `${policy.missing === true ? RULE_OWNER : 'docs/GUIDE.md'} is missing`)
+} else {
+  const absent = RULE_OPENINGS.filter((opening) => !policy.text.includes(opening))
+  const copied = RULE_OPENINGS.filter((opening) => guide.text.includes(opening))
+  claim(
+    'the development rules have one owner',
+    absent.length === 0 && copied.length === 0,
+    absent.length > 0
+      ? `absent from ${RULE_OWNER}: ${absent.join('; ')}`
+      : copied.length > 0
+        ? `docs/GUIDE.md repeats ${copied.join('; ')} - point at ${RULE_OWNER} instead`
+        : `${RULE_OPENINGS.length} rule(s) in ${RULE_OWNER}, none copied into docs/GUIDE.md`,
   )
 }
 

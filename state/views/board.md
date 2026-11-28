@@ -2,39 +2,29 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (5)
+## open (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
-| TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
-| TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
-| TASK-303 | Pull the updated kit and verify it locally | — | 1/5 | yes |
+| TASK-414 | Pull the updated kit and verify it locally | — | 1/5 | yes |
 
 ## active (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
+| TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
 
-## review (11)
+## review (4)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
-| TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
-| TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
-| TASK-261 | Проекция: полный текст снова читается агентом | REQ-172 | — | no |
-| TASK-263 | Проверки: отказ на пустом входе, негативный контроль, make test | REQ-175, REQ-177 | — | no |
-| TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
-| TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
-| TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
 | TASK-274 | Hindsight starts with dsh web; harness pin is enforced | — | 4/4 | yes |
 | TASK-288 | P1 fix: повторная атака на область записи и wrong-product red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 | TASK-289 | P1 fix 2: целевое ревью W1 head/test и B1 junction | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
 
-## done (203)
+## done (317)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -188,11 +178,16 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-230 | P1: выход в чат, скрытие окон, без дубля Tasks | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
 | TASK-231 | P1-T: red→green тест навигации панелей | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
 | TASK-232 | P2: правая колонка панели, верхняя панель без Tasks и Design map | REQ-108, REQ-109, REQ-110 | 0/6 | no |
+| TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
 | TASK-234 | P3: счётчики State и список задач с сортировкой | REQ-115, REQ-116, REQ-117 | 0/5 | no |
 | TASK-235 | P5: правила скорости для всех корней, L0 для локальных правок, один кейс на пачку | REQ-118, REQ-119, REQ-120 | 0/5 | no |
 | TASK-236 | State: конкретика задачи в TASK и переход к сессии субагента | REQ-124, REQ-125, REQ-126, REQ-127 | 4/5 | no |
+| TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-238 | Починить гейт delegation_brief: REQ, который реестр реально может иметь | REQ-083 | 3/3 | no |
 | TASK-239 | Почистить список задач: синхронизировать статусы реестра с доской и закрыть заброшенные строки | — | 4/4 | yes |
+| TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
+| TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
+| TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
 | TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 | TASK-245 | Убрать класс ошибок «unidentified message»: починить старые логи и закрыть источник | — | 6/6 | yes |
 | TASK-246 | Ручной статус задачи в панели Project state и доска без предела строк | REQ-136, REQ-137, REQ-138, REQ-146 | 6/6 | no |
@@ -210,12 +205,18 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-258 | Карта установки и переносимости Linux/Windows | — | — | yes |
 | TASK-259 | Карта поддерживаемости кода кита | — | — | yes |
 | TASK-260 | Карта отказных режимов харнесса | — | — | yes |
+| TASK-261 | Проекция: полный текст снова читается агентом | REQ-172 | — | no |
 | TASK-262 | Таскборд: закрытие с мёртвым ребёнком, один писатель доски, повтор зеркала | REQ-173, REQ-174 | — | no |
+| TASK-263 | Проверки: отказ на пустом входе, негативный контроль, make test | REQ-175, REQ-177 | — | no |
+| TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
+| TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-266 | Проверка компакции: общий бюджет и объявленное исключение architect | REQ-131 | — | no |
+| TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
 | TASK-268 | Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra | — | — | yes |
 | TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
 | TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
 | TASK-271 | Библиотека кейсов: правка и наблюдение доступны, каталог в доказательстве, запрет прибитых команд | REQ-179, REQ-180, REQ-181, REQ-182, REQ-183 | — | no |
+| TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
 | TASK-275 | Запись анализа независимой проверки и карта дизайна | REQ-184, REQ-185, REQ-186, REQ-187, REQ-188, REQ-189, REQ-190, REQ-191, REQ-192, REQ-193 | 4/4 | no |
 | TASK-276 | P0: происхождение доказательства и условие приёмки без самопроверки | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | 8/8 | no |
 | TASK-277 | P0: независимое ревью происхождения доказательства | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
@@ -241,8 +242,117 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-300 | Ревью 2: четыре непроверенных пункта risk closure | — | — | yes |
 | TASK-301 | Ревью 3: D5/D4/low после фикса | — | — | yes |
 | TASK-302 | Push: P0/P1/P2 + risk closure to origin | — | — | yes |
+| TASK-303 | P2 defects: a loaded box must drag, tidy must not eat labels, and the button must not lie | REQ-245 | — | no |
+| TASK-304 | P2 drag: fix the vendored frame's injection path, named from the glue's own code | REQ-245 | — | no |
+| TASK-305 | P2 drag: bisect the panel's hosting, then fix the one factor that differs | REQ-245 | — | no |
+| TASK-306 | Case ids for Russian titles: transliterate, never collapse to one constant | — | — | yes |
+| TASK-307 | Update the stale designmap guard in the taskboard test | — | — | yes |
+| TASK-308 | P3: retire design-map v1 completely | REQ-246 | — | no |
+| TASK-309 | P4: installed 1.0.0 in the browser, no v1 names in the artefact | REQ-246, REQ-247 | — | no |
+| TASK-310 | Close the two remaining risks: the unload console line and the stale recorded case | — | — | yes |
+| TASK-311 | State feed must not block the step it injects into | — | — | yes |
+| TASK-312 | Commit the finished work by path and push it | — | — | yes |
+| TASK-313 | Commit the project ledger through its own merge pass and push | — | — | yes |
+| TASK-314 | State notification names active tasks and lists open task titles | — | — | yes |
+| TASK-315 | Commit and push the open-tasks block and the ledger | — | — | yes |
+| TASK-316 | Verify the state notification with an independent behavioural test | — | — | yes |
+| TASK-317 | Proof guard: the runtime's ledger is not a role's product edit | — | — | yes |
+| TASK-318 | Commit the guard fix, the independent test and the ledger | — | — | yes |
+| TASK-319 | Put the independent acceptance test inside make test | — | — | yes |
+| TASK-320 | Commit the acceptance group in the gate and the ledger | — | — | yes |
+| TASK-321 | Counter: unclosed tasks, active tasks, active agents | — | — | yes |
+| TASK-322 | Commit the three-figure counter and the regenerated projections | — | — | yes |
+| TASK-323 | The live snapshot has no agents line although the installed build writes one | — | — | yes |
+| TASK-324 | Record the ledger with the projection the reloaded build wrote | — | — | yes |
+| TASK-326 | A command to retire a case, and the two rows here that assert removed behaviour | — | — | yes |
+| TASK-327 | Проверка запуска роли архитектора после переключения egress | — | — | yes |
+| TASK-328 | Retired cases must stop counting as live acceptance rows | — | — | yes |
+| TASK-329 | State batching and parallel work in the policy, and let the architect search the web | — | — | yes |
+| TASK-330 | A retirement from the shell must update the board too | — | — | yes |
+| TASK-331 | Commit the retirement contour, the policy and the ledger | — | — | yes |
+| TASK-332 | Push what is uncommitted, ledger only | — | — | yes |
+| TASK-333 | Design map: full-height canvas, always-on editing, agent drawing instruments | REQ-251, REQ-252, REQ-253, REQ-254, REQ-255 | 8/8 | no |
+| TASK-334 | Independent acceptance: design map instruments and full-height editor | REQ-251, REQ-252, REQ-253, REQ-254, REQ-255 | — | no |
+| TASK-335 | Owner status change displays immediately and never lies | REQ-136 | 6/6 | no |
+| TASK-336 | DEVOPS preset and the runtime lane (one live deployment task) | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263, REQ-264 | 10/10 | no |
+| TASK-338 | Project hygiene: one working guide, durable docs, legacy audit, orchestrator proposals | REQ-265, REQ-266, REQ-267, REQ-268, REQ-269 | 7/7 | no |
+| TASK-339 | Правила разработки: один владелец, и правило в проекте = правило в работе | REQ-268, REQ-270 | — | no |
+| TASK-340 | Свести дерево: пересобрать оркестратор и доказать причёсывание документации прогонами | REQ-265, REQ-266, REQ-269 | — | no |
+| TASK-341 | Проверить отчёт аудита легаси против дерева (read-only) | REQ-267 | — | no |
+| TASK-342 | Убрать следы retired-плагина дизайн-карты из README, процедуры и отчёта аудита | REQ-267 | — | no |
+| TASK-343 | `dsh web` делает всё сама: сведение, отказ от устаревшего запуска, явный перезапуск | REQ-271 | — | no |
+| TASK-344 | Сигнал «сервер жив» привязать к порту профиля, замена харнесса остаётся машинной | REQ-272 | — | no |
+| TASK-345 | Сервер, запущенный без `--port`, должен попадать в pid своего порта | REQ-272 | — | no |
+| TASK-346 | Правило порядка в политике: конфликт ≠ зависимость | REQ-273 | — | no |
+| TASK-347 | Отказ `dependency_open`: доска держит порядок шагов | REQ-274 | — | no |
+| TASK-348 | Пересобрать доску и оркестратор: правило порядка в сборке | REQ-274 | — | no |
+| TASK-352 | Триаж машины: что узкое и кто это держит | REQ-275 | — | no |
+| TASK-353 | Освободить корень: карта диска, безопасная чистка, размер ленты сессии | REQ-277 | — | no |
+| TASK-354 | Закоммитить и запушить работу сессии в origin | — | — | yes |
+| TASK-355 | Разгрузить машину: погасить лишние `bin.js web`, найти кто их плодит | — | — | yes |
+| TASK-356 | Установить правило «один владелец порта» и погасить лишние web-процессы | — | — | yes |
+| TASK-357 | Анатомия процесса субагента: кто он, от кого, и умирает ли | — | — | yes |
+| TASK-358 | Что растёт в autolabel_pipeline: состояние, логи сессий, стоимость хода | — | — | yes |
+| TASK-359 | Чистка spill в autolabel_pipeline и dsh-kit | — | — | yes |
+| TASK-360 | Кэш промпта на длинных сессиях: inputTokens против cacheReadTokens | — | — | yes |
+| TASK-361 | Найти и погасить петлю запуска dsh web (shell 142 % CPU) | — | — | yes |
+| TASK-362 | Где дорожает работа с задачами и состоянием при большой доске | — | — | yes |
+| TASK-363 | Установить антиштормовую обёртку и доказать отказ без запуска второго сервера | — | — | yes |
+| TASK-364 | Убрать зависимость стоимости задачи от размера доски и журнала | REQ-278 | — | no |
+| TASK-365 | Исправить версию project-state: 0.1.89 → 0.1.19 | — | — | yes |
+| TASK-366 | Закоммитить и запушить правила обёртки и фиксы плагинов | — | — | yes |
+| TASK-367 | Доска задач как журнал плюс снимок: масштабирование на долгие проекты | REQ-279 | — | no |
+| TASK-368 | Где теряется время при открытии длинной сессии в браузере | — | — | yes |
+| TASK-369 | Один вызов на набор операций с задачами (закрыть, открыть, заметка) | REQ-280 | — | no |
+| TASK-371 | Панель через малый производный файл строк (2 с свежести) | REQ-279 | — | no |
+| TASK-373 | Что плагин состояния делает на каждом ходу и сколько это стоит | — | — | yes |
+| TASK-374 | Отправка: длина ленты, проектная системная часть или модель | — | — | yes |
+| TASK-375 | Ленивая загрузка SDK и MCP: заголовок в промпте, объявления по запросу | REQ-280 | — | no |
+| TASK-376 | Финальная сборка: taskboard 0.1.92, state-feed, tool-families 0.1.15, зелёный verify | REQ-280 | — | no |
+| TASK-377 | Закоммитить и запушить всю работу сессии | REQ-280 | — | no |
+| TASK-378 | sdk_api: убрать «покажи всё», дать выбор по модулю и MCP-серверу с пределом ответа | — | — | yes |
+| TASK-379 | Закоммитить и запушить остаток журнала | REQ-280 | — | yes |
+| TASK-380 | Блокер: больше 10 незакрытых задач — только проверяющие роли | — | — | yes |
+| TASK-381 | Блокер: выше предела запрещать новую работу, но не прикрепление | — | — | yes |
+| TASK-382 | Закоммитить и запушить правило-блокер | — | — | yes |
+| TASK-384 | Фрагменты внутри SVG: схема заполняется по ячейкам | REQ-156, REQ-159 | 4/4 | no |
+| TASK-385 | Блок motion: анимация по часам вместо библиотеки | REQ-156 | 6/6 | no |
+| TASK-386 | Pull the remote kit and verify the updated kit locally | — | 4/4 | yes |
+| TASK-387 | A1: аудит плагинов и пресетов — кто вызывается, кто мёртвый, кто дорогой | — | — | no |
+| TASK-388 | U1: провижн impeccable — скилл, движок, make design-audit | — | — | no |
+| TASK-389 | U2: UX-процесс с impeccable — существующий проект, новый проект, мокапы для выбора | — | — | no |
+| TASK-390 | T1: поверхность инструментов — удалить мёртвое, вернуть designmap, включить godot-deny и outline | — | — | no |
+| TASK-391 | U3: Night desk в панели состояния — тёмная тема и постоянный рельс доказательства | — | — | no |
+| TASK-392 | B2: адаптер OpenAI/Codex в харнессе, выбор модели и вход внешнего агента | — | — | no |
+| TASK-393 | U4: State в верхнюю панель и адаптивная светлая/тёмная тема | — | — | no |
+| TASK-394 | O1: измерить и закрепить экономию outline (bench + журнальный аудит) | — | — | no |
+| TASK-395 | O2: outline — всем ролям, не только оркестратору | — | — | no |
+| TASK-396 | B3: прокси только для OpenAI — транспорт в адаптере (HTTP и SOCKS5) | — | — | no |
+| TASK-397 | R1: готовность новой экосистемы — флаг IPv4 и второй сервер | — | — | no |
+| TASK-398 | Проектный журнал state/: слияние двух машин по git | REQ-281, REQ-282, REQ-283, REQ-284 | 5/5 | no |
+| TASK-399 | Assess the case library against the behaviour-only rules and design the enforcement layer | — | — | yes |
+| TASK-400 | P0: case-library audit command and the role-table check in make verify | REQ-231, REQ-232 | — | no |
+| TASK-401 | Preset playbooks in every persona plus the shared acceptance paragraph | REQ-237, REQ-238, REQ-239 | — | no |
+| TASK-402 | Batch the spike: two seats and one gate per batch in the orchestrator policy | REQ-240, REQ-241 | — | no |
+| TASK-403 | Verify the updated install: case CLI audit, tree gates, composed profile, versions | — | — | yes |
+| TASK-404 | Prove a child's rendered prompt from its session log, not from the profile | — | — | yes |
+| TASK-405 | Gate the prompt playbooks in make verify, red-first | REQ-237 | — | yes |
+| TASK-406 | Independent audit: capability fit, context overhead and prefix-cache churn per preset | — | — | yes |
+| TASK-407 | Reconnaissance: what the design-map subsystem is and what is coupled to it | — | — | yes |
+| TASK-408 | Design map v2: pages as drawings | — | 5/5 | yes |
+| TASK-409 | Design map v2 P1: page document, four agent tools, tidy and SVG | REQ-242, REQ-243, REQ-244, REQ-248, REQ-249 | — | no |
+| TASK-410 | Design map v2 P2: the panel edits the page file | REQ-245 | — | no |
+| TASK-411 | P2 proof in a browser: the page editor loads, saves and never writes in read mode | — | — | yes |
+| TASK-412 | One renderer: Excalidraw's own export, custom SVG writer deleted | REQ-250 | — | no |
+| TASK-413 | map_render: frame the page, do not crop it | REQ-250 | — | no |
 
-## cancelled (83)
+## blocked (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-372 | Задержка отправки и размер контекста: есть ли связь | — | — | yes |
+
+## cancelled (89)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -328,4 +438,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-128 | Исправить Analysis Record schema integrity | — | — | no |
 | TASK-203 | V1.2: состав пресетов под бюджеты полного заголовка | — | — | no |
 | TASK-206 | FR2: бюджеты контекста — ждёт решения о PTC-пресетах | — | — | no |
+| TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 | TASK-292 | P1 pilot: TESTER на временном DSH-профиле (другой порт) | REQ-191 | — | no |
+| TASK-325 | A command to retire a case, and the two cases that assert removed behaviour | — | — | yes |
+| TASK-349 | Измерить клиент: байты, время до интерактивности, длинные задачи, панели | REQ-275 | — | no |
+| TASK-350 | [проба] шаг-выход: выкатка версии | — | — | yes |
+| TASK-351 | [проба] шаг-вход: тест после выкатки | — | — | yes |
+| TASK-370 | Панель задач читает доску через сервер, а не устаревший файл | REQ-279 | — | no |

@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "id": "coordinate-free-node-add-spreads-wider-than-tall",
+  "title": "coordinate-free-node-add-spreads-wider-than-tall",
+  "requirement": "AC-5 / FR2 / REQ-252: three node.add calls without coordinates place nodes in free spots (not a vertical column): the page bounds are wider than tall.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/map-instruments.mjs",
+  "runCommand": "node tests/designmap-instruments/map-instruments.mjs --case AC-5",
+  "steps": [
+    "Create a page.",
+    "Call map_edit node.add three times with only a label.",
+    "Read the page file: three boxes, no overlap, content bounds wider than tall."
+  ],
+  "expected": "Three map_edit node.add calls with a label and no x/y all return ok, place three non-overlapping boxes, and the page content bounds are wider than tall (a left-to-right flow), not a single vertical column.",
+  "tags": [
+    "designmap",
+    "AC-5",
+    "layout"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/src/ops.mjs",
+      "sha256": "6d7cc1402fdbba467a89bb6f24f5e56e83a86d620228947dce01efcedc7da348"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "criterionId": "AC-5",
+  "reqId": "REQ-252",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "1da99e5eadd0d5dbdb05ea0959787131636ff8579f2042f91012d64dc16597af",
+  "failsWhen": "A coordinate-less node.add appends below the page (the old vertical column) or stacks the three boxes in one column.",
+  "trigger": "An agent adds three nodes without coordinates, one map_edit call at a time.",
+  "oracle": "TASK-333 criterion AC-5 and FR2 (REQ-252): free spots, not a vertical column; page bounds wider than tall.",
+  "realism": "The owner's complaint that coordinate-less boxes became a vertical column under the page (TASK-333 objective, REQ-252).",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 5,
+  "createdAt": "2026-11-27T09:47:15.417Z",
+  "updatedAt": "2026-11-27T09:54:06.597Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:47:42.289Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:50:15.721Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:53:22.657Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:54:06.597Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyssnje-0rcux-1",
+      "at": "2026-11-27T09:47:42.287Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 198,
+      "commandSha256": "1b8ac06407cbdac06580067cdd27b3557e3ec0f8b8799ea42d4c9b26922ed411",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyssnje-0rcux-1/stdout.log",
+      "stderr": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyssnje-0rcux-1/stderr.log",
+      "summary": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyssnje-0rcux-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwysvy0p-35ewc-1",
+      "at": "2026-11-27T09:50:15.717Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 166,
+      "commandSha256": "1b8ac06407cbdac06580067cdd27b3557e3ec0f8b8799ea42d4c9b26922ed411",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwysvy0p-35ewc-1/stdout.log",
+      "stderr": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwysvy0p-35ewc-1/stderr.log",
+      "summary": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwysvy0p-35ewc-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyszyzy-s2244-1",
+      "at": "2026-11-27T09:53:22.651Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 164,
+      "commandSha256": "1b8ac06407cbdac06580067cdd27b3557e3ec0f8b8799ea42d4c9b26922ed411",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyszyzy-s2244-1/stdout.log",
+      "stderr": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyszyzy-s2244-1/stderr.log",
+      "summary": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyszyzy-s2244-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 1
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 1,
+          "threshold": 0,
+          "pass": false,
+          "reason": "1 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0w5l-qqwn5-1",
+      "at": "2026-11-27T09:54:06.596Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 222,
+      "commandSha256": "1b8ac06407cbdac06580067cdd27b3557e3ec0f8b8799ea42d4c9b26922ed411",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyt0w5l-qqwn5-1/stdout.log",
+      "stderr": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyt0w5l-qqwn5-1/stderr.log",
+      "summary": "docs/cases/runs/coordinate-free-node-add-spreads-wider-than-tall/mwyt0w5l-qqwn5-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T09:54:06.597Z",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-5",
+    "exitCode": 0,
+    "runId": "mwyt0w5l-qqwn5-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-27T09:53:22.657Z",
+    "runId": "mwyszyzy-s2244-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-5",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

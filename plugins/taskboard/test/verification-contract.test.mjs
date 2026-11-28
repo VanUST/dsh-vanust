@@ -14,7 +14,7 @@ Production path: plugins/taskboard/taskboard.mjs (VERIFICATION_LEVELS, criteriaO
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../taskboard.mjs'
@@ -172,4 +172,55 @@ test('a violation recorded for the row\'s child refuses a close made by the orch
   assert.equal(closed.ok, false, 'a row whose CHILD shell changed the product was closed')
   assert.equal(closed.code, 'product_shell_violation', JSON.stringify(closed))
   assert.match(closed.message, /sess-tester/)
+})
+
+/*
+PROOF: the runtime's ledger writes are not a role's product edit when the close is judged
+Behavior: a recorded shell-audit entry that names only state/ or .dsh/ files is not an edit the
+  role made, so it does not refuse the close; an entry that also names a product file still
+  refuses and reports only that product file. The recorded entry itself stays on disk.
+Fails when: a ledger append recorded during a scoped shell refuses the row (the defect: the
+  tester's task sat refused with files ['state/events.jsonl']), or the filter hides a real product
+  edit recorded beside it.
+*/
+function closeWithRecord(record, id = 'task-shell') {
+  const cwd = mkdtempSync(join(tmpdir(), 'taskboard-runtime-root-'))
+  mkdirSync(join(cwd, '.dsh'), { recursive: true })
+  const boardPath = join(cwd, 'taskboard.json')
+  // The closing session is the one the record names; a linked child would make the close try to
+  // interrupt it, which this harness has no service for.
+  writeFileSync(boardPath, JSON.stringify({ version: 1, revision: 3, tasks: [{ id, revision: 1, title: 'row', status: 'review', priority: 'normal', chatId: 'chat-1', role: 'BACKEND', preset: 'backend', caseIds: [], createdAt: now, updatedAt: now }] }, null, 2) + '\n')
+  const recordPath = join(cwd, '.dsh', 'proof-guard-violations.json')
+  writeFileSync(recordPath, JSON.stringify(record, null, 2) + '\n')
+  const registry = new Map()
+  const ctx = {
+    logger: { warn() {}, info() {} },
+    provide(name, service) { registry.set(name, service); return service },
+    effect(fn) { fn(); return () => {} },
+    on() {},
+    get() { return undefined },
+    tools: { register() { return () => {} } },
+    commands: { register() { return () => {} } },
+  }
+  apply(ctx, { file: boardPath, linksFile: join(cwd, 'links.json'), lockWaitMs: 1000 })
+  const closed = registry.get('taskboard').close(cwd, { id, chatId: 'chat-1', parentSessionId: 'sess-tester', result: { summary: 'accepted', evidence: ['node x'] } })
+  return { closed, recordPath }
+}
+
+test('a record that names only the ledger does not refuse the close, and the record is kept', () => {
+  // The exact shape recorded for the tester's session: the journal and the view projections only.
+  const record = [
+    { at: now, sessionId: 'sess-tester', preset: 'tester', tool: 'bash', files: ['state/events.jsonl'] },
+    { at: now, sessionId: 'sess-tester', preset: 'tester', tool: 'bash', files: ['state/views/.hashes.json', 'state/views/board.md', 'state/views/digest.md', 'state/views/index.json', 'state/views/snapshot.md'] },
+  ]
+  const { closed, recordPath } = closeWithRecord(record)
+  assert.equal(closed.ok, true, JSON.stringify(closed))
+  assert.deepEqual(JSON.parse(readFileSync(recordPath, 'utf8')), record, 'the recorded entry was deleted instead of judged')
+})
+
+test('a record that mixes the ledger with a product file still refuses, naming only the product file', () => {
+  const { closed } = closeWithRecord([{ at: now, sessionId: 'sess-tester', preset: 'tester', tool: 'bash', files: ['.dsh/note.json', 'state/events.jsonl', 'src/app.mjs'] }])
+  assert.equal(closed.ok, false, 'a product edit recorded beside a ledger append was accepted')
+  assert.equal(closed.code, 'product_shell_violation', JSON.stringify(closed))
+  assert.deepEqual(closed.files, ['src/app.mjs'])
 })

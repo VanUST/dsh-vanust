@@ -20,6 +20,10 @@ const STATUS = {
   verified: 'verified',
   failing: 'failing',
   stale: 'stale',
+  // A closed case (retired, or superseded by a newer one) stays in the register as a terminal
+  // TEST row: its caseId keeps the trace, and the projections do not count it as live work.
+  deprecated: 'deprecated',
+  superseded: 'deprecated',
 }
 
 /** The frozen identity of the test: what it is, not how the file is formatted. */

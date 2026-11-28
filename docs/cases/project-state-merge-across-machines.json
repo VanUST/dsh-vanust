@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "id": "project-state-merge-across-machines",
+  "title": "The project ledger merges across two machines",
+  "requirement": "REQ-184, REQ-185, REQ-186, REQ-187: the project ledger (state/) is one ledger for every machine. Two clones that independently created TASK-002 each keep their row after a pull - one keeps the number and the other is renumbered - one requirement written under two numbers becomes one row, the journal keeps the events of both machines with seq 1..N, the projections are regenerated, the collisions are reported explicitly, verify() and replay() pass after the merge, and a second resolution writes the same bytes.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/state-merge-proof.mjs",
+  "runCommand": "node scripts/state-merge-proof.mjs",
+  "reqId": "REQ-184",
+  "tags": [
+    "state",
+    "merge",
+    "git"
+  ],
+  "steps": [
+    "Создать общий репозиторий с базовыми REQ и TASK, склонировать его на две машины.",
+    "На каждой машине создать задачу так, чтобы обе получили один номер TASK-002, и одно требование под двумя номерами.",
+    "Слить вторую машину в первую и увидеть конфликт в state/.",
+    "Запустить state-merge.mjs и сверить отчёт: переименование, слияние по идентичности, отсутствие дублей номеров.",
+    "Проверить replay() и verify() на слитом реестре и повторный запуск без изменений.",
+    "Негативный контроль: резолвер, выбирающий одну сторону, обязан упасть (CASE_NEGATIVE_CONTROL)."
+  ],
+  "testHash": "9268718fbea8a243edaacdc691ddb18d1fb016f138a79e80dadc24d65fe34074",
+  "runs": [
+    {
+      "runId": "mwt0r3r1-vcz2x-1",
+      "at": "2026-11-23T08:43:50.687Z",
+      "mode": "red",
+      "runBy": null,
+      "control": "expect-pre-fix",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 2114,
+      "commandSha256": "9f5cc712a837f00014668065fd732b764715a45ee2cf6e1eab7de146298b14f7",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "44ca413c72ad3e8f27f5d50dd91890bcd9d8acfb",
+      "dirty": true,
+      "stdout": "docs/cases/runs/project-state-merge-across-machines/mwt0r3r1-vcz2x-1/stdout.log",
+      "stderr": "docs/cases/runs/project-state-merge-across-machines/mwt0r3r1-vcz2x-1/stderr.log",
+      "summary": "docs/cases/runs/project-state-merge-across-machines/mwt0r3r1-vcz2x-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwt0r5gv-7qjvn-1",
+      "at": "2026-11-23T08:43:53.409Z",
+      "mode": "green",
+      "runBy": null,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 2615,
+      "commandSha256": "9f5cc712a837f00014668065fd732b764715a45ee2cf6e1eab7de146298b14f7",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "44ca413c72ad3e8f27f5d50dd91890bcd9d8acfb",
+      "dirty": true,
+      "stdout": "docs/cases/runs/project-state-merge-across-machines/mwt0r5gv-7qjvn-1/stdout.log",
+      "stderr": "docs/cases/runs/project-state-merge-across-machines/mwt0r5gv-7qjvn-1/stderr.log",
+      "summary": "docs/cases/runs/project-state-merge-across-machines/mwt0r5gv-7qjvn-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "updatedAt": "2026-11-23T08:43:53.413Z",
+  "revision": 2,
+  "redFirst": {
+    "at": "2026-11-23T08:43:50.689Z",
+    "runId": "mwt0r3r1-vcz2x-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node scripts/state-merge-proof.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "/home/iustimov/dsh-kit",
+    "head": "44ca413c72ad3e8f27f5d50dd91890bcd9d8acfb",
+    "dirty": true,
+    "runBy": null
+  },
+  "history": [
+    {
+      "revision": 0,
+      "at": "2026-11-23T08:43:50.689Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 1,
+      "at": "2026-11-23T08:43:53.413Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-23T08:43:53.413Z",
+    "command": "node scripts/state-merge-proof.mjs",
+    "exitCode": 0,
+    "runId": "mwt0r5gv-7qjvn-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": null
+  },
+  "surfaceFiles": []
+}

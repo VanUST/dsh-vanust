@@ -7,6 +7,9 @@ window.__ModuleLoader__.load({
 
     const PANEL_ID = 'tasks'
     const FILE = '.dsh/taskboard.json'
+    // The plugin's small projection of the rows the board draws: written at most once per 2 s,
+    // so the panel never shows a board that lags behind the journal by a whole snapshot.
+    const ROWS_FILE = '.dsh/taskboard.rows.json'
     // Seven states, no two of them the same thing. `proposed` and `ready` were two names
     // for "not started"; rows that still say so are mapped to `open` on READ, never
     // rewritten (see mapStatus).
@@ -238,14 +241,30 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * The board through the plugin's small projection, falling back to the board document.
+     *
+     * A workspace that predates the projection has no rows file: reading it must return the
+     * board, not an empty one, so a missing or unreadable projection falls through.
+     */
     async function readBoard(remote, sessionId, signal) {
       if (typeof sessionId !== 'string' || sessionId === '') return { board: null }
+      const rows = await readBoardFile(remote, sessionId, signal, ROWS_FILE)
+      if (rows.error === undefined && rows.board !== null && rows.board !== undefined && Array.isArray(rows.board.tasks)) {
+        return { board: rows.board, projection: true }
+      }
+      const full = await readBoardFile(remote, sessionId, signal, FILE)
+      if (full.board !== null && full.board !== undefined) return { board: { ...full.board, projection: false }, projection: false }
+      return full
+    }
+
+    async function readBoardFile(remote, sessionId, signal, file) {
       let offset = 1
       let text = ''
       let complete = false
       // A maximal board is about 75 pages; 200 leaves room and never parses a truncated ledger.
       for (let page = 0; page < 200; page += 1) {
-        const result = await remote.workspaceFiles.read(sessionId, FILE, { offset, limit: 2000 }, signal)
+        const result = await remote.workspaceFiles.read(sessionId, file, { offset, limit: 2000 }, signal)
         if (!result.ok) {
           if (isMissing(result.error)) return { board: null }
           return { error: result.error.message ?? result.error.code ?? 'read failed' }
@@ -1041,7 +1060,29 @@ window.__ModuleLoader__.load({
         return () => board.removeEventListener('wheel', onWheel)
       }, [viewMode])
 
-      const selected = tasks.find((task) => task.id === selectedId) ?? null
+      // The projection carries only the fields a card draws. The detail view needs the whole
+      // row (objective, acceptance, timeline), so the first selection of a revision reads the
+      // board document once and keeps that row - one read per selection, never per poll.
+      const [detail, setDetail] = useState(null)
+      const detailKey = useRef('')
+      useEffect(() => {
+        const row = tasks.find((task) => task.id === selectedId)
+        if (selectedId === null || row === undefined || Array.isArray(row.timeline)) {
+          setDetail(null)
+          return undefined
+        }
+        const key = `${selectedId}:${row.revision ?? ''}`
+        if (detailKey.current === key) return undefined
+        detailKey.current = key
+        let live = true
+        readBoardFile(remote, sessionId, new AbortController().signal, FILE)
+          .then((result) => {
+            if (live && result.board) setDetail(result.board.tasks?.find((task) => task.id === selectedId) ?? null)
+          })
+          .catch(() => {})
+        return () => { live = false }
+      }, [selectedId, remote, sessionId, tasks])
+      const selected = detail ?? tasks.find((task) => task.id === selectedId) ?? null
       useEffect(() => {
         if (selectedId === null && chatTasks.length > 0) {
           const active = chatTasks.find((task) => task.status === 'active' || task.status === 'review')

@@ -1,103 +1,87 @@
-/**
- * PROOF:
- * Behavior: the panel's read path asks the host command for `views` — scenes already
- *   rendered with the stored visual layer — and hands the payload to the view untouched;
- *   a workspace with no views is an empty state, a failed command is an error, a
- *   session-less panel refuses with a named code, and a label edit is a model write
- *   (never an overlay) that refuses an empty label before it leaves the page.
- * Fails when: the adapter lists `out/` again and merges overlays in the browser (the
- *   arrows-detach bug), forwards a command failure as success, or sends an empty label
- *   to the host.
- * Production path: client/host.js createRemoteHost().load / refreshView / writeLabel ->
- *   remote.commands.execute('/designmap …') -> src/command.mjs; consumed by view.jsx.
- */
+/*
+PROOF: the page editor reaches the host through the /designmap command, page ops only
+Behavior: createRemoteHost lists pages, opens one page, saves the scene back, tidies it,
+  checks its readability and renders it through remote.commands.execute('/designmap <json>'),
+  and applies one ready repair through the same command's edit op; a command refusal keeps its
+  named code, a missing command transport refuses command_unavailable, and an empty page name
+  or a save without an elements array is refused before any command leaves the panel.
+Fails when: a page operation bypasses the command, a host refusal is reported as success, a
+  malformed save is sent, or the host stops exposing the same seven page operations.
+Production path: plugins/designmap/client/host.js createRemoteHost -> remote.commands.execute
+  -> src/command.mjs; consumed by page-view.jsx.
+*/
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRemoteHost } from '../client/host.js'
 
-const VIEW = {
-  view: { viewId: 'v.context', title: 'Context', level: 'context', parentGroupId: null },
-  scene: { schemaVersion: 1, viewId: 'v.context', title: 'Context', level: 'context', canvas: { x: 0, y: 0, width: 400, height: 200 }, nodes: [], groups: [], edges: [] },
-  meta: { generatedAt: '2026-11-17T00:00:00.000Z', commit: 'abc', sceneHash: 'sha256:x', scenePath: 'designmap/out/v.context.scene.json', stale: { stale: false }, lint: { ok: true, counts: { error: 0, warning: 0, info: 0 }, findings: [], rules: [] } },
-}
-
-/** A remote whose command transport answers with `answer`, and records what was sent. */
-function fakeRemote(answer, { listError = null, calls = [] } = {}) {
+function fakeRemote(answer, { calls = [] } = {}) {
   return {
-    workspaceFiles: {
-      list: async () => (listError === null ? { ok: true, value: { entries: [] } } : { ok: false, error: listError }),
-      read: async () => ({ ok: false, error: { code: 'ENOENT', message: 'no entry' } }),
-      stat: async () => ({ ok: false, error: { code: 'ENOENT', message: 'no entry' } }),
-    },
     commands: {
       execute: async (_sessionId, text) => {
         calls.push(text)
         return answer
       },
     },
-    session: { openWorkspacePath: async () => ({ ok: true }) },
   }
 }
 
-const success = value => ({ ok: true, value: { result: { kind: 'success', text: JSON.stringify(value) } } })
+const success = (value) => ({ ok: true, value: { result: { kind: 'success', text: JSON.stringify(value) } } })
+const refusal = (text) => ({ ok: true, value: { result: { kind: 'error', text } } })
 
-test('the load asks the host for rendered views and returns the payload untouched', async () => {
+test('every page operation travels through the /designmap command', async () => {
   const calls = []
-  const payload = { ok: true, views: [VIEW], rootId: 'v.context', overlays: { rows: { 'svc.a': { fill: '#fff' } }, path: 'designmap/overlays.json' }, annotations: [], stale: { stale: false }, generatedAt: 'x', commit: 'abc' }
-  const host = createRemoteHost({ remote: fakeRemote(success(payload), { calls }), sessionId: 'session-1' })
-  const result = await host.load()
-  assert.equal(result.ok, true, JSON.stringify(result))
-  assert.deepEqual(result.value, payload)
-  assert.equal(calls.length, 1)
-  assert.match(calls[0], /"op":"views"/u)
-  assert.equal(calls[0].includes('workspaceFiles'), false)
+  const answers = [
+    success({ ok: true, pages: [{ page: 'system' }] }),
+    success({ ok: true, page: 'system', scene: { elements: [] } }),
+    success({ ok: true, page: 'system', elements: 0, previousElements: 0 }),
+    success({ ok: true, page: 'system', moved: 0 }),
+    success({ ok: true, page: 'system', png: { bytes: 1200 }, renderer: 'excalidraw' }),
+    success({ ok: true, page: 'system', score: 100, verdict: 'clean', findings: [] }),
+    success({ ok: true, page: 'system', action: 'node.move', nodes: 1, edges: 0 }),
+  ]
+  const remote = { commands: { execute: async (_sessionId, text) => { calls.push(text); return answers.shift() } } }
+  const host = createRemoteHost({ remote, sessionId: 'session-1' })
+
+  assert.equal((await host.pages()).ok, true)
+  assert.equal((await host.page('system')).ok, true)
+  assert.equal((await host.savePage('system', { elements: [] })).ok, true)
+  assert.equal((await host.tidyPage('system')).ok, true)
+  assert.equal((await host.renderPage('system')).ok, true)
+  assert.equal((await host.lintPage('system')).ok, true)
+  assert.equal((await host.edit({ op: 'node.move', page: 'system', id: 'n1', x: 40, y: 40 })).ok, true)
+
+  assert.deepEqual(calls, [
+    '/designmap {"op":"pages"}',
+    '/designmap {"op":"page","page":"system"}',
+    '/designmap {"op":"save","page":"system","scene":{"elements":[]}}',
+    '/designmap {"op":"tidy-page","page":"system"}',
+    '/designmap {"op":"render-page","page":"system"}',
+    '/designmap {"op":"lint","page":"system"}',
+    '/designmap {"op":"edit","operation":{"op":"node.move","page":"system","id":"n1","x":40,"y":40}}',
+  ])
 })
 
-test('a workspace with no views is an empty state, not a load failure', async () => {
-  const host = createRemoteHost({
-    remote: fakeRemote(success({ ok: true, views: [], rootId: null, overlays: { rows: {}, path: 'designmap/overlays.json' }, annotations: [] })),
-    sessionId: 'session-1',
-  })
-  const result = await host.load()
-  assert.equal(result.ok, true, 'an empty model must not be surfaced as an error')
-  assert.equal(result.value.missing, true)
-  assert.deepEqual(result.value.views, [])
-  assert.deepEqual(result.value.overlays.rows, {})
+test('a command refusal keeps its named code and message', async () => {
+  const host = createRemoteHost({ remote: fakeRemote(refusal('designmap: unknown_page: nope')), sessionId: 'session-1' })
+  const result = await host.page('nope')
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.error, { code: 'unknown_page', message: 'nope' })
 })
 
-test('a failed command is an error, not an empty map', async () => {
-  const host = createRemoteHost({
-    remote: fakeRemote({ ok: false, error: { code: 'command_unavailable', message: 'no command' } }),
-    sessionId: 'session-1',
-  })
-  const result = await host.load()
+test('a missing command transport refuses command_unavailable', async () => {
+  const host = createRemoteHost({ remote: {}, sessionId: 'session-1' })
+  const result = await host.pages()
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'command_unavailable')
+  assert.equal(host.canWrite, false)
 })
 
-test('a session-less panel refuses with a named code instead of throwing', async () => {
-  const host = createRemoteHost({ remote: fakeRemote({ ok: false, error: { code: 'unexpected' } }), sessionId: null })
-  const result = await host.load()
-  assert.equal(result.ok, false)
-  assert.equal(result.error.code, 'no_session')
-})
-
-test('refreshView re-renders one view and a label goes through the model command', async () => {
+test('a malformed page request is refused before a command leaves the panel', async () => {
   const calls = []
-  const payload = { ok: true, views: [VIEW], rootId: 'v.context', overlays: { rows: {}, path: 'designmap/overlays.json' }, annotations: [] }
-  const host = createRemoteHost({ remote: fakeRemote(success(payload), { calls }), sessionId: 'session-1' })
-  const refreshed = await host.refreshView('v.context')
-  assert.equal(refreshed.ok, true)
-  assert.match(calls[0], /"op":"views".*"viewId":"v.context"/u)
-
-  const empty = await host.writeLabel({ kind: 'edge', id: 'e.a', label: '   ' })
-  assert.equal(empty.ok, false)
-  assert.equal(empty.error.code, 'missing_edge_label')
-  const emptyNode = await host.writeLabel({ kind: 'node', id: 'svc.a', label: ' ' })
-  assert.equal(emptyNode.error.code, 'invalid_label')
-  assert.equal(calls.length, 1, 'an empty label must never reach the host')
-
-  const written = await host.writeLabel({ kind: 'node', id: 'svc.a', label: 'Renamed' })
-  assert.equal(written.ok, true)
-  assert.match(calls[1], /"op":"label".*"kind":"node".*"id":"svc.a".*"label":"Renamed"/u)
+  const host = createRemoteHost({ remote: fakeRemote(success({}), { calls }), sessionId: 'session-1' })
+  assert.equal((await host.page('')).error.code, 'invalid_page')
+  assert.equal((await host.savePage('system', { type: 'excalidraw' })).error.code, 'invalid_scene')
+  assert.equal((await host.lintPage('')).error.code, 'invalid_page')
+  assert.equal((await host.edit({ page: 'system' })).error.code, 'invalid_operation')
+  assert.deepEqual(calls, [])
 })

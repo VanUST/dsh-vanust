@@ -8,8 +8,7 @@
  *   from the facts `@cc/dsh-tool-families` publishes and frozen for the session.
  *
  * WHY IT EXISTS. The policy used to be registered on every root and stated a tool set as a
- * literal: a `cordis` root that carried `bash` among its tools read that it had no shell
- * (`docs/HARNESS-OVERVIEW.md` §8.2). The decisions are D1 (a section belongs to the preset it
+ * literal: a `cordis` root that carried `bash` among its tools read that it had no shell. The decisions are D1 (a section belongs to the preset it
  * describes) and D2 (the capability statement is assembled from the session's real tool set at
  * the first prompt and frozen) in `docs/analysis/kit-integrity-p0.json`. This script is the
  * red-first proof for that change: it fails on the previous plugin bytes (`--orchestrator`

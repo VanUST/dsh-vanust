@@ -1,6 +1,0 @@
-schemaVersion: 1
-views:
-  - id: v.empty
-    title: Nothing mapped yet
-    level: context
-    direction: LR

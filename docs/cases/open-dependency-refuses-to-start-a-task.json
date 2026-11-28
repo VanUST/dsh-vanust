@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "open-dependency-refuses-to-start-a-task",
+  "title": "open dependency refuses to start a task",
+  "requirement": "A task whose dependsOn names a task that is not done cannot become active through task_update nor be started by delegate_task's child link: the refusal is dependency_open, it names the task it waits for, the row stays open, and the same move passes once the dependency is done. delegate_task returns that code and message instead of a generic block.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/dependency-open.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/dependency-open.test.mjs",
+  "steps": [
+    "Build a board with task-late (open, dependsOn ['task-deploy']) and task-deploy still active.",
+    "taskboard.update task-late -> active with role BACKEND and an owner.",
+    "taskboard.linkChild task-late with a child session.",
+    "Set task-deploy to done and repeat the update.",
+    "Run delegate_task on an open task whose update/linkChild returns dependency_open."
+  ],
+  "expected": "The update and the link are refused with code dependency_open, waitingOn ['task-deploy'] and a message naming that task; the row stays open with no child; after the dependency is done the same update succeeds; delegate_task returns ok:false with code dependency_open and the dependency id in its message.",
+  "tags": [
+    "taskboard",
+    "lifecycle",
+    "dependsOn"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "62b213b4cb12b4ce3a7a4b6e3f571025977e8ca043763979a6dc2ac262492ce7"
+    },
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "a993b306c4b989349c6acc85bbfa1c0651d7cbc8e3a9461278ce048380a01f89"
+    },
+    {
+      "path": "plugins/taskboard/test/dependency-open.test.mjs",
+      "sha256": "870f36c47f3c83ce6536a561af58a8a3ee66f045c4f580caad5238bb8efe7a35"
+    }
+  ],
+  "linkedTaskId": "task-mwz1vojd-oatvyh",
+  "criterionId": "AC-1",
+  "reqId": "AC-1",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+  "purpose": "implementation",
+  "testHash": "870f36c47f3c83ce6536a561af58a8a3ee66f045c4f580caad5238bb8efe7a35",
+  "revision": 2,
+  "createdAt": "2026-11-27T14:05:17.613Z",
+  "updatedAt": "2026-11-27T14:05:21.502Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T14:05:21.502Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwz1zzwg-ij1m5-1",
+      "at": "2026-11-27T14:05:21.500Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+        "taskId": "task-mwz1vojd-oatvyh"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 389,
+      "commandSha256": "82831b51406df47af80c48e543d33c93c3989c8cf6814207c15979b938ae7595",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+      "dirty": true,
+      "stdout": "docs/cases/runs/open-dependency-refuses-to-start-a-task/mwz1zzwg-ij1m5-1/stdout.log",
+      "stderr": "docs/cases/runs/open-dependency-refuses-to-start-a-task/mwz1zzwg-ij1m5-1/stderr.log",
+      "summary": "docs/cases/runs/open-dependency-refuses-to-start-a-task/mwz1zzwg-ij1m5-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": null
+}

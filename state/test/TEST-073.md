@@ -14,7 +14,7 @@ testPath: plugins/taskboard/test/owner-status.test.mjs
 links:
   - kind: task
     id: TASK-246
-    hash: 93d1d549f6fe51a892a966b4000f03ef1e5f7ce370b34cb061e6ab1ebcb64396
+    hash: 30ec942a69a98a2c545cd50e8b50c28d01349558ce41891f1d683cebc00a652e
 ---
 
 On 0.1.66 a create on a 1000-row board is refused board_rows_full (the suite fails); on 0.1.67 the same create is accepted (1001 rows) unless the workspace sets maxRows. scripts/taskboard-limit-proof.mjs still passes 13/13 with an explicit maxRows: 10 refusing board_rows_full, and maxRows: 0 is the explicit no-limit. profile/cordis.patch.yml no longer sets maxRows.

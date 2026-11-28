@@ -104,6 +104,34 @@ test('slugify and safeCaseId keep a case id a file name', () => {
   assert.throws(() => safeCaseId('../outside'), (error) => error.code === 'INVALID_CASE_ID')
 })
 
+test('slugify transliterates a Russian title and falls back to a stable hash id', () => {
+  const russian = ['Проверка запуска кейса', 'Случай с русским заголовком', 'Отчёт о покрытии']
+  assert.deepEqual(russian.map(slugify), [
+    'proverka-zapuska-keysa',
+    'sluchay-s-russkim-zagolovkom',
+    'otchet-o-pokrytii',
+  ])
+  assert.equal(new Set(russian.map(slugify)).size, russian.length, 'two Russian titles must not share one id')
+  assert.equal(slugify('Кейс про slugify'), 'keys-pro-slugify', 'Latin letters survive a mixed title')
+
+  // Nothing transcribable survives: a stable hash id of its own, not the shared constant.
+  assert.match(slugify('  …  '), /^case-[0-9a-f]{12}$/)
+  assert.match(slugify(''), /^case-[0-9a-f]{12}$/)
+  assert.notEqual(slugify('  …  '), slugify('?!'), 'two punctuation-only titles must differ')
+  assert.equal(slugify('  …  '), slugify('  …  '), 'the fallback id must be stable')
+
+  // The ASCII path is unchanged: a stored case title still yields the id of its file.
+  assert.equal(slugify('Scrollable test case detail pane'), 'scrollable-test-case-detail-pane')
+  // The 60-character slice must not leave the id ending in a separator the grammar refuses.
+  assert.equal(slugify(`${'а'.repeat(59)} б`), 'a'.repeat(59))
+
+  const ids = [...russian.map(slugify), slugify('Кейс про slugify'), slugify('  …  '), slugify(''), slugify('Щ'.repeat(80))]
+  for (const id of ids) {
+    assert.equal(safeCaseId(id), id, `safeCaseId must accept ${JSON.stringify(id)}`)
+    assert.ok(id.length <= 60, `${JSON.stringify(id)} is longer than 60 characters`)
+  }
+})
+
 test('a changed surface on an UNVERIFIED case reports the files but does not mark it stale', () => {
   const result = driftFor({ status: 'unverified', automated: false, surfaceFiles: [{ path: 'x.mjs', sha256: 'aa' }] }, process.cwd(), { hash: () => 'bb' })
   assert.equal(result.status, null)

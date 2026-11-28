@@ -36,8 +36,12 @@
  *               so a caller can separate "needs update" from "could not tell".
  *               `applied` may contain `provision-tools`: `--apply` also installs the
  *               optional external binaries, so one call converges the whole machine.
- *               `server.running` is the live-server watchdog answer on every
- *               platform, so a launcher can refuse to apply under a live server.
+ *               `server.running` is the live-server watchdog answer for the
+ *               `--port` that was asked about, on every platform, so a launcher can
+ *               refuse to apply under a server of this port; `server.pids` names
+ *               only that port's processes. A server of another port or another
+ *               home is not reported here, and it still blocks a harness
+ *               replacement (see `convergeHarness`).
  *               `backup` is the stamped directory `--apply` kept, or null.
  *
  * KEYWORDS
@@ -56,9 +60,16 @@
  *     the guard the failure was silent and the machine still looked converged.
  *   - JSON mode never mixes logs into stdout, so a caller can always parse it.
  *   - A server on the profile port is detected by its HTTP answer on every platform;
- *     /proc adds the pid on Linux. The watchdog errs towards "a server is there": any
- *     HTTP answer blocks a harness replacement, because a false block costs a restart
- *     while a false pass costs a browser that cannot load its plugins.
+ *     on Linux the /proc scan adds the pid of every `dsh web --port <n>` process, and
+ *     only the ones that declared the port asked about are reported as that port's
+ *     server, because `server.pids` is what a restart stops. A `dsh web` started
+ *     without `--port` (the composed port) declares no port, so it is machine-wide
+ *     evidence only: the HTTP answer still says the port is busy, and no pid is
+ *     offered for TERM on a guess.
+ *   - The harness-replacement gate errs towards "a server is there": any HTTP answer
+ *     on the profile port, and any `dsh web` on the machine whatever its port or home,
+ *     blocks the replacement, because a false block costs a restart while a false pass
+ *     costs a browser that cannot load its plugins.
  *   - The first `--apply` on a machine with no profile patch yet backs up nothing and
  *     says so; it does not invent an empty backup that looks like protection.
  *   - `--restore` refuses a stamp that is not one path segment, a manifest that names a
@@ -67,7 +78,7 @@
 
 import { createHash } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -100,8 +111,10 @@ const USAGE = `kit-update — converge an installed machine onto this kit
   --home <dir>  harness home (default: $DSH_HOME, else <userhome>/.npm/dsh)
   --profile     profile to converge (default: web)
   --port <n>    the profile's port for the live-server watchdog (default: $PORT,
-                else 3080). A server that answers HTTP there blocks a harness
-                replacement and is reported as server.running in --json.
+                else 3080). A server that answers HTTP there, or a "dsh web --port <n>"
+                process, is reported as server.running in --json and blocks a
+                harness replacement; a "dsh web" on any other port still blocks the
+                replacement but is not this port's server.
   --no-harness  never touch the globally installed harness
   --no-tools    never provision the optional external binaries (rtk, marp,
                 mermaid, d2); SKIP_TOOLS=1 does the same
@@ -554,33 +567,144 @@ function installedHarnessVersion() {
 }
 
 /**
- * PIDs of `dsh web` servers running on this machine, from /proc (Linux only).
- * One signal, not the verdict: the port probe below works everywhere. A harness
- * replaced under a running server is the one
- * upgrade that cannot be finished by the next boot: the live process keeps the
- * composition it composed at boot (its Loader rows are in memory) while every
- * file it serves and every `dsh.client` manifest it reads are the new ones. The
- * browser then loads the new client packages, which inject services only the
- * new rows provide (`contextMenus`, `fileDrag` in 0.2.2-rc.3), and boot dies
- * with "Failed to load plugins / N required entries did not activate" until the
- * server is restarted. Measured 2026-11-13 on this machine: a 0.2.1-rc.2
- * process served a 0.2.2-rc.3 tree, sidebar and chat stayed pending and the
- * whole client UI chain with them.
+ * Every `dsh web` process on this machine, from /proc (Linux only), with the port it
+ * DECLARED: one pass, no external command, the base of both server signals.
+ *
+ * The one scan answers two different questions, and until now answered both with the same
+ * list of pids:
+ *   - "is THIS profile's port busy, and which pid may a restart stop?" A server on another
+ *     port says nothing about this one, and the pid list is what `dsh web --restart` sends
+ *     TERM to: naming every server on the machine handed it processes that were not this
+ *     port's (a check run inside an agent session listed its own process tree).
+ *   - "may the harness be replaced?" Any live server on the machine holds the composition
+ *     it composed at boot, so this gate stays deliberately conservative: convergeHarness
+ *     reads the whole scan, not the port-filtered part.
+ *
+ * A harness replaced under a running server is the one upgrade that cannot be finished by
+ * the next boot: the live process keeps the composition it composed at boot (its Loader
+ * rows are in memory) while every file it serves and every `dsh.client` manifest it reads
+ * are the new ones. The browser then loads the new client packages, which inject services
+ * only the new rows provide (`contextMenus`, `fileDrag` in 0.2.2-rc.3), and boot dies with
+ * "Failed to load plugins / N required entries did not activate" until the server is
+ * restarted. Measured 2026-11-13 on this machine: a 0.2.1-rc.2 process served a 0.2.2-rc.3
+ * tree, sidebar and chat stayed pending and the whole client UI chain with them.
+ *
+ * `port` is the `--port` the process declared, or - when it declared none, which is how
+ * the composed-port server starts - the port its own listening socket is bound to, read
+ * from /proc/net/tcp{,6} and the process's descriptors. A process that holds no listening
+ * socket answers null: it is machine-wide evidence only, and guessing a port for it would
+ * hand a restart's TERM to the wrong process.
  */
-function linuxWebServerPids() {
+function linuxWebServers() {
   if (process.platform !== 'linux') return []
-  const pids = []
+  const ownTree = ownProcessChain()
+  const servers = []
+  const undeclared = []
   let entries = []
   try { entries = readdirSync('/proc') } catch { return [] }
   for (const entry of entries) {
     if (!/^\d+$/.test(entry)) continue
+    const pid = Number(entry)
+    // The check's own process and the tree that launched it are never "the server": those
+    // pids are what a restart sends TERM to.
+    if (ownTree.has(pid)) continue
     let cmdline
     try { cmdline = readFileSync(`/proc/${entry}/cmdline`, 'utf8') } catch { continue }
     const args = cmdline.split('\0').filter(Boolean)
     const entryPoint = args.find((arg) => /(^|\/)bin\.js$/.test(arg) || /(^|\/)dsh$/.test(arg))
-    if (entryPoint !== undefined && args.includes('web')) pids.push(Number(entry))
+    if (entryPoint === undefined || !args.includes('web')) continue
+    const port = declaredPort(args)
+    if (port === null) undeclared.push(pid)
+    else servers.push({ pid, port })
   }
-  return pids
+  // A server started on the composed port declares no port, so its command line cannot
+  // answer "which port?" - and guessing one would send a restart's TERM to the wrong
+  // process. The listening socket is the fact: the kernel's table says which inodes listen
+  // and on which port, and the process's own descriptors say which of them it holds. Read
+  // lazily, so a machine whose servers all declare --port pays nothing; still one pass over
+  // /proc and one over the socket table.
+  if (undeclared.length > 0) {
+    const listening = listeningSockets()
+    for (const pid of undeclared) servers.push({ pid, port: listenedPort(pid, listening) })
+  }
+  return servers
+}
+
+/**
+ * The listening TCP sockets on this machine, as inode -> port, from /proc/net/tcp and
+ * /proc/net/tcp6 (a server may bind either family). One read of each table, no command.
+ */
+function listeningSockets() {
+  const byInode = new Map()
+  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    let text
+    try { text = readFileSync(table, 'utf8') } catch { continue }
+    for (const line of text.split('\n').slice(1)) {
+      const fields = line.trim().split(/\s+/)
+      // sl local_address rem_address st ... uid timeout inode
+      if (fields.length < 10 || fields[3] !== '0A') continue
+      const port = Number.parseInt(fields[1].split(':')[1], 16)
+      const inode = Number(fields[9])
+      if (Number.isInteger(port) && port > 0 && Number.isInteger(inode)) byInode.set(inode, port)
+    }
+  }
+  return byInode
+}
+
+/**
+ * The port this process listens on, or null when it holds no listening socket.
+ *
+ * Read from /proc/<pid>/fd, which only the process owner (or root) may read: an
+ * unreadable process answers null and stays machine-wide evidence, never a guess.
+ */
+function listenedPort(pid, listening) {
+  let fds
+  try { fds = readdirSync(`/proc/${pid}/fd`) } catch { return null }
+  let port = null
+  for (const fd of fds) {
+    let target
+    try { target = readlinkSync(`/proc/${pid}/fd/${fd}`) } catch { continue }
+    const held = /^socket:\[(\d+)\]$/.exec(target)
+    if (held === null) continue
+    const listeningPort = listening.get(Number(held[1]))
+    if (listeningPort === undefined) continue
+    // A server listens on one port; the lowest is reported if several are open.
+    if (port === null || listeningPort < port) port = listeningPort
+  }
+  return port
+}
+
+/** The port a command line declared with `--port`, or null when it declared none. */
+function declaredPort(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index] === '--port'
+      ? Number(args[index + 1])
+      : args[index].startsWith('--port=') ? Number(args[index].slice('--port='.length)) : Number.NaN
+    if (Number.isInteger(value) && value > 0) return value
+  }
+  return null
+}
+
+/**
+ * This process and its ancestors, as pids, read from /proc/<pid>/stat.
+ *
+ * A scan that names its own ancestry as "servers" is a scan a restart can act on against
+ * the caller: the pid list travels to `kill -TERM`. The chain costs one small file per
+ * ancestor and no external command.
+ */
+function ownProcessChain() {
+  const chain = new Set([process.pid])
+  let pid = process.pid
+  for (let depth = 0; depth < 64; depth += 1) {
+    let stat
+    try { stat = readFileSync(`/proc/${pid}/stat`, 'utf8') } catch { break }
+    // The command name can hold spaces and parentheses; the fields start after the last ')'.
+    const parent = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1])
+    if (!Number.isInteger(parent) || parent <= 1 || chain.has(parent)) break
+    chain.add(parent)
+    pid = parent
+  }
+  return chain
 }
 
 /**
@@ -616,13 +740,18 @@ function probeProfilePort(port, timeoutMs = 1500) {
 /**
  * The live-server watchdog: the HTTP answer on the profile port on every platform, plus the
  * /proc scan as an EXTRA signal on Linux (it also names the pid, which the port cannot).
- * Returns null when neither signal fires, so callers keep one "is anything there" test.
+ *
+ * It returns BOTH signals, deliberately separate, because the callers ask two questions:
+ * `running` and `pids` are this profile's port only (a `dsh web --port <port>` process, or
+ * any HTTP answer on the port), while `machine` is every `dsh web` on the machine and is
+ * what the harness-replacement gate reads. `running` is the single test the JSON contract
+ * and the launcher use for "this profile's port is taken".
  */
 async function profileServer(port) {
   const http = await probeProfilePort(port)
-  const pids = linuxWebServerPids()
-  if (!http.running && pids.length === 0) return null
-  return { port, http, pids }
+  const machine = linuxWebServers()
+  const pids = machine.filter((row) => row.port === port).map((row) => row.pid)
+  return { port, http, pids, machine, running: http.running || pids.length > 0 }
 }
 
 /** The watchdog as the JSON contract reports it, present even when nothing answered. */
@@ -646,8 +775,13 @@ function serverView(server, port) {
  * composition it serves was fixed at boot), so doing it here would only replace
  * a machine that says "restart required" with a browser that cannot load its
  * plugins. The refusal leaves the state untouched and names the restart.
+ *
+ * The gate reads the MACHINE-WIDE scan (`machine`), not the port-filtered
+ * `server`: a server in another home on another port keeps its old composition
+ * just the same, and replacing the harness under it fails the next page load of
+ * THAT server. This is the conservative half of the two signals on purpose.
  */
-async function convergeHarness({ want, enabled, server }) {
+async function convergeHarness({ want, enabled, server, machine = [] }) {
   if (!enabled) return { action: 'skipped' }
   const have = installedHarnessVersion()
   if (have === want) return { action: 'already-current', have, want }
@@ -655,14 +789,14 @@ async function convergeHarness({ want, enabled, server }) {
     warn('the kit declares no harness pin; leaving the installed harness alone')
     return { action: 'skipped', have, want }
   }
-  if (server !== null) {
-    const seen = server.pids.length > 0
-      ? `dsh web is running (pid ${server.pids.join(', ')})`
+  if (server !== null || machine.length > 0) {
+    const seen = machine.length > 0
+      ? `dsh web is running on this machine (pid ${machine.map((row) => (row.port === null ? `${row.pid}` : `${row.pid} on port ${row.port}`)).join(', ')})`
       : `a server answers HTTP on the profile port ${server.port} (${server.http.detail})`
     warn(`harness ${have ?? 'absent'} -> ${want} not installed: ${seen}`)
     warn('  a harness replaced under a live server keeps that server\'s OLD composition while serving the NEW client bundles, so the next page load fails with "Failed to load plugins"')
     warn('  stop the web server, then re-run this convergence; the next launch installs the pin and composes the new rows')
-    return { action: 'blocked', have, want, reason: 'web-server-running', port: server.port, pids: server.pids }
+    return { action: 'blocked', have, want, reason: 'web-server-running', port: server?.port ?? null, pids: machine.map((row) => row.pid) }
   }
   log('harness.installing', { want, have: have ?? 'absent' })
   const ok = runToolVisible('npm', ['install', '-g', '--no-audit', '--no-fund', `@deepseek-ai/dsh@${want}`])
@@ -942,13 +1076,17 @@ async function main(argv) {
   // The live-server watchdog runs on every invocation. `--check` reports it, `--apply`
   // refuses a harness replacement under it, and the Windows launcher reads it before
   // applying. The HTTP answer on the profile port is the one signal every platform has;
-  // the /proc pid list is an extra, Linux-only.
-  const server = await profileServer(opts.port)
+  // the /proc scan is an extra, Linux-only, and it yields TWO answers: `server` is this
+  // port's server (the report and the launcher's decision), `machine` is every `dsh web`
+  // on the machine (the harness-replacement gate).
+  const probe = await profileServer(opts.port)
+  const server = probe.running ? probe : null
   log('server.probe', {
     port: opts.port,
     running: server !== null,
-    http: server?.http.detail ?? 'no HTTP answer',
-    pids: server?.pids ?? [],
+    http: probe.http.detail,
+    pids: probe.pids,
+    machine: probe.machine.map((row) => (row.port === null ? String(row.pid) : `${row.pid}:${row.port}`)),
   })
 
   // Restore is a standalone action: put back what a previous apply kept, then stop. It
@@ -1124,7 +1262,7 @@ async function main(argv) {
     log('plugins.current', { items: items.plugins.map((p) => p.id) })
   }
 
-  const harnessResult = await convergeHarness({ want: harnessPin, enabled: opts.harness, server })
+  const harnessResult = await convergeHarness({ want: harnessPin, enabled: opts.harness, server, machine: probe.machine })
   if (harnessResult.action === 'installed') applied.push('install-harness')
   log('harness.state', harnessResult)
 
@@ -1201,13 +1339,32 @@ function emit(result) {
   if (JSON_MODE) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
-try {
-  // Top-level await: the live-server watchdog asks the profile port over an HTTP socket,
-  // and a synchronous question is not available for a socket in Node.
-  process.exitCode = await main(process.argv.slice(2))
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error)
-  if (JSON_MODE) process.stdout.write(`${JSON.stringify({ ok: false, error: message }, null, 2)}\n`)
-  else process.stderr.write(`error: ${message}\n`)
-  process.exitCode = 1
+// The pieces a test reads directly: the two server signals and the gate that consumes
+// them. Every CLI path still starts at main() below.
+export { convergeHarness, linuxWebServers, profileServer, serverView }
+
+/**
+ * True when this file is the entry point, false when a test imported it.
+ * Both sides are resolved to real paths, so a symlinked launcher still runs main().
+ */
+function invokedDirectly() {
+  if (process.argv[1] === undefined) return false
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+
+if (invokedDirectly()) {
+  try {
+    // Top-level await: the live-server watchdog asks the profile port over an HTTP socket,
+    // and a synchronous question is not available for a socket in Node.
+    process.exitCode = await main(process.argv.slice(2))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (JSON_MODE) process.stdout.write(`${JSON.stringify({ ok: false, error: message }, null, 2)}\n`)
+    else process.stderr.write(`error: ${message}\n`)
+    process.exitCode = 1
+  }
 }

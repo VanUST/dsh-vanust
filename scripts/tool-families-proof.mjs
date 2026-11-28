@@ -101,21 +101,23 @@ const POLICY_RAW = {
   projectMarkers: { 'mcp__godot__*': 'project.godot' },
   families: {
     // Copied from profile/cordis.patch.yml (V1.1 allow lists); the app runs the same table.
-    orchestrator: { allow: ['analysis_check', 'analysis_impact', 'analysis_read', 'analysis_upsert', 'ask_user_question', 'case_drift', 'case_get', 'case_list', 'case_record', 'delegate_task', 'delegation_brief', 'designmap_apply', 'designmap_lint', 'designmap_status', 'edit', 'glob', 'grep', 'hindsight_list_pages', 'hindsight_read_page', 'hindsight_search_pages', 'outline', 'present', 'read', 'skill', 'skill_evolve', 'skill_inventory', 'task_cancel', 'task_close', 'task_create', 'task_get', 'task_list', 'task_note', 'task_stop', 'task_update', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    architect: { allow: ['delegate_task', 'glob', 'grep', 'hindsight_list_pages', 'hindsight_read_page', 'hindsight_search_pages', 'map_edit', 'map_list', 'map_read', 'map_render', 'outline', 'read', 'task_note', 'web_fetch', 'web_search'] },
+    orchestrator: { allow: ['analysis_check', 'analysis_impact', 'analysis_read', 'analysis_upsert', 'ask_user_question', 'case_drift', 'case_get', 'case_list', 'case_record', 'delegate_task', 'delegation_brief', 'edit', 'glob', 'grep', 'hindsight_list_pages', 'hindsight_read_page', 'hindsight_search_pages', 'map_edit', 'map_list', 'map_read', 'map_render', 'outline', 'present', 'read', 'skill', 'skill_evolve', 'skill_inventory', 'task_cancel', 'task_close', 'task_create', 'task_get', 'task_list', 'task_note', 'task_stop', 'task_update', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     backend: { allow: ['bash', 'case_get', 'case_list', 'case_record', 'case_run', 'case_suite', 'edit', 'glob', 'grep', 'job_output', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'write'] },
     reviewer: { allow: ['bash', 'case_gate', 'case_get', 'case_list', 'case_run', 'glob', 'grep', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write'] },
     critic: { allow: ['bash', 'case_get', 'case_list', 'case_run', 'glob', 'grep', 'job_output', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write'] },
     gatherer: { allow: ['bash', 'glob', 'grep', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'working_directory'] },
     research: { allow: ['glob', 'grep', 'papers_download', 'papers_search', 'papers_trending', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     docs: { allow: ['case_get', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'read', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    devops: { allow: ['bash', 'case_get', 'case_list', 'case_run', 'edit', 'glob', 'grep', 'job_kill', 'job_list', 'job_output', 'outline', 'read', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'working_directory', 'write'] },
     ux: { allow: ['bash', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'mcp__playwright__*', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     presenter: { allow: ['bash', 'dashboard', 'diagram', 'edit', 'glob', 'grep', 'job_kill', 'job_list', 'job_output', 'mcp__playwright__*', 'outline', 'present', 'presentation', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
   },
 }
-const BUDGETS = { orchestrator: 42, presenter: 36, backend: 16, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
+const BUDGETS = { architect: 15, orchestrator: 42, presenter: 36, backend: 16, devops: 26, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
 const POLICY = normalizeConfig(POLICY_RAW)
 
-const PRESETS = [undefined, 'orchestrator', 'ux', 'presenter', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
+const PRESETS = [undefined, 'orchestrator', 'architect', 'ux', 'presenter', 'backend', 'devops', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
 const WORKSPACES = [
   { label: 'dsh-kit', marker: false },
   { label: 'godot-project', marker: true },
@@ -208,9 +210,13 @@ for (const workspace of WORKSPACES) {
 }
 for (const preset of ROWS) {
   const kept = keptNames(row('dsh-kit', preset).decision).filter((name) => name.startsWith('hindsight_'))
+  // A row that names the three read tools keeps them; every other row is removed. The
+  // architect row names them too (its guide is injected into every root), so the expectation
+  // is read from the allow list instead of from one preset id.
+  const keepsHindsight = (POLICY_RAW.families[preset]?.allow ?? []).some((name) => name.startsWith('hindsight_'))
   check(
-    `hindsight ${preset === 'orchestrator' ? 'kept (read half)' : 'removed'} for preset "${preset}"`,
-    preset === 'orchestrator' ? kept.length === 3 : kept.length === 0,
+    `hindsight ${keepsHindsight ? 'kept (read half)' : 'removed'} for preset "${preset}"`,
+    keepsHindsight ? kept.length === 3 : kept.length === 0,
     `kept=${kept.join(',') || '(none)'}`,
   )
 }

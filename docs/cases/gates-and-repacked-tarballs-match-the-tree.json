@@ -1,0 +1,626 @@
+{
+  "schemaVersion": 1,
+  "id": "gates-and-repacked-tarballs-match-the-tree",
+  "title": "gates-and-repacked-tarballs-match-the-tree",
+  "requirement": "AC-8 / NFR1 / REQ-254: make verify and the designmap/project-state-panel test files pass, and each repacked tarball matches its tree.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/gates-and-tarballs.mjs",
+  "runCommand": "node tests/designmap-instruments/gates-and-tarballs.mjs",
+  "steps": [
+    "Check the new source-level test files exist in the tree under test.",
+    "Run node --test over both plugin test directories and make verify; require exit 0, zero failures and 20/20.",
+    "npm pack each plugin into a temp dir and compare sha256 with the shipped tarball; check the tarball name against package name and version."
+  ],
+  "expected": "The added source-level test files ship in the tree; the designmap and project-state-panel test runs exit 0 with zero failures; make verify exits 0 with 20/20 checks; each plugin ships exactly one tarball under plugins/, its name matches the package name and the version in package.json, and it is byte-identical to a fresh npm pack of its tree (designmap 1.0.5 and the current panel version).",
+  "tags": [
+    "designmap",
+    "AC-8",
+    "gates",
+    "packaging"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/package.json",
+      "sha256": "a3967f714f1c86adee6aabbc2de18dcfb91ae1fda7bc3fd09519023fd670efdd"
+    },
+    {
+      "path": "plugins/project-state-panel/package.json",
+      "sha256": "e737d37c9e99686ff4eaa7799dec5ddf084754d942854b971ce201001118d1ef"
+    },
+    {
+      "path": "Makefile",
+      "sha256": "da01b50faa58c5b650b242492eb3b8a6585a8d6e60643c2f6bb4bd1201f29bdc"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "criterionId": "AC-8",
+  "reqId": "REQ-254",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "f6037c137ab12e46a89ff0c78197abd95479be02866fc469ab4e5393028cdc7a",
+  "failsWhen": "A plugin test fails or the new tests are absent, a verify check fails, a shipped tarball differs from a repack of its tree, or a tarball/version mismatches its source.",
+  "trigger": "The maintainer runs the kit gates before shipping, and a consumer installs the packed plugins from plugins/.",
+  "oracle": "TASK-333 criterion AC-8 and NFR1 (REQ-254): gates green and each repacked tarball matching its tree; the sha256 equality is measured by repacking, not asserted from a version string.",
+  "realism": "The kit's shipping contract: plugins/ carries the installable tarballs and make verify is the packaging gate (Makefile verify target); the orchestrator repacked the panel as 0.1.50 after the owner's status-display fix, before this run.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 12,
+  "createdAt": "2026-11-27T09:47:23.441Z",
+  "updatedAt": "2026-11-27T10:14:39.639Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:49:33.453Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:52:08.527Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:52:08.527Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "gates-and-repacked-tarballs-match-the-tree",
+        "requirement": "AC-8 / NFR1 / REQ-254: make verify and the designmap/project-state-panel test files pass, and each repacked tarball matches its tree.",
+        "expected": "The added source-level test files ship in the tree; the designmap and project-state-panel test runs exit 0 with zero failures; make verify exits 0 with 20/20 checks; cc-dsh-designmap-1.0.5.tgz and cc-dsh-project-state-panel-0.1.49.tgz exist, match their package name/version, and are byte-identical to a fresh npm pack of their trees.",
+        "steps": [
+          "Check the new source-level test files exist in the tree under test.",
+          "Run node --test over both plugin test directories and make verify; require exit 0, zero failures and 20/20.",
+          "npm pack each plugin into a temp dir and compare sha256 with the shipped tarball; check the tarball name against package name and version."
+        ],
+        "automated": true,
+        "testPath": "tests/designmap-instruments/gates-and-tarballs.mjs",
+        "runCommand": "node tests/designmap-instruments/gates-and-tarballs.mjs",
+        "status": "failing",
+        "checks": [
+          {
+            "name": "failures",
+            "metric": "failures",
+            "op": "<=",
+            "threshold": 0
+          }
+        ],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:53:45.718Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T09:55:55.791Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-27T09:55:55.791Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "gates-and-repacked-tarballs-match-the-tree",
+        "requirement": "AC-8 / NFR1 / REQ-254: make verify and the designmap/project-state-panel test files pass, and each repacked tarball matches its tree.",
+        "expected": "The added source-level test files ship in the tree; the designmap and project-state-panel test runs exit 0 with zero failures; make verify exits 0 with 20/20 checks; cc-dsh-designmap-1.0.5.tgz and cc-dsh-project-state-panel-0.1.49.tgz exist, match their package name/version, and are byte-identical to a fresh npm pack of their trees.",
+        "steps": [
+          "Check the new source-level test files exist in the tree under test.",
+          "Run node --test over both plugin test directories and make verify; require exit 0, zero failures and 20/20.",
+          "npm pack each plugin into a temp dir and compare sha256 with the shipped tarball; check the tarball name against package name and version."
+        ],
+        "automated": true,
+        "testPath": "tests/designmap-instruments/gates-and-tarballs.mjs",
+        "runCommand": "node tests/designmap-instruments/gates-and-tarballs.mjs",
+        "status": "verified",
+        "checks": [
+          {
+            "name": "failures",
+            "metric": "failures",
+            "op": "<=",
+            "threshold": 0
+          }
+        ],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-27T10:09:48.415Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-27T10:11:35.481Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-27T10:11:35.481Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "gates-and-repacked-tarballs-match-the-tree",
+        "requirement": "AC-8 / NFR1 / REQ-254: make verify and the designmap/project-state-panel test files pass, and each repacked tarball matches its tree.",
+        "expected": "The added source-level test files ship in the tree; the designmap and project-state-panel test runs exit 0 with zero failures; make verify exits 0 with 20/20 checks; cc-dsh-designmap-1.0.5.tgz and cc-dsh-project-state-panel-0.1.50.tgz exist, match their package name/version, and are byte-identical to a fresh npm pack of their trees.",
+        "steps": [
+          "Check the new source-level test files exist in the tree under test.",
+          "Run node --test over both plugin test directories and make verify; require exit 0, zero failures and 20/20.",
+          "npm pack each plugin into a temp dir and compare sha256 with the shipped tarball; check the tarball name against package name and version."
+        ],
+        "automated": true,
+        "testPath": "tests/designmap-instruments/gates-and-tarballs.mjs",
+        "runCommand": "node tests/designmap-instruments/gates-and-tarballs.mjs",
+        "status": "failing",
+        "checks": [
+          {
+            "name": "failures",
+            "metric": "failures",
+            "op": "<=",
+            "threshold": 0
+          }
+        ],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-27T10:13:06.430Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-27T10:14:39.639Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyst4qz-vo21u-1",
+      "at": "2026-11-27T09:49:33.451Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 89179,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyst4qz-vo21u-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyst4qz-vo21u-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyst4qz-vo21u-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\""
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyswfnz-ifwdk-1",
+      "at": "2026-11-27T09:52:08.522Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 89970,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyswfnz-ifwdk-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyswfnz-ifwdk-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyswfnz-ifwdk-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0guk-ladj3-1",
+      "at": "2026-11-27T09:53:45.713Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 115,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyt0guk-ladj3-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyt0guk-ladj3-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyt0guk-ladj3-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 5
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 5,
+          "threshold": 0,
+          "pass": false,
+          "reason": "5 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt1deg-2uhhk-1",
+      "at": "2026-11-27T09:55:55.784Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 87004,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyt1deg-2uhhk-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyt1deg-2uhhk-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwyt1deg-2uhhk-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwytl3ng-qfddt-1",
+      "at": "2026-11-27T10:09:48.409Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 122,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "24609a25a5c4ea5c4dff8257b3c459236b108887",
+      "dirty": false,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytl3ng-qfddt-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytl3ng-qfddt-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytl3ng-qfddt-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 5
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 5,
+          "threshold": 0,
+          "pass": false,
+          "reason": "5 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwytlg9q-yfbu0-1",
+      "at": "2026-11-27T10:11:35.476Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 89931,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytlg9q-yfbu0-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytlg9q-yfbu0-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytlg9q-yfbu0-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 1
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 1,
+          "threshold": 0,
+          "pass": false,
+          "reason": "1 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwytpcdh-v8pih-1",
+      "at": "2026-11-27T10:13:06.424Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 210,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "7f42570da1bee5b3a96b34d99f9feaf0cc28f527",
+      "dirty": false,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytpcdh-v8pih-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytpcdh-v8pih-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytpcdh-v8pih-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 5
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 5,
+          "threshold": 0,
+          "pass": false,
+          "reason": "5 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwytpgnz-8d0b2-1",
+      "at": "2026-11-27T10:14:39.633Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 86858,
+      "commandSha256": "5b684dc75eaa6a7d103b67acd1105eafb9feecb7af3562128213a030355bc9ff",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytpgnz-8d0b2-1/stdout.log",
+      "stderr": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytpgnz-8d0b2-1/stderr.log",
+      "summary": "docs/cases/runs/gates-and-repacked-tarballs-match-the-tree/mwytpgnz-8d0b2-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T10:14:39.639Z",
+    "command": "node tests/designmap-instruments/gates-and-tarballs.mjs",
+    "exitCode": 0,
+    "runId": "mwytpgnz-8d0b2-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "degraded": false,
+  "redFirst": {
+    "at": "2026-11-27T10:13:06.430Z",
+    "runId": "mwytpcdh-v8pih-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/gates-and-tarballs.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "7f42570da1bee5b3a96b34d99f9feaf0cc28f527",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

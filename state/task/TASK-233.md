@@ -2,10 +2,10 @@
 id: TASK-233
 kind: task
 title: "OpenAI Codex: вход по подписке через инструмент харнесса"
-status: open
-revision: 2
+status: done
+revision: 3
 createdAt: 2026-11-18T12:27:33.179Z
-updatedAt: 2026-11-18T12:27:33.179Z
+updatedAt: 2026-11-23T08:45:38.798Z
 acceptance:
   - text: "codex_signin_start возвращает ссылку https://auth.openai.com/codex/device и user code, поток продолжается в фоне"
     done: false

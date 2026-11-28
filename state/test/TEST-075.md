@@ -14,7 +14,7 @@ testPath: plugins/project-state/test/service.test.mjs
 links:
   - kind: task
     id: TASK-246
-    hash: 93d1d549f6fe51a892a966b4000f03ef1e5f7ce370b34cb061e6ab1ebcb64396
+    hash: 30ec942a69a98a2c545cd50e8b50c28d01349558ce41891f1d683cebc00a652e
 ---
 
 On 0.1.13 the ccProjectState service publishes no journal() (the new test fails, so the owner-status trail would silently disappear); on 0.1.14 journal() appends the waiver event. index.json stays schemaVersion 1, a TASK without boardId gets no_board_row with zero commands sent, and replay() on the real workspace is ok with 982 events and 0 mismatches.

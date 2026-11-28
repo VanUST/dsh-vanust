@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "id": "map-render-is-framed-and-carries-no-editor-chrome",
+  "title": "map-render-is-framed-and-carries-no-editor-chrome",
+  "requirement": "AC-6 / FR2 / REQ-252: map_render produces a PNG framed to the page bounds with no Excalidraw toolbar or menu pixels in it.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/map-instruments.mjs",
+  "runCommand": "node tests/designmap-instruments/map-instruments.mjs --case AC-6",
+  "steps": [
+    "Create an empty page and call map_render; decode the PNG and count distinct colours.",
+    "Create a wide left-to-right diagram, render it, and check the picture is much wider than tall.",
+    "Create a top-down diagram, render it, and check the picture is taller than wide."
+  ],
+  "expected": "map_render of an empty page produces one flat background colour (no toolbar, menu or bottom-bar pixels); map_render of a wide left-to-right diagram produces a picture much wider than tall, and a top-down diagram a picture taller than wide, so the framing follows the page bounds rather than a fixed viewport.",
+  "tags": [
+    "designmap",
+    "AC-6",
+    "render"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/src/excalidraw-render.mjs",
+      "sha256": "ff82599a521a552ab0f0290a6f4e5cb92b7e4f931690ce447e6c3771052463a0"
+    },
+    {
+      "path": "plugins/designmap/src/ops.mjs",
+      "sha256": "6d7cc1402fdbba467a89bb6f24f5e56e83a86d620228947dce01efcedc7da348"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "criterionId": "AC-6",
+  "reqId": "REQ-252",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "1da99e5eadd0d5dbdb05ea0959787131636ff8579f2042f91012d64dc16597af",
+  "failsWhen": "The rendered PNG shows the editor toolbar/menu/bottom bar (an empty page is not one flat colour), or the picture is a fixed viewport rather than framed to the page bounds.",
+  "trigger": "An agent calls map_render after drawing, then reads the PNG to see what the human will see.",
+  "oracle": "TASK-333 criterion AC-6 and FR2 (REQ-252): framed to the page bounds, no editor chrome pixels; the empty-page uniform-colour check is the defect this catches.",
+  "realism": "The owner's requirement that a rendered picture shows the drawing only (TASK-333 objective, REQ-252); the implementer's agent-render-clean.png is the same render path.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 5,
+  "createdAt": "2026-11-27T09:47:18.587Z",
+  "updatedAt": "2026-11-27T09:54:24.424Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:48:00.076Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:50:34.013Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:53:40.487Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:54:24.424Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwysspdg-aqb33-1",
+      "at": "2026-11-27T09:48:00.075Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 15832,
+      "commandSha256": "cecf5b01bc2a95764fcba99961a265a7133e911e72c662134ce70e1d8659a4d0",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwysspdg-aqb33-1/stdout.log",
+      "stderr": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwysspdg-aqb33-1/stderr.log",
+      "summary": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwysspdg-aqb33-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwysw05p-abmm8-1",
+      "at": "2026-11-27T09:50:34.008Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 15789,
+      "commandSha256": "cecf5b01bc2a95764fcba99961a265a7133e911e72c662134ce70e1d8659a4d0",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwysw05p-abmm8-1/stdout.log",
+      "stderr": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwysw05p-abmm8-1/stderr.log",
+      "summary": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwysw05p-abmm8-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt01a2-pg53d-1",
+      "at": "2026-11-27T09:53:40.481Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 15051,
+      "commandSha256": "cecf5b01bc2a95764fcba99961a265a7133e911e72c662134ce70e1d8659a4d0",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwyt01a2-pg53d-1/stdout.log",
+      "stderr": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwyt01a2-pg53d-1/stderr.log",
+      "summary": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwyt01a2-pg53d-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 3
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 3,
+          "threshold": 0,
+          "pass": false,
+          "reason": "3 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0y2o-1pz98-1",
+      "at": "2026-11-27T09:54:24.419Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 15536,
+      "commandSha256": "cecf5b01bc2a95764fcba99961a265a7133e911e72c662134ce70e1d8659a4d0",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwyt0y2o-1pz98-1/stdout.log",
+      "stderr": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwyt0y2o-1pz98-1/stderr.log",
+      "summary": "docs/cases/runs/map-render-is-framed-and-carries-no-editor-chrome/mwyt0y2o-1pz98-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T09:54:24.424Z",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-6",
+    "exitCode": 0,
+    "runId": "mwyt0y2o-1pz98-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-27T09:53:40.487Z",
+    "runId": "mwyt01a2-pg53d-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-6",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

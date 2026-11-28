@@ -1,7 +1,7 @@
 {
   "name": "@cc/dsh-tool-families",
-  "version": "0.1.14",
-  "description": "Gives each agent preset only the tool families its job needs: one host row expands a per-preset ALLOW list (the deny set is its complement; explicit deny/projectDeny still subtract) against the tool names the agent can see and calls agent.ctx.tools.restrict, so a family (mcp__godot__*, mcp__playwright__*) leaves the request header instead of being merely refused at call time. A project-gated family is a bridge, not a role capability, so it is kept only where its project marker exists.",
+  "version": "0.1.16",
+  "description": "Gives each agent preset only the tool families its job needs: one host row expands a per-preset ALLOW list (the deny set is its complement; explicit deny/projectDeny still subtract) against the tool names the agent can see and calls agent.ctx.tools.restrict, so a family (mcp__godot__*, mcp__playwright__*) leaves the request header instead of being merely refused at call time. A project-gated family is a bridge, not a role capability, so it is kept only where its project marker exists. On a PTC preset it also replaces the generated SDK declarations with a short header and serves them on demand through an agent-scoped sdk_api tool, rendered by the PTC package's own renderer.",
   "type": "module",
   "main": "tool-families.mjs",
   "exports": {

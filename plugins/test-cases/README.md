@@ -21,6 +21,7 @@ a golden hash) is part of the durable case; the measurement is part of the run.
 | `ux` | `case_record`, `case_list` |
 | `research` | `case_get`, `case_list` |
 | `docs` | `case_record`, `case_list`, `case_get` |
+| `devops` | `case_get`, `case_list`, `case_run` — runs an acceptance case the tester wrote against the live deployment; it never authors one, because a deployment that writes its own oracle can make itself green |
 | `gatherer` | none — an empty row in the map means no case tool at all |
 | no preset (standard/headless) | all twelve (deliberate: the library stays usable outside the orchestrated presets; this row is the one place the table leaves the policy) |
 
@@ -40,7 +41,7 @@ All tools return a JSON value; a refusal is `{ ok:false, code, message }` with a
 | tool | rule |
 |---|---|
 | `case_record` | one case; `automated:true` needs `testPath`+`runCommand`, otherwise a `reason`; optional `checks`, `negativeControl`, `source`, `linkedTaskId`, `purpose`. An automated ACCEPTANCE case also needs a non-empty `surfaceFiles` (`SURFACE_FILES_REQUIRED`). The AUTHOR is taken from the calling session (`authorPreset`, `authorSessionId`); an agent that names another author is refused `AUTHOR_IMMUTABLE`, and its `authorRole` is its own preset. For an automated case the sha256 of `testPath` is frozen as `testHash` |
-| `case_update` | compare-and-set on `revision`, and **the author's or a human's** (`AUTHOR_ONLY` for any other agent); re-attribution is refused (`AUTHOR_IMMUTABLE`). A changed requirement, expected outcome, steps, checks, surface list, automation or test binding returns the case to `stale` and drops its evidence and red; a changed command or test also re-pins `testHash` and drops the recorded red |
+| `case_update` | compare-and-set on `revision`, and **the author's or a human's** (`AUTHOR_ONLY` for any other agent); re-attribution is refused (`AUTHOR_IMMUTABLE`). A changed requirement, expected outcome, steps, checks, surface list, automation or test binding returns the case to `stale` and drops its evidence and red; a changed command or test also re-pins `testHash` and drops the recorded red. **`linkedTaskId` is writable**: re-pointing the case at the task whose change it judges drops the verification (the green artifact named the previous task, `RUN_MISMATCH`) and KEEPS the wrong-product red, so one fresh green re-verifies it against the implementing row |
 | `case_verify` | the **manual** report: `{command, output, exitCode, cwd}` typed by the caller, stamped `source: manual`, the directory recorded with it. On an AUTOMATED case a manual pass is an OBSERVATION: the case stays `unverified` and `lastVerified` stays null (a case already verified by the runner keeps that verification); a manual failure sets `failing`. A documented-only case is unchanged |
 | `case_run` | **executes** the stored `runCommand` (1–5 runs, timeout) in `cwd` — absolute or workspace-relative, default the session workspace — and records the measured result with that directory (`cwd`, `cwdRelative`) and WHO ran it (`runBy: {preset, sessionId}`, from the session); `mode:"red"` runs the negative control and must FAIL. Refuses a case with no `testHash` (`TEST_HASH_MISSING`) or whose test file no longer hashes to it (`TEST_CHANGED`). Use `cwd` for a red-first run in a COPY of the tree instead of pinning the command to one checkout |
 | `case_suite` | runs every automated case matching tag/kind/status, records each with the same `runBy` and the same test-hash binding, writes `docs/cases/runs/suites/<id>.json`; a case it could not bind is reported with `skipped` and makes the suite not green |
@@ -281,7 +282,17 @@ node plugins/test-cases/bin/cases.mjs list  [--status s] [--tag t] [--automated]
 node plugins/test-cases/bin/cases.mjs run   --id <case> [--runs 1..5] [--set-baseline] [--red --control <name>]
 node plugins/test-cases/bin/cases.mjs suite [--tag t] [--kind k] [--status s]
 node plugins/test-cases/bin/cases.mjs gate  (--task <taskId> | --id <case>) [--implementer <preset>]
+node plugins/test-cases/bin/cases.mjs audit [--json]
+node plugins/test-cases/bin/cases.mjs deprecate --id <case> --reason <text> [--json]
 ```
+
+`deprecate` is the retirement path from a shell: it takes the case id and a required reason, moves
+the case to `deprecated` with the reason in its history, and keeps its steps. It refuses an unknown
+id (`CASE_NOT_FOUND`), a missing reason (`INVALID_CASE`) and an already-retired case (`CASE_CLOSED`)
+with exit 2, through the same store function the `case_deprecate` tool uses. When the workspace has a
+`state/` ledger it also mirrors the retirement through the same `mirrorCase` the tool's `mirror` hook
+calls, so the TEST row turns terminal and the snapshot's TEST figure drops; the output reports that
+half separately, and a ledger it cannot open leaves the case retired with `board: not updated`.
 
 `make cases` runs the suite and exits non-zero when a case is not verified (`TAG=…`/`ARGS=…`
 narrow it). `make verify` stays the packaging/doc gate. The CLI reads the same acceptance rule as
@@ -289,6 +300,23 @@ the host tools, so `gate` needs the preset that did the work (`--implementer`): 
 acceptance case is refused as `IMPLEMENTER_UNKNOWN` instead of passing because nothing was
 compared. A case the suite could not bind to its recorded test bytes is printed as `SKIP` with the
 code, never as `PASS`, and a case file that cannot be read makes `gate` exit 1 with the file named.
+
+`audit` is the read-only queue of the cases that cannot prove behaviour yet, in five groups over
+`docs/cases/*.json`:
+
+- `documented` — `automated:false`: the case has no driver, only steps and a named reason.
+- `unmeasured` — no runner evidence: `lastVerified` is absent or its `source` is not `runner`.
+- `exit-code-only` — automated, and every stored run carried a `summaryError`: the run's only
+  judgement is its exit code, so the case measured no value of its own.
+- `legacy-v1` — `schemaVersion: 1` (the stored shape, see above).
+- `missing-surface` — a `surfaceFiles` entry or the `testPath` is not in the workspace: the case
+  asserts behaviour whose files are gone. The group prints every missing path, not a title guess.
+
+The groups answer independent questions, so one case can be listed under several of them. `audit`
+prints each group's ids and count, exits 0 even when every group is full, and writes nothing: the
+records belong to their authors, so the repair is theirs or a human's (`case_update`), not the
+reader's. `--json` prints one object (`{ ok, library, total, groups: { <name>: { count, cases } },
+errors }`) in which every entry carries the reason it is in the group.
 
 ## Taskboard gate
 

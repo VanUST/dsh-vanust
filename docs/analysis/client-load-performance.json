@@ -1,0 +1,648 @@
+{
+  "schemaVersion": 1,
+  "id": "client-load-performance",
+  "rev": 37,
+  "status": "ready",
+  "createdAt": "2026-11-27T14:12:22.251Z",
+  "updatedAt": "2026-11-27T18:22:43.769Z",
+  "updatedBy": "agent",
+  "title": "Клиент быстрее: измеренное открытие, интерактивность и бюджеты",
+  "requestedSolution": "Владелец, 2026-11-27: «займись оптимизацией клиента — сейчас очень лагает и может долго все грузить — надо понять в чем дело и ускорить».",
+  "businessOutcome": {
+    "problem": "Владелец: «сейчас очень лагает и может долго все грузить». Причина не названа, и без измерения любая правка будет угадыванием: в дереве есть подозреваемые (вендоренный Excalidraw на 3.4 МБ в designmap, несколько клиентских панелей, сборка без разбиения), но ни один не подтверждён числом.",
+    "outcome": "Интерфейс открывается быстро и реагирует без задержек: известны измеренные бюджеты (время до интерактивности, байты на холодном кэше, длинные задачи главного потока), и каждый следующий пакет плагинов проверяется против них.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Клиент грузится целиком и медленно",
+        "actors": [
+          "owner",
+          "browser",
+          "harness"
+        ],
+        "steps": [
+          "Страница открывается и грузит все клиентские плагины профиля",
+          "Часть из них — крупные вендоренные бандлы",
+          "Главный поток занят разбором и инициализацией",
+          "Взаимодействие отстаёт; никто не знает, какой пакет виноват"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Измерено, ранжировано, бюджеты держатся",
+        "actors": [
+          "owner",
+          "browser",
+          "harness",
+          "gate"
+        ],
+        "steps": [
+          "Холодный прогон даёт байты, время до интерактивности и длинные задачи",
+          "Каждый клиентский пакет измерен отдельно (байты и блокирующее время)",
+          "Топ-причины исправлены с доказательством до/после",
+          "Бюджеты записаны как условие приёмки следующего пакета"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Клиент измерен до правки.",
+      "acceptance": [
+        "таблица открытия"
+      ],
+      "status": "deferred",
+      "reason": "Измерено всё, кроме браузерных панелей."
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Названная причина устранена.",
+      "acceptance": [
+        "до/после"
+      ],
+      "status": "deferred",
+      "reason": "Закрыто точным замером: секунды на отправку — время модели 8.6–13.1 с против подготовки 0.15–0.45 с; размер промпта не предсказывает (r≈0); кит этого не ускоряет."
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Корень выведен из предела.",
+      "acceptance": [
+        "≥20 ГБ"
+      ],
+      "status": "deferred",
+      "reason": "Выполнено: 34 ГБ + 107 МиБ."
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Стоимость операции не растёт с доской.",
+      "acceptance": [
+        "≤150 мс"
+      ],
+      "status": "deferred",
+      "reason": "Перекрыто FR5: закрытие 5.3 мс."
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Долгие проекты масштабируются: доска = журнал + снимок.",
+      "acceptance": [
+        "журнал + снимок",
+        "запись без перезаписи",
+        "эквивалентность",
+        "миграция",
+        "тесты",
+        "≤50 мс"
+      ],
+      "status": "deferred",
+      "reason": "Сделано, замерено и запушено (10d334d): закрытие 453 → 5.3 мс, десять закрытий 3914 → 98.1 мс, чтение 110.9 → 11.72 мс, 20 из 20 свёрток побайтно равны, панель на проекции 673 КБ (свежесть 640 мс), тесты 17/17 и 40/40, сборка 0.1.92. Независимого кейса нет — приёмка собственными замерами."
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Агент сводит работу с задачами в один вызов.",
+      "acceptance": [
+        "один вызов на пакет",
+        "одно чтение и запись",
+        "компактный отчёт",
+        "гейты",
+        "частичный отказ",
+        "старые инструменты"
+      ],
+      "status": "deferred",
+      "reason": "Сделано, замерено и запушено (10d334d): task_batch — 5 закрытий с заметками в 1 вызове, 24.6 мс, 2 события против 10 вызовов, 91.4 мс, 11 событий; гейты пооперационно; 17/17 тестов. Плюс ленивый sdk_api: секция 37 820 → 985 Б, объявления по module/server/names с пределом 64 000 Б. Независимого кейса нет."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-BOOT",
+        "name": "клиентский boot (список клиентских плагинов профиля)",
+        "responsibility": "Собирает список клиентских пакетов и грузит их при открытии страницы.",
+        "owner": "harness+kit",
+        "owns": [
+          "D-BOOT"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PANELS",
+        "name": "панели кита (designmap, project-state-panel, taskboard, project-rules)",
+        "responsibility": "Клиентские половины плагинов кита: сколько байт и сколько работы на главном потоке они добавляют.",
+        "owner": "kit",
+        "owns": [
+          "D-PANELS"
+        ],
+        "dependsOn": [
+          "C-BOOT"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-BOOT",
+      "name": "client boot: список пакетов и их размеры",
+      "owner": "harness+kit",
+      "ownerComponentId": "C-BOOT",
+      "description": "Список клиентских пакетов, которые грузятся при открытии страницы, и их байты."
+    },
+    {
+      "id": "D-PANELS",
+      "name": "клиентские сборки панелей кита",
+      "owner": "kit",
+      "ownerComponentId": "C-PANELS",
+      "description": "Клиентские половины панелей кита и их вклад в байты и длинные задачи."
+    }
+  ],
+  "contracts": [],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D-1",
+      "decision": "`taskboard.json` — производный экспорт, а не рабочее хранилище. Источник истины: журнал событий (пишется сразу) плюс снимок. Экспорт обновляется по дебаунсу около 2 секунд и по порогу снимка.",
+      "rationale": "Альтернатива — переписывать 13 МБ на каждую операцию и остаться на 300 мс. Пять тестов, читавших файл сразу после операции, проверяют поведение, а не байты: их перевод на API плагина сохраняет требование и усиливает проверку. Плата — внешний потребитель видит состояние до двух секунд давности; для доски задач принято, для журнала нет — журнал пишется сразу.",
+      "alternatives": []
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Межкомпонентная работа: клиентский boot, сборка пакетов и панели кита",
+      "Риск затронуть интерфейс, который уже проверен UI-прогонами",
+      "Без исходного измерения любая правка недоказуема"
+    ]
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-BOOT",
+      "contractIds": [],
+      "dataIds": [
+        "D-BOOT"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz2a6bl-99jtv9",
+          "role": "BACKEND",
+          "at": "2026-11-27T14:13:16.387Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwz3sdeb-lezthm",
+          "role": "BACKEND",
+          "at": "2026-11-27T14:55:24.919Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Измерения сняты, панели — нет."
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-PANELS",
+      "contractIds": [],
+      "dataIds": [
+        "D-PANELS"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz910rb-qikzrm",
+          "role": "BACKEND",
+          "at": "2026-11-27T20:20:00.000Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Закрыто замером: время модели."
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-BOOT",
+      "contractIds": [],
+      "dataIds": [
+        "D-BOOT"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz3vrqf-4h932f",
+          "role": "BACKEND",
+          "at": "2026-11-27T14:57:57.000Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Разовые уборки."
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-PANELS",
+      "contractIds": [],
+      "dataIds": [
+        "D-PANELS"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz6rxmw-j2688n",
+          "role": "BACKEND",
+          "at": "2026-11-27T19:22:00.000Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Перекрыто FR5."
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TARGET",
+      "componentId": "C-PANELS",
+      "contractIds": [],
+      "dataIds": [
+        "D-PANELS"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz78pyz-pim0e9",
+          "role": "BACKEND",
+          "at": "2026-11-27T19:40:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwz8pz1s-akn14m",
+          "role": "BACKEND",
+          "at": "2026-11-27T20:05:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwz8j4o2-c6w4dg",
+          "role": "BACKEND",
+          "at": "2026-11-27T20:10:00.000Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Сделано и запушено, независимого кейса нет."
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P-TARGET",
+      "componentId": "C-PANELS",
+      "contractIds": [],
+      "dataIds": [
+        "D-PANELS"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwz7sgz1-gby5cu",
+          "role": "BACKEND",
+          "at": "2026-11-27T19:30:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwz9et1o-q7z6yk",
+          "role": "BACKEND",
+          "at": "2026-11-27T20:00:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwza3eiu-8buygh",
+          "role": "BACKEND",
+          "at": "2026-11-27T20:05:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwzanw7d-3daxvf",
+          "role": "BACKEND",
+          "at": "2026-11-27T20:10:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwzaqnon-klh2qc",
+          "role": "BACKEND",
+          "at": "2026-11-27T20:15:00.000Z",
+          "evidence": []
+        }
+      ],
+      "reason": "Сделано и запушено, независимого кейса нет."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "81cf76b9396ed24dc83c848cd9f82e4c27c9a6af44e813f80ca29b22e3013610",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T14:12:22.251Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T14:13:01.306Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T14:13:15.046Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T14:24:58.923Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T14:35:06.909Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-27T14:41:42.699Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-27T14:45:13.734Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-27T14:52:57.990Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz2a6bl-99jtv9 -> FR1"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-27T14:55:23.647Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz3sdeb-lezthm -> FR1"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-27T14:57:04.673Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed; impacts: 1"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-27T14:57:10.520Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-27T14:57:38.063Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 added; impacts: 4"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-27T14:57:50.983Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-27T14:58:02.186Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz3vrqf-4h932f -> FR3"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-27T15:05:24.187Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed; impacts: 3"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-27T15:05:29.917Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-27T16:18:39.301Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR3 changed, FR4 added; impacts: 4"
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-27T16:18:46.739Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-27T16:19:02.062Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz6rxmw-j2688n -> FR4"
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-27T16:26:24.577Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR3 changed, FR4 changed; impacts: 3"
+    },
+    {
+      "revision": 21,
+      "at": "2026-11-27T16:26:36.446Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 22,
+      "at": "2026-11-27T16:31:12.036Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 added; impacts: 6"
+    },
+    {
+      "revision": 23,
+      "at": "2026-11-27T16:31:38.287Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 24,
+      "at": "2026-11-27T16:32:05.288Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz78pyz-pim0e9 -> FR5"
+    },
+    {
+      "revision": 25,
+      "at": "2026-11-27T16:40:13.782Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz78pyz-pim0e9 -> FR5"
+    },
+    {
+      "revision": 26,
+      "at": "2026-11-27T16:46:59.844Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, FR6 added; impacts: 7"
+    },
+    {
+      "revision": 27,
+      "at": "2026-11-27T16:56:03.588Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 28,
+      "at": "2026-11-27T16:56:32.143Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz78pyz-pim0e9 -> FR5"
+    },
+    {
+      "revision": 29,
+      "at": "2026-11-27T17:09:56.401Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz8j4o2-c6w4dg -> FR5"
+    },
+    {
+      "revision": 30,
+      "at": "2026-11-27T17:13:55.628Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz8pz1s-akn14m -> FR5"
+    },
+    {
+      "revision": 31,
+      "at": "2026-11-27T17:27:16.211Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz7sgz1-gby5cu -> FR6"
+    },
+    {
+      "revision": 32,
+      "at": "2026-11-27T17:31:19.228Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz7sgz1-gby5cu -> FR6"
+    },
+    {
+      "revision": 33,
+      "at": "2026-11-27T17:32:48.438Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwz9et1o-q7z6yk -> FR6"
+    },
+    {
+      "revision": 34,
+      "at": "2026-11-27T17:51:56.016Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwza3eiu-8buygh -> FR6"
+    },
+    {
+      "revision": 35,
+      "at": "2026-11-27T17:56:53.667Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwza3eiu-8buygh -> FR6"
+    },
+    {
+      "revision": 36,
+      "at": "2026-11-27T18:22:40.350Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, FR6 changed; impacts: 6"
+    },
+    {
+      "revision": 37,
+      "at": "2026-11-27T18:22:43.769Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 1,
+  "id": "batch-execution",
+  "rev": 4,
+  "status": "ready",
+  "createdAt": "2026-11-24T08:39:40.091Z",
+  "updatedAt": "2026-11-24T08:47:17.546Z",
+  "updatedBy": "agent",
+  "title": "Пакетная работа: две seats на спайк вместо ребёнка на строку",
+  "requestedSolution": "Владелец 2026-11-24: проверка задач не должна превращаться в бюрократию и тормозить разработку. Оркестратор обязан явно максимизировать скорость разработки через батчинг: несколько задач в одну сессию субагента, и проверка нескольких задач — в другую одну сессию. Это сильно снижает бумажную нагрузку и касается только крупных кусков работы (спайков).",
+  "businessOutcome": {
+    "problem": "Политика требует батчить шаги ОДНОЙ задачи, но прямо говорит «One task per child». Поэтому спайк из пяти строк даёт пять дочерних сессий и пять циклов проверки — работа того же объёма стоит в разы дороже, а человек видит бюрократию вместо скорости. Обратная крайность тоже вредна: если батч понимать как «меньше строк», теряется учёт, ради которого доска существует.",
+    "outcome": "Спайк идёт двумя seats, а не ребёнком на строку: исполнительская сессия получает очередь брифов по строкам, проверочная — весь пакет сразу; каждая строка сохраняет своё условие приёмки и доказательство, а гейт бежит один раз в конце пакета.",
+    "successMetrics": [
+      "ROOT_POLICY больше не говорит «One task per child» и явно описывает две seats: исполнитель и проверка",
+      "делегирование в сессию того же пресета переиспользует живой child (reused: true) и несёт следующий бриф с taskId",
+      "delegate_review остаётся одной проверочной сессией на 2–8 задач; TESTER пишет и меряет кейсы пакета одной сессией",
+      "одиночная правка и вопрос остаются inline, без ребёнка и без кейса"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Ребёнок на строку и цикл проверки на строку",
+        "actors": [
+          "оркестратор",
+          "BACKEND",
+          "TESTER",
+          "REVIEWER"
+        ],
+        "steps": [
+          "Оркестратор создаёт пять строк.",
+          "На каждую строку — новый ребёнок и новый бриф.",
+          "После каждой строки — отдельный прогон кейса или ревью.",
+          "Батч из пяти строк стоит пять циклов приёмки и пять разборов контекста."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Две seats на спайк",
+        "actors": [
+          "оркестратор",
+          "BACKEND",
+          "TESTER",
+          "REVIEWER",
+          "человек"
+        ],
+        "steps": [
+          "Оркестратор создаёт строки один раз и ставит границу пакета.",
+          "Исполнительская сессия получает бриф за брифом (taskId на каждую строку).",
+          "Одна проверочная сессия пишет и меряет кейсы всего пакета, либо delegate_review сводит 2–8 строк ревью в одну задачу.",
+          "Гейт пакета бежит один раз в конце; дельта возвращается в ту же исполнительскую сессию."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Политика оркестратора требует батчить спайк в две seats: очередь брифов в одну исполнительскую сессию и одна проверочная сессия на весь пакет.",
+      "acceptance": [
+        "правило двух seats в ROOT_POLICY: исполнитель получает очередь брифов по строкам, проверка — весь пакет",
+        "фраза «One task per child» удалена и заменена правилом одной seat на роль",
+        "delegate_review и TESTER названы как проверочная seat пакета",
+        "негативный контроль: краткая правка или вопрос не делегируются"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено и проверено: orchestrator.mjs:461 (шаг 3 — строки один раз, каждый бриф в ту же живую сессию через taskId) и :475 (новое правило двух seats); «One task per child» в файле и в tarball 0.1.69 не встречается; delegate_review действительно 2-8 строк (orchestrator.mjs:1363). Формального TEST нет — уровень proof. Evidence: task-mwug7rbp-m2ryf5."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Батч не стирает учёт: строка остаётся единицей приёмки, пакет — единицей проверки.",
+      "acceptance": [
+        "каждая строка пакета сохраняет своё условие приёмки и доказательство",
+        "гейт бежит один раз в конце пакета, а не после каждой строки",
+        "одиночная правка и вопрос остаются inline"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено и проверено: шаг 5 говорит «That order runs ONCE for a batch»; правило сохраняет строку единицей приёмки («Batching never merges the record») и оставляет одиночную правку вне батча. make verify exit 0, 20/20 проверок упаковки; ROOT_COMMON_POLICY без изменений (delta 0). Evidence: task-mwug7rbp-m2ryf5."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-ORCH",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "ROOT_POLICY и ROOT_COMMON_POLICY: как оркестратор ставит работу и сколько seats тратит",
+        "owner": "BACKEND",
+        "owns": [
+          "D-POLICY"
+        ],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-POLICY",
+      "name": "plugins/orchestrator/orchestrator.mjs (тексты политики)",
+      "owner": "kit",
+      "ownerComponentId": "C-ORCH",
+      "description": "тексты ROOT_POLICY, ROOT_COMMON_POLICY, CHILD_POLICY"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-POLICY",
+      "name": "ROOT_POLICY: батчинг спайка",
+      "between": [
+        "C-ORCH"
+      ],
+      "change": "additive",
+      "description": "текст политики: правило двух seats, удаление «One task per child», гейт один раз на пакет"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-ONE-SEAT",
+      "text": "Роль работает на одной живой сессии: следующий бриф присоединяется к ней и не создаёт второго ребёнка той же роли. Второй ребёнок — только если первый ещё работает и бриф нельзя поставить в очередь.",
+      "scope": "C-ORCH"
+    },
+    {
+      "id": "INV-GATE-ONCE",
+      "text": "Гейт пакета бежит один раз в конце пакета, а не после каждой строки.",
+      "scope": "C-ORCH"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-TWO-SEATS",
+      "decision": "Спайк идёт двумя seats: одна исполнительская сессия получает очередь брифов (по одному на строку, через taskId), одна проверочная — весь пакет (TESTER на кейсы или delegate_review на ревью).",
+      "rationale": "Реюз сессии пресета — уже работающий механизм (reused: true); тратить его на одну строку — самая дорогая часть цикла.",
+      "alternatives": [
+        "ребёнок на каждую строку",
+        "одна строка на весь спайк"
+      ]
+    },
+    {
+      "id": "D-BATCH-GUARD",
+      "decision": "Батч — только для спайка: несколько строк с одной границей результата. Одиночная правка или вопрос — inline, без ребёнка, без кейса, без ревью.",
+      "rationale": "Батч без этой границы превращается в «сделаем всё одной задачей» и теряет учёт; одиночная правка в батче — это та же бюрократия с другой стороны.",
+      "alternatives": [
+        "батчить всё",
+        "батчить только ревью"
+      ]
+    },
+    {
+      "id": "D-GATE-ONCE",
+      "decision": "Гейт пакета бежит один раз в конце; провал возвращается исполнителю дельтой, новой цикл не открывается.",
+      "rationale": "Зелёный прогон после каждой строки ничего не добавляет к знанию о пакете и стоит дороже самой работы.",
+      "alternatives": [
+        "гейт на каждую строку",
+        "без гейта"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "меняется текст ROOT_POLICY и ROOT_COMMON_POLICY в плагине оркестратора",
+      "пересобирается tarball оркестратора"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-24T08:50:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-POLICY"
+      ],
+      "dataIds": [
+        "D-POLICY"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwug7rbp-m2ryf5",
+          "role": "BACKEND",
+          "at": "2026-11-24T08:52:00.000Z",
+          "evidence": [
+            "orchestrator.mjs:461 step 3 (one seat, taskId per row) and :475 the two-seat rule",
+            "'One task per child' -> 0 matches in source and in cc-dsh-orchestrator-0.1.69.tgz",
+            "make verify -> exit 0, 0 FAIL lines, 20/20 packaging checks"
+          ]
+        }
+      ],
+      "reason": "Отложено: уровень проверки proof, формального TEST нет; доказательство — исходник, tarball и make verify."
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-POLICY"
+      ],
+      "dataIds": [
+        "D-POLICY"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwug7rbp-m2ryf5",
+          "role": "BACKEND",
+          "at": "2026-11-24T08:52:00.000Z",
+          "evidence": [
+            "orchestrator.mjs:463 'That order runs ONCE for a batch'",
+            "ROOT_COMMON_POLICY unchanged, delta 0 (1144 -> 1144); no persona or budget row touched"
+          ]
+        }
+      ],
+      "reason": "Отложено: уровень proof; доказательство — текст шага 5 и make verify."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "71be0b1454a5a58582852ad09f52ec00fddad5574922bdac962746cdc089bc1a",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-24T08:39:40.091Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-24T08:39:43.101Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-24T08:44:26.028Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwug7rbp-m2ryf5 -> FR1, NFR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-24T08:47:17.546Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, NFR1 changed; impacts: 2"
+    }
+  ]
+}

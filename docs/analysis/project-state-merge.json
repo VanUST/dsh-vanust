@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "id": "project-state-merge",
+  "rev": 4,
+  "status": "completed",
+  "createdAt": "2026-11-23T08:32:07.785Z",
+  "updatedAt": "2026-11-23T08:44:30.534Z",
+  "updatedBy": "agent",
+  "title": "Проектный журнал state/ и слияние после пула",
+  "requestedSolution": "Владелец 2026-11-23: «Журнал должен быть на уровне проекта а не машины и переносится вместе с проектом. Нужен процесс мерджа state с указанием на явные коллизии для разрешения. Агент должен уметь автоматически сам разрешать эти коллизии. предлагаю основать решение на существующем git. В целом если при пуле агент видит коллизии на уровне state - он их должен разрешить». Решение строится на git: конфликт слияния в state/ — вход для команды разрешения, которая читает обе стороны из git-ссылок (HEAD и MERGE_HEAD), объединяет события и записи по машинно-независимой идентичности, перенумеровывает совпавшие номера, печатает явный отчёт о коллизиях и раскладывает согласованный результат обратно в state/.",
+  "businessOutcome": {
+    "problem": "state/ — проектный реестр (state/events.jsonl и state/{req,task,test,decision}), но номера TASK-N/REQ-N/TEST-N выдаются по максимуму в локальной папке, а seq события — по количеству строк. Две машины независимо создают TASK-274 с разным содержимым; git pull даёт add/add конфликт записи и конфликт events.jsonl. Вручную слить нельзя: replay() требует, чтобы последнее событие каждой записи сериализовалось в её файл, а verify() проверяет уникальность id, целостность ссылок и совпадение проекций. Сегодня реестр фактически машинный: при пуле одна сторона его вытесняет или он остаётся сломанным.",
+    "outcome": "state/ сливается как журнал проекта: одна команда разрешает конфликт по обеим сторонам, сохраняет события обеих машин, выдаёт уникальные номера, чинит ссылки, пересобирает проекции и печатает отчёт о коллизиях; verify() и replay() проходят после слияния, повторный запуск ничего не меняет.",
+    "successMetrics": [
+      "две машины независимо создали запись с номером TASK-274: после слияния в реестре два файла с разными номерами, события обеих сохранены",
+      "replay() после слияния возвращает ok: true, verify() — без замечаний",
+      "отчёт называет каждую коллизию по номеру и идентичности и говорит, что с ней сделано",
+      "повторный запуск разрешения не меняет ни одного байта state/",
+      "процесс записан в AGENTS.md и rules/DEPLOYMENT.md; агент выполняет его сам после пула"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Ручное вытеснение стороны",
+        "actors": [
+          "человек"
+        ],
+        "steps": [
+          "git pull даёт конфликт state/events.jsonl и add/add конфликт файла задачи.",
+          "Сторону выбирают вручную (ours или theirs), вторая история теряется.",
+          "Если оставить обе записи, verify() находит duplicate id, replay() — расхождения; файлы правят руками."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Слияние по git-ссылкам с отчётом",
+        "actors": [
+          "агент",
+          "git"
+        ],
+        "steps": [
+          "Агент делает git pull (merge, без rebase) и видит конфликт в state/.",
+          "Агент запускает node scripts/state-merge.mjs --resolve.",
+          "Команда читает state/ из HEAD, MERGE_HEAD и merge-base, объединяет события по идентичности события, объединяет записи по машинно-независимой идентичности.",
+          "Совпавшие номера перенумеровываются, одна идентичность под двумя номерами сводится к одному, ссылки и их хеши пересчитываются, синтетические события дописываются там, где последнее событие не сериализуется в файл.",
+          "Проекции пересобираются; агент читает отчёт о коллизиях, делает git add state/ и завершает слияние.",
+          "Агент проверяет verify() и replay() и сообщает владельцу, какие коллизии разрешены."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Машинно-независимая идентичность и уникальные номера записей после слияния.",
+      "acceptance": [
+        "в объединённом реестре нет двух файлов с одним id",
+        "при совпадении номера у двух разных идентичностей одна запись получает следующий свободный номер",
+        "при одной идентичности под двумя номерами остаётся один номер, все ссылки на второй переписаны на оставшийся"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Журнал событий объединяется без потери: одинаковое событие входит один раз, seq перенумерован 1..N, replay() сходится с файлами.",
+      "acceptance": [
+        "результат содержит все события обеих сторон, ни одно не потеряно",
+        "seq идут 1..N без дыр и повторов",
+        "replay() после слияния возвращает ok: true"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Слияние печатает явный отчёт по каждой коллизии.",
+      "acceptance": [
+        "отчёт перечисляет переименованные записи с прежним и новым номером",
+        "отчёт называет записи, объединённые по идентичности, и оставленный номер",
+        "отчёт называет записи, изменённые с обеих сторон, и чей текст оставлен"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Агент разрешает коллизии после пула одной командой; после неё verify() без новых замечаний, replay() без расхождений, повторный запуск идемпотентен; шаг описан в инструкциях агента и правилах развёртывания.",
+      "acceptance": [
+        "команда работает при незавершённом merge и не требует сети",
+        "после запуска verify() не находит замечаний",
+        "после запуска replay().ok = true",
+        "второй запуск не меняет файлов state/",
+        "AGENTS.md и rules/DEPLOYMENT.md называют команду и порядок действий"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-state-core",
+        "name": "project-state core",
+        "responsibility": "единственный писатель state/: create/update/link под локом, журнал, verify, replay, проекции",
+        "owner": "orchestrator",
+        "owns": [
+          "D-events",
+          "D-entities",
+          "D-views"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-state-merge",
+        "name": "state-merge",
+        "responsibility": "слияние state/ по git-ссылкам: записи по идентичности, события по идентичности события, перенумерация, отчёт о коллизиях",
+        "owner": "orchestrator",
+        "owns": [
+          "D-merge-report"
+        ],
+        "dependsOn": [
+          "C-state-core"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-events",
+      "name": "state/events.jsonl",
+      "owner": "C-state-core",
+      "ownerComponentId": "C-state-core",
+      "description": "событие = снимок записи; seq — номер строки, eid — идентичность события"
+    },
+    {
+      "id": "D-entities",
+      "name": "state/{req,task,test,decision}/*.md",
+      "owner": "C-state-core",
+      "ownerComponentId": "C-state-core",
+      "description": "идентичность: boardId, caseId, analysisRef, производный ключ из createdAt и title"
+    },
+    {
+      "id": "D-views",
+      "name": "state/views/**",
+      "owner": "C-state-core",
+      "ownerComponentId": "C-state-core",
+      "description": "производные проекции; пересобираются после слияния"
+    },
+    {
+      "id": "D-merge-report",
+      "name": ".dsh/state-merge-report.json",
+      "owner": "C-state-merge",
+      "ownerComponentId": "C-state-merge",
+      "description": "отчёт о разрешённых коллизиях; вне отслеживаемого дерева"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "K-report",
+      "name": "Отчёт слияния",
+      "between": [
+        "C-state-merge",
+        "агент"
+      ],
+      "change": "additive",
+      "description": "JSON: renamed[], aliased[], editedBothSides[], events{}; печатается в stdout и пишется в .dsh/state-merge-report.json"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-1",
+      "text": "После разрешения коллизий verify() не возвращает findings, а replay().ok = true",
+      "scope": "state/"
+    },
+    {
+      "id": "INV-2",
+      "text": "Ни одно событие известных операций не теряется при слиянии; seq идут 1..N",
+      "scope": "state/events.jsonl"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-1",
+      "decision": "Числовые номера сохраняются; уникальность достигается перенумерацией при слиянии",
+      "rationale": "перевод всех id на глобальные потребовал бы миграции 183 REQ, 274 TASK, 86 TEST и правки всех инструментов и проекций",
+      "alternatives": [
+        "глобальные id вида TASK-<boardId>",
+        "машинный префикс в номере"
+      ]
+    },
+    {
+      "id": "DEC-2",
+      "decision": "Идентичность записи берётся из существующих ключей: boardId, caseId, analysisRef, иначе производный ключ из createdAt и title",
+      "rationale": "не требует миграции существующих файлов и уже разделяет записи разных машин",
+      "alternatives": [
+        "новое поле uid в каждой записи",
+        "сравнение содержимого целиком"
+      ]
+    },
+    {
+      "id": "DEC-3",
+      "decision": "Слияние читает стороны из git-ссылок HEAD и MERGE_HEAD, а не из рабочего дерева",
+      "rationale": "во время конфликта в рабочем дереве маркеры, и оно не годится как вход",
+      "alternatives": [
+        "разбор конфликтных стадий git ls-files -u",
+        "слияние по файлам рабочего дерева"
+      ]
+    },
+    {
+      "id": "DEC-4",
+      "decision": "seq — производный номер строки, а не идентичность; при слиянии перенумеровывается 1..N",
+      "rationale": "две машины ведут счёт независимо, иначе повторы и дыры",
+      "alternatives": [
+        "оставить исходные seq и разрешать повторы",
+        "убрать seq из журнала"
+      ]
+    },
+    {
+      "id": "DEC-5",
+      "decision": "Если последнее событие записи не сериализуется в её файл, слияние дописывает синтетическое событие update",
+      "rationale": "replay() сравнивает последнее событие с файлом; иначе он ложно покажет расхождение",
+      "alternatives": [
+        "подправлять старые события",
+        "отключать replay после слияния"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется контракт реестра state/: идентичность записей и события, перенумерация при слиянии",
+      "новый компонент state-merge и новая команда scripts/state-merge.mjs",
+      "правила агента и правила развёртывания описывают новый шаг после пула"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-23T08:32:21.561Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-state-merge",
+      "contractIds": [
+        "K-report"
+      ],
+      "dataIds": [
+        "D-entities"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwt0rlur-ng0x8h",
+          "role": "orchestrator",
+          "at": "2026-11-23T08:44:21.138Z",
+          "evidence": [
+            "node --test plugins/project-state/test/merge.test.mjs: 8/8 (ренумерация, слияние по идентичности, ссылки и хеши, событие-дубль, replay-совпадение)",
+            "node scripts/state-merge-proof.mjs: 23/23 проверок на двух клонах; TEST-088 (red mwt0r3r1-vcz2x-1:fail, green mwt0r5gv-7qjvn-1:pass)",
+            "CASE_NEGATIVE_CONTROL=expect-pre-fix node scripts/state-merge-proof.mjs: падение 10/18 — резолвер, выбирающий сторону, отбраковывается",
+            "make verify: 19/19 portability, VERIFY_EXIT=0; make test: 89/89 (71 test file, 18 proof script)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-state-merge",
+      "contractIds": [],
+      "dataIds": [
+        "D-events"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwt0rlur-ng0x8h",
+          "role": "orchestrator",
+          "at": "2026-11-23T08:44:21.138Z",
+          "evidence": [
+            "node --test plugins/project-state/test/merge.test.mjs: 8/8 (ренумерация, слияние по идентичности, ссылки и хеши, событие-дубль, replay-совпадение)",
+            "node scripts/state-merge-proof.mjs: 23/23 проверок на двух клонах; TEST-088 (red mwt0r3r1-vcz2x-1:fail, green mwt0r5gv-7qjvn-1:pass)",
+            "CASE_NEGATIVE_CONTROL=expect-pre-fix node scripts/state-merge-proof.mjs: падение 10/18 — резолвер, выбирающий сторону, отбраковывается",
+            "make verify: 19/19 portability, VERIFY_EXIT=0; make test: 89/89 (71 test file, 18 proof script)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-state-merge",
+      "contractIds": [
+        "K-report"
+      ],
+      "dataIds": [
+        "D-merge-report"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwt0rlur-ng0x8h",
+          "role": "orchestrator",
+          "at": "2026-11-23T08:44:21.138Z",
+          "evidence": [
+            "node --test plugins/project-state/test/merge.test.mjs: 8/8 (ренумерация, слияние по идентичности, ссылки и хеши, событие-дубль, replay-совпадение)",
+            "node scripts/state-merge-proof.mjs: 23/23 проверок на двух клонах; TEST-088 (red mwt0r3r1-vcz2x-1:fail, green mwt0r5gv-7qjvn-1:pass)",
+            "CASE_NEGATIVE_CONTROL=expect-pre-fix node scripts/state-merge-proof.mjs: падение 10/18 — резолвер, выбирающий сторону, отбраковывается",
+            "make verify: 19/19 portability, VERIFY_EXIT=0; make test: 89/89 (71 test file, 18 proof script)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-state-merge",
+      "contractIds": [],
+      "dataIds": [
+        "D-entities",
+        "D-events"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwt0rlur-ng0x8h",
+          "role": "orchestrator",
+          "at": "2026-11-23T08:44:21.138Z",
+          "evidence": [
+            "node --test plugins/project-state/test/merge.test.mjs: 8/8 (ренумерация, слияние по идентичности, ссылки и хеши, событие-дубль, replay-совпадение)",
+            "node scripts/state-merge-proof.mjs: 23/23 проверок на двух клонах; TEST-088 (red mwt0r3r1-vcz2x-1:fail, green mwt0r5gv-7qjvn-1:pass)",
+            "CASE_NEGATIVE_CONTROL=expect-pre-fix node scripts/state-merge-proof.mjs: падение 10/18 — резолвер, выбирающий сторону, отбраковывается",
+            "make verify: 19/19 portability, VERIFY_EXIT=0; make test: 89/89 (71 test file, 18 proof script)"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "0dd2e946cb19161851f48714b6da8603e376d5fada03874195448a63c49dc094",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-23T08:32:07.785Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-23T08:32:21.761Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-23T08:44:21.709Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR4 changed"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-23T08:44:30.534Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

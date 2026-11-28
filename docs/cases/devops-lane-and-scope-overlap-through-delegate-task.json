@@ -1,0 +1,1038 @@
+{
+  "schemaVersion": 1,
+  "id": "devops-lane-and-scope-overlap-through-delegate-task",
+  "title": "devops lane and scope overlap through delegate_task",
+  "requirement": "REQ-257 is primary: one live deployment task per chat - delegate_task refuses a second live devops task with devops_lane_busy naming the open one, while attaching to that task stays allowed. The same case also protects REQ-256 (profile declares preset-devops at order 35 with the required tool-todo `allowParallelInProgress`, and DEVOPS/DEPLOYMENT/OPS resolve to it), REQ-258 (ROOT_POLICY names the running deployment as a serialising resource, DEVOPS as its owner, and running children before a restart), REQ-259 (the preset composes from profile rows), REQ-260 (the shipped configuration and gates stay true), REQ-261/REQ-262 (High reasoning default in the profile and on the started child), REQ-263 (the Development rules block in the root policy), and REQ-264 (the scope-overlap guard): an active task's path claim refuses a second task whose scope names the same file or a containing directory (scope_overlap), while review rows, disjoint files, prose and attaches are allowed. The case does NOT claim the make verify/make test/tarball criteria of REQ-259/REQ-260 or the documentation criteria of REQ-262 - those were not run here.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/devops-lane/driver.mjs",
+  "runCommand": "node tests/devops-lane/driver.mjs",
+  "steps": [
+    "Run `node tests/devops-lane/driver.mjs` from the tree under test; it reads $CASE_SUMMARY for its machine summary.",
+    "Parse profile/cordis.patch.yml by indentation and assert the preset-devops block: id devops, order 35, a tool-todo row with its required config key allowParallelInProgress set to false.",
+    "Import plugins/orchestrator/orchestrator.mjs and assert presetForRole for DEVOPS, DEPLOYMENT and OPS, PRESET_IDS, and a real delegate_task call for role DEVOPS without an explicit preset.",
+    "Drive delegate_task with a fake taskboard holding one active devops row: assert the second delegation rejects with devops_lane_busy naming the row, creates no task and starts no child; assert an attach, a BACKEND delegation and a review row are unaffected.",
+    "Drive the scope guard with an active BACKEND row claiming plugins/orchestrator/orchestrator.mjs (and a directory claim): assert scope_overlap and no row/child; assert review, disjoint, prose and attach are allowed; assert scopeClaim/claimsOverlap normalize the leading token (trailing slash, ./, .., prose; a backslash entry claims nothing per the portability rule).",
+    "Read the profile effort defaults (agent-default-model and role-model architect/devops) and assert High with no max default; assert a started child carries agentOptions.reasoningEffort high.",
+    "Assert the ROOT_POLICY anchors for the runtime lane and the Development rules block.",
+    "Run the same command in a git HEAD copy outside the workspace (case_run redSource wrong-product) and assert it fails there."
+  ],
+  "expected": "Against the shipped tree, profile/cordis.patch.yml has a preset-devops row at order 35 whose tool-todo config carries allowParallelInProgress: false; DEVOPS, DEPLOYMENT and OPS resolve to devops and delegate_task starts role DEVOPS without an explicit preset; a live devops row makes a second delegation reject with devops_lane_busy naming the row with no task created and no child started, while an attach and a BACKEND delegation still work; an active task's scope refuses a colliding file or containing directory with scope_overlap and no row/child, while review, disjoint, prose and attach pass; agent-default-model, role-model devops/architect and the started child all carry High effort; ROOT_POLICY carries the runtime-lane and Development-rules anchors. Against git HEAD 7090829 the preset row, role mapping, lane guard, scope guard, profile default and policy anchors fail.",
+  "tags": [
+    "devops",
+    "delegate-task",
+    "runtime-lane",
+    "scope-overlap"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "d6f0c8c206a392dff065c6370d0e6a0efdd85a3f73453b1cc94feed41d4fa39f"
+    },
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "d166401418069e151d82bc1a9b2719b455db8dbb3faf2737cfcf5b2af25d5ee4"
+    }
+  ],
+  "linkedTaskId": "task-mwyvpo6b-q8dc4o",
+  "criterionId": "AC-1",
+  "reqId": "REQ-257",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+  "purpose": "acceptance",
+  "testHash": "b2f9e4a3979a0089bf9e5cd188e7770057ce60f3f8f3d38bc66ec28b9e173558",
+  "failsWhen": "delegate_task starts a second live devops task, or a second task whose scope claims an active task's file, or the shipped profile/policy lacks the devops preset row, its required tool-todo config, the role spellings, the High effort default or the runtime/development anchors.",
+  "trigger": "The root calls delegate_task for a second deployment (role DEVOPS) while an active devops task exists in the same chat, or for a BACKEND task whose scope repeats an active task's path; separately, the shipped profile/cordis.patch.yml and plugins/orchestrator/orchestrator.mjs are read as a deployment loads them.",
+  "oracle": "REQ-256..REQ-263 (state/req/) and this task's acceptance criteria: one live deployment task per chat with a named refusal, DEVOPS/DEPLOYMENT/OPS -> devops, preset-devops at order 35 with the schema-required tool-todo config, scope claims on active tasks, High reasoning default, and the runtime-lane plus Development-rules anchors in ROOT_POLICY. The scope-claim path rule is the orchestrator's brief and the kit's portability invariant (scripts/check-portability.mjs `no-backslash-path-splitting`), never the implementation text.",
+  "realism": "The brief's own bug report: the first devops proof run lost the whole preset because the required tool-todo config was absent (silent unmount). The owner's 2026-11-27 request states runtime work was delegated as parallel tasks to several agents that interrupted each other, and the scope guard was added after two live tasks were found claiming one file. The scenario drives the public delegate_task tool with the product's own taskboard contract, not the implementation's internals.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T11:17:00.000Z",
+  "checks": [
+    {
+      "name": "every driver check passes",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    },
+    {
+      "name": "devops preset row at order 35 with the required tool-todo config",
+      "metric": "presetRow",
+      "op": "==",
+      "threshold": 1
+    },
+    {
+      "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+      "metric": "roleMapping",
+      "op": "==",
+      "threshold": 1
+    },
+    {
+      "name": "one live deployment task per chat",
+      "metric": "laneGuard",
+      "op": "==",
+      "threshold": 1
+    },
+    {
+      "name": "active-task scope claims",
+      "metric": "scopeGuard",
+      "op": "==",
+      "threshold": 1
+    },
+    {
+      "name": "High reasoning default in the profile",
+      "metric": "configEffort",
+      "op": "==",
+      "threshold": 1
+    },
+    {
+      "name": "child starts at High effort",
+      "metric": "childEffort",
+      "op": "==",
+      "threshold": 1
+    },
+    {
+      "name": "runtime-lane and Development-rules policy anchors",
+      "metric": "rootPolicy",
+      "op": "==",
+      "threshold": 1
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 9,
+  "createdAt": "2026-11-27T11:16:43.037Z",
+  "updatedAt": "2026-11-27T11:20:39.292Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T11:16:49.815Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T11:16:58.402Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T11:17:05.279Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T11:17:10.430Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T11:17:10.430Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "devops lane and scope overlap through delegate_task",
+        "requirement": "REQ-257 is primary: one live deployment task per chat - delegate_task refuses a second live devops task with devops_lane_busy naming the open one, while attaching to that task stays allowed. The same case also protects REQ-256 (profile declares preset-devops at order 35 with the required tool-todo `allowParallelInProgress`, and DEVOPS/DEPLOYMENT/OPS resolve to it), REQ-258 (ROOT_POLICY names the running deployment as a serialising resource, DEVOPS as its owner, and running children before a restart), REQ-259 (the preset composes from profile rows), REQ-260 (the shipped configuration and gates stay true), REQ-261/REQ-262 (High reasoning default in the profile and on the started child), and REQ-263 (the Development rules block in the root policy). The latest addition is the scope-overlap guard: an active task's path claim refuses a second task whose scope names the same file or a containing directory (scope_overlap), while review rows, disjoint files, prose and attaches are allowed. The case does NOT claim the make verify/make test/tarball criteria of REQ-259/REQ-260 or the documentation criteria of REQ-262 - those were not run here.",
+        "expected": "Against the shipped tree, profile/cordis.patch.yml has a preset-devops row at order 35 whose tool-todo config carries allowParallelInProgress: false; DEVOPS, DEPLOYMENT and OPS resolve to devops and delegate_task starts role DEVOPS without an explicit preset; a live devops row makes a second delegation reject with devops_lane_busy naming the row with no task created and no child started, while an attach and a BACKEND delegation still work; an active task's scope refuses a colliding file or containing directory with scope_overlap and no row/child, while review, disjoint, prose and attach pass; agent-default-model, role-model devops/architect and the started child all carry High effort; ROOT_POLICY carries the runtime-lane and Development-rules anchors. Against git HEAD 7090829 the preset row, role mapping, lane guard, scope guard, profile default and policy anchors fail.",
+        "steps": [
+          "Run `node tests/devops-lane/driver.mjs` from the tree under test; it reads $CASE_SUMMARY for its machine summary.",
+          "Parse profile/cordis.patch.yml by indentation and assert the preset-devops block: id devops, order 35, a tool-todo row with its required config key allowParallelInProgress set to false.",
+          "Import plugins/orchestrator/orchestrator.mjs and assert presetForRole for DEVOPS, DEPLOYMENT and OPS, PRESET_IDS, and a real delegate_task call for role DEVOPS without an explicit preset.",
+          "Drive delegate_task with a fake taskboard holding one active devops row: assert the second delegation rejects with devops_lane_busy naming the row, creates no task and starts no child; assert an attach, a BACKEND delegation and a review row are unaffected.",
+          "Drive the scope guard with an active BACKEND row claiming plugins/orchestrator/orchestrator.mjs (and a directory claim): assert scope_overlap and no row/child; assert review, disjoint, prose and attach are allowed; assert scopeClaim/claimsOverlap normalize the leading token (trailing slash, ./, .., prose; a backslash entry claims nothing per the portability rule).",
+          "Read the profile effort defaults (agent-default-model and role-model architect/devops) and assert High with no max default; assert a started child carries agentOptions.reasoningEffort high.",
+          "Assert the ROOT_POLICY anchors for the runtime lane and the Development rules block.",
+          "Run the same command in a git HEAD copy outside the workspace (case_run redSource wrong-product) and assert it fails there."
+        ],
+        "automated": true,
+        "testPath": "tests/devops-lane/driver.mjs",
+        "runCommand": "node tests/devops-lane/driver.mjs",
+        "status": "failing",
+        "checks": [
+          {
+            "name": "every driver check passes",
+            "metric": "failures",
+            "op": "<=",
+            "threshold": 0
+          },
+          {
+            "name": "devops preset row at order 35 with the required tool-todo config",
+            "metric": "presetRow",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+            "metric": "roleMapping",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "one live deployment task per chat",
+            "metric": "laneGuard",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "active-task scope claims",
+            "metric": "scopeGuard",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "High reasoning default in the profile",
+            "metric": "configEffort",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "child starts at High effort",
+            "metric": "childEffort",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "runtime-lane and Development-rules policy anchors",
+            "metric": "rootPolicy",
+            "op": "==",
+            "threshold": 1
+          }
+        ],
+        "negativeControl": "expect-pre-fix"
+      }
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-27T11:18:11.159Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-27T11:18:11.159Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "devops lane and scope overlap through delegate_task",
+        "requirement": "REQ-257 is primary: one live deployment task per chat - delegate_task refuses a second live devops task with devops_lane_busy naming the open one, while attaching to that task stays allowed. The same case also protects REQ-256 (profile declares preset-devops at order 35 with the required tool-todo `allowParallelInProgress`, and DEVOPS/DEPLOYMENT/OPS resolve to it), REQ-258 (ROOT_POLICY names the running deployment as a serialising resource, DEVOPS as its owner, and running children before a restart), REQ-259 (the preset composes from profile rows), REQ-260 (the shipped configuration and gates stay true), REQ-261/REQ-262 (High reasoning default in the profile and on the started child), and REQ-263 (the Development rules block in the root policy). The latest addition is the scope-overlap guard: an active task's path claim refuses a second task whose scope names the same file or a containing directory (scope_overlap), while review rows, disjoint files, prose and attaches are allowed. The case does NOT claim the make verify/make test/tarball criteria of REQ-259/REQ-260 or the documentation criteria of REQ-262 - those were not run here.",
+        "expected": "Against the shipped tree, profile/cordis.patch.yml has a preset-devops row at order 35 whose tool-todo config carries allowParallelInProgress: false; DEVOPS, DEPLOYMENT and OPS resolve to devops and delegate_task starts role DEVOPS without an explicit preset; a live devops row makes a second delegation reject with devops_lane_busy naming the row with no task created and no child started, while an attach and a BACKEND delegation still work; an active task's scope refuses a colliding file or containing directory with scope_overlap and no row/child, while review, disjoint, prose and attach pass; agent-default-model, role-model devops/architect and the started child all carry High effort; ROOT_POLICY carries the runtime-lane and Development-rules anchors. Against git HEAD 7090829 the preset row, role mapping, lane guard, scope guard, profile default and policy anchors fail.",
+        "steps": [
+          "Run `node tests/devops-lane/driver.mjs` from the tree under test; it reads $CASE_SUMMARY for its machine summary.",
+          "Parse profile/cordis.patch.yml by indentation and assert the preset-devops block: id devops, order 35, a tool-todo row with its required config key allowParallelInProgress set to false.",
+          "Import plugins/orchestrator/orchestrator.mjs and assert presetForRole for DEVOPS, DEPLOYMENT and OPS, PRESET_IDS, and a real delegate_task call for role DEVOPS without an explicit preset.",
+          "Drive delegate_task with a fake taskboard holding one active devops row: assert the second delegation rejects with devops_lane_busy naming the row, creates no task and starts no child; assert an attach, a BACKEND delegation and a review row are unaffected.",
+          "Drive the scope guard with an active BACKEND row claiming plugins/orchestrator/orchestrator.mjs (and a directory claim): assert scope_overlap and no row/child; assert review, disjoint, prose and attach are allowed; assert scopeClaim/claimsOverlap normalize the leading token (trailing slash, ./, .., prose; a backslash entry claims nothing per the portability rule).",
+          "Read the profile effort defaults (agent-default-model and role-model architect/devops) and assert High with no max default; assert a started child carries agentOptions.reasoningEffort high.",
+          "Assert the ROOT_POLICY anchors for the runtime lane and the Development rules block.",
+          "Run the same command in a git HEAD copy outside the workspace (case_run redSource wrong-product) and assert it fails there."
+        ],
+        "automated": true,
+        "testPath": "tests/devops-lane/driver.mjs",
+        "runCommand": "node tests/devops-lane/driver.mjs",
+        "status": "verified",
+        "checks": [
+          {
+            "name": "every driver check passes",
+            "metric": "failures",
+            "op": "<=",
+            "threshold": 0
+          },
+          {
+            "name": "devops preset row at order 35 with the required tool-todo config",
+            "metric": "presetRow",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+            "metric": "roleMapping",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "one live deployment task per chat",
+            "metric": "laneGuard",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "active-task scope claims",
+            "metric": "scopeGuard",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "High reasoning default in the profile",
+            "metric": "configEffort",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "child starts at High effort",
+            "metric": "childEffort",
+            "op": "==",
+            "threshold": 1
+          },
+          {
+            "name": "runtime-lane and Development-rules policy anchors",
+            "metric": "rootPolicy",
+            "op": "==",
+            "threshold": 1
+          }
+        ],
+        "negativeControl": "expect-pre-fix"
+      }
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-27T11:20:39.292Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyvzai9-7ogpi-1",
+      "at": "2026-11-27T11:16:49.806Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+        "taskId": "task-mwyvpo6b-q8dc4o"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 207,
+      "commandSha256": "db96a62a61f60264e233cc1cff7c686997be7ad964f881038ba93aaeeb4423ea",
+      "cwd": "/tmp/dsh-devops-head-7090829",
+      "cwdRelative": "../../../tmp/dsh-devops-head-7090829",
+      "head": "ef4f7a01b1a1b21c27c0570671f4d3899708a346",
+      "dirty": false,
+      "stdout": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzai9-7ogpi-1/stdout.log",
+      "stderr": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzai9-7ogpi-1/stderr.log",
+      "summary": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzai9-7ogpi-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 14,
+        "checks": 20,
+        "presetRow": 0,
+        "roleMapping": 0,
+        "laneGuard": 0,
+        "scopeGuard": 0,
+        "configEffort": 0,
+        "childEffort": 1,
+        "rootPolicy": 0,
+        "control": 0,
+        "load": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "every driver check passes",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 14,
+          "threshold": 0,
+          "pass": false,
+          "reason": "14 is not <= 0"
+        },
+        {
+          "name": "devops preset row at order 35 with the required tool-todo config",
+          "metric": "presetRow",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+          "metric": "roleMapping",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "one live deployment task per chat",
+          "metric": "laneGuard",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "active-task scope claims",
+          "metric": "scopeGuard",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "High reasoning default in the profile",
+          "metric": "configEffort",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "child starts at High effort",
+          "metric": "childEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "runtime-lane and Development-rules policy anchors",
+          "metric": "rootPolicy",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyvzgeh-gqvme-1",
+      "at": "2026-11-27T11:16:58.396Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+        "taskId": "task-mwyvpo6b-q8dc4o"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 218,
+      "commandSha256": "db96a62a61f60264e233cc1cff7c686997be7ad964f881038ba93aaeeb4423ea",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzgeh-gqvme-1/stdout.log",
+      "stderr": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzgeh-gqvme-1/stderr.log",
+      "summary": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzgeh-gqvme-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 2,
+        "checks": 21,
+        "presetRow": 1,
+        "roleMapping": 0,
+        "laneGuard": 1,
+        "scopeGuard": 1,
+        "configEffort": 1,
+        "childEffort": 1,
+        "rootPolicy": 1,
+        "control": 0,
+        "load": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "every driver check passes",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 2,
+          "threshold": 0,
+          "pass": false,
+          "reason": "2 is not <= 0"
+        },
+        {
+          "name": "devops preset row at order 35 with the required tool-todo config",
+          "metric": "presetRow",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+          "metric": "roleMapping",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "one live deployment task per chat",
+          "metric": "laneGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "active-task scope claims",
+          "metric": "scopeGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "High reasoning default in the profile",
+          "metric": "configEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "child starts at High effort",
+          "metric": "childEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "runtime-lane and Development-rules policy anchors",
+          "metric": "rootPolicy",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyvzme8-mu5hq-1",
+      "at": "2026-11-27T11:17:05.269Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+        "taskId": "task-mwyvpo6b-q8dc4o"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 266,
+      "commandSha256": "db96a62a61f60264e233cc1cff7c686997be7ad964f881038ba93aaeeb4423ea",
+      "cwd": "/tmp/dsh-devops-head-7090829",
+      "cwdRelative": "../../../tmp/dsh-devops-head-7090829",
+      "head": "ef4f7a01b1a1b21c27c0570671f4d3899708a346",
+      "dirty": false,
+      "stdout": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzme8-mu5hq-1/stdout.log",
+      "stderr": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzme8-mu5hq-1/stderr.log",
+      "summary": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzme8-mu5hq-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 14,
+        "checks": 20,
+        "presetRow": 0,
+        "roleMapping": 0,
+        "laneGuard": 0,
+        "scopeGuard": 0,
+        "configEffort": 0,
+        "childEffort": 1,
+        "rootPolicy": 0,
+        "control": 0,
+        "load": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "every driver check passes",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 14,
+          "threshold": 0,
+          "pass": false,
+          "reason": "14 is not <= 0"
+        },
+        {
+          "name": "devops preset row at order 35 with the required tool-todo config",
+          "metric": "presetRow",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+          "metric": "roleMapping",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "one live deployment task per chat",
+          "metric": "laneGuard",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "active-task scope claims",
+          "metric": "scopeGuard",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "High reasoning default in the profile",
+          "metric": "configEffort",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "child starts at High effort",
+          "metric": "childEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "runtime-lane and Development-rules policy anchors",
+          "metric": "rootPolicy",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyvzpls-x5s1e-1",
+      "at": "2026-11-27T11:17:10.424Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+        "taskId": "task-mwyvpo6b-q8dc4o"
+      },
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 242,
+      "commandSha256": "db96a62a61f60264e233cc1cff7c686997be7ad964f881038ba93aaeeb4423ea",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzpls-x5s1e-1/stdout.log",
+      "stderr": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzpls-x5s1e-1/stderr.log",
+      "summary": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyvzpls-x5s1e-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 1,
+        "checks": 20,
+        "presetRow": 1,
+        "roleMapping": 0,
+        "laneGuard": 1,
+        "scopeGuard": 1,
+        "configEffort": 1,
+        "childEffort": 1,
+        "rootPolicy": 1,
+        "control": 0,
+        "load": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "every driver check passes",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 1,
+          "threshold": 0,
+          "pass": false,
+          "reason": "1 is not <= 0"
+        },
+        {
+          "name": "devops preset row at order 35 with the required tool-todo config",
+          "metric": "presetRow",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+          "metric": "roleMapping",
+          "op": "==",
+          "measured": 0,
+          "threshold": 1,
+          "pass": false,
+          "reason": "0 is not == 1"
+        },
+        {
+          "name": "one live deployment task per chat",
+          "metric": "laneGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "active-task scope claims",
+          "metric": "scopeGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "High reasoning default in the profile",
+          "metric": "configEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "child starts at High effort",
+          "metric": "childEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "runtime-lane and Development-rules policy anchors",
+          "metric": "rootPolicy",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyw1037-ihoz7-1",
+      "at": "2026-11-27T11:18:11.158Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+        "taskId": "task-mwyvpo6b-q8dc4o"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 841,
+      "commandSha256": "db96a62a61f60264e233cc1cff7c686997be7ad964f881038ba93aaeeb4423ea",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyw1037-ihoz7-1/stdout.log",
+      "stderr": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyw1037-ihoz7-1/stderr.log",
+      "summary": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyw1037-ihoz7-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0,
+        "checks": 20,
+        "presetRow": 1,
+        "roleMapping": 1,
+        "laneGuard": 1,
+        "scopeGuard": 1,
+        "configEffort": 1,
+        "childEffort": 1,
+        "rootPolicy": 1,
+        "control": 0,
+        "load": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "every driver check passes",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "devops preset row at order 35 with the required tool-todo config",
+          "metric": "presetRow",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+          "metric": "roleMapping",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "one live deployment task per chat",
+          "metric": "laneGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "active-task scope claims",
+          "metric": "scopeGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "High reasoning default in the profile",
+          "metric": "configEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "child starts at High effort",
+          "metric": "childEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "runtime-lane and Development-rules policy anchors",
+          "metric": "rootPolicy",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyw46ys-esorg-1",
+      "at": "2026-11-27T11:20:39.285Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+        "taskId": "task-mwyvpo6b-q8dc4o"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 216,
+      "commandSha256": "db96a62a61f60264e233cc1cff7c686997be7ad964f881038ba93aaeeb4423ea",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyw46ys-esorg-1/stdout.log",
+      "stderr": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyw46ys-esorg-1/stderr.log",
+      "summary": "docs/cases/runs/devops-lane-and-scope-overlap-through-delegate-task/mwyw46ys-esorg-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0,
+        "checks": 20,
+        "presetRow": 1,
+        "roleMapping": 1,
+        "laneGuard": 1,
+        "scopeGuard": 1,
+        "configEffort": 1,
+        "childEffort": 1,
+        "rootPolicy": 1,
+        "control": 0,
+        "load": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "every driver check passes",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "devops preset row at order 35 with the required tool-todo config",
+          "metric": "presetRow",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "DEVOPS/DEPLOYMENT/OPS and the no-preset delegation",
+          "metric": "roleMapping",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "one live deployment task per chat",
+          "metric": "laneGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "active-task scope claims",
+          "metric": "scopeGuard",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "High reasoning default in the profile",
+          "metric": "configEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "child starts at High effort",
+          "metric": "childEffort",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "runtime-lane and Development-rules policy anchors",
+          "metric": "rootPolicy",
+          "op": "==",
+          "measured": 1,
+          "threshold": 1,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-27T11:17:05.279Z",
+    "runId": "mwyvzme8-mu5hq-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node tests/devops-lane/driver.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-devops-head-7090829",
+    "head": "ef4f7a01b1a1b21c27c0570671f4d3899708a346",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+      "taskId": "task-mwyvpo6b-q8dc4o"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-27T11:20:39.292Z",
+    "command": "node tests/devops-lane/driver.mjs",
+    "exitCode": 0,
+    "runId": "mwyw46ys-esorg-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "2b024beb-4447-4bfe-bbc1-0b042caa4a4b",
+      "taskId": "task-mwyvpo6b-q8dc4o"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  }
+}

@@ -1,1264 +1,1944 @@
-import { createRequire as __designmapCreateRequire } from 'node:module';const require = __designmapCreateRequire(import.meta.url);
-import {
-  EDGE_LABEL_FONT_SIZE,
-  EDGE_LABEL_LINE_HEIGHT,
-  applyToWorkspace,
-  boxesWithinGap,
-  createLogger,
-  findFreeSpot,
-  isHexColour,
-  labelBoxOf,
-  paletteFor,
-  renderAll,
-  renderView,
-  selectView,
-  wrapEdgeLabel
-} from "./chunk-APSIGH2O.mjs";
-import {
-  canonicalModel,
-  createWorkspace,
-  sha256,
-  toJson
-} from "./chunk-45OXK2TV.mjs";
-import {
-  DIRECTIONS,
-  DesignmapRefusal,
-  EDGE_KINDS,
-  NODE_TYPES,
-  REFUSALS,
-  VIEW_LEVELS
-} from "./chunk-MQWKWIN2.mjs";
-
 // index.js
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
-// src/host.mjs
-import { appendFileSync, existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename, dirname as dirname2, isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2, sep } from "node:path";
-
-// src/manifest.mjs
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-var MANIFEST_FILE = "manifest.json";
-var MANIFEST_SCHEMA_VERSION = 1;
-var SEED_SCENE_FILE = "design.excalidraw";
-function hashFile(path) {
-  if (!existsSync(path)) return null;
-  return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
-}
-function resolveSource(repoRoot, source) {
-  if (typeof source !== "string" || source === "") return null;
-  const absolute = resolve(repoRoot, source);
-  const rel = relative(repoRoot, absolute);
-  if (rel.startsWith("..") || isAbsolute(rel)) return null;
-  return absolute;
-}
-function sourceHashes(model, repoRoot) {
-  const hashes = {};
-  for (const node of model.nodes) {
-    if (node.source === null || node.source === void 0) continue;
-    const absolute = resolveSource(repoRoot, node.source);
-    hashes[node.id] = absolute === null ? null : hashFile(absolute);
-  }
-  return hashes;
-}
-function modelContentHash(model) {
-  return sha256(toJson(canonicalModel(model)));
-}
-function seedRevision(repoRoot) {
-  const path = join(repoRoot, SEED_SCENE_FILE);
-  if (!existsSync(path)) return 0;
-  try {
-    const rev = JSON.parse(readFileSync(path, "utf8"))?.designMap?.rev;
-    return Number.isSafeInteger(rev) && rev >= 0 ? rev : 0;
-  } catch {
-    return 0;
-  }
-}
-function nextRevision({ previous, modelHash, changed = false, seed = () => 0 }) {
-  const previousRev = Number.isSafeInteger(previous?.rev) && previous.rev >= 0 ? previous.rev : null;
-  if (previousRev === null) return seed() + (changed ? 1 : 0);
-  if (typeof previous?.modelHash === "string" && previous.modelHash !== "") {
-    return previous.modelHash === modelHash ? previousRev : previousRev + 1;
-  }
-  return previousRev + (changed ? 1 : 0);
-}
-function buildManifest({ model, repoRoot, commit, generatedAt, previous = null, changed = false }) {
-  const modelHash = modelContentHash(model);
-  return {
-    schemaVersion: MANIFEST_SCHEMA_VERSION,
-    // The retired scene is read ONLY when there is no revision to continue: an ordinary
-    // apply must not touch it at all.
-    rev: nextRevision({ previous, modelHash, changed, seed: () => seedRevision(repoRoot) }),
-    commit: commit ?? null,
-    generatedAt,
-    modelHash,
-    sourceHashes: sourceHashes(model, repoRoot)
-  };
-}
-function readManifest(designmapDir) {
-  const path = join(designmapDir, MANIFEST_FILE);
-  if (!existsSync(path)) return { manifest: null, text: null, path, missing: true };
-  const text = readFileSync(path, "utf8");
-  try {
-    const manifest = JSON.parse(text);
-    return { manifest, text, path, missing: false };
-  } catch (error) {
-    return { manifest: null, text, path, missing: false, malformed: error.message };
-  }
-}
-function sameManifestContent(left, right) {
-  if (left === null || right === null) return left === right;
-  const strip = (manifest) => JSON.stringify({
-    schemaVersion: manifest.schemaVersion,
-    rev: manifest.rev ?? 0,
-    commit: manifest.commit ?? null,
-    modelHash: manifest.modelHash ?? null,
-    sourceHashes: Object.fromEntries(Object.entries(manifest.sourceHashes ?? {}).sort(([a], [b]) => a < b ? -1 : 1))
-  });
-  return strip(left) === strip(right);
-}
-function writeManifest(designmapDir, manifest) {
-  const path = join(designmapDir, MANIFEST_FILE);
-  const text = `${JSON.stringify(manifest, null, 2)}
-`;
-  mkdirSync(dirname(path), { recursive: true });
-  const existing = existsSync(path) ? readFileSync(path, "utf8") : null;
-  if (existing === text) return { path, written: false };
-  try {
-    const current = existing === null ? null : JSON.parse(existing);
-    if (sameManifestContent(current, manifest)) return { path, written: false };
-  } catch {
-  }
-  const temporary = `${path}.tmp-${process.pid}`;
-  writeFileSync(temporary, text, "utf8");
-  renameSync(temporary, path);
-  return { path, written: true };
-}
-
-// src/git.mjs
-import { execFileSync } from "node:child_process";
-var COMMIT = /^[0-9a-f]{7,40}$/u;
-var GitError = class extends Error {
-  constructor(message, cause) {
+// src/pages.mjs
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+var MapRefusal = class extends Error {
+  constructor(code, message) {
     super(message);
-    this.name = "GitError";
-    this.code = "git_unavailable";
-    this.cause = cause;
+    this.name = "MapRefusal";
+    this.code = code;
   }
 };
-function isCommit(value) {
-  return typeof value === "string" && COMMIT.test(value);
+var PAGE_SUFFIX = ".excalidraw";
+var SCENE_SOURCE = "https://github.com/iustimov/dsh-kit/tree/main/plugins/designmap";
+var SLUG = /^[a-z0-9][a-z0-9-]*$/;
+function pagesDir(designmapDir) {
+  return join(designmapDir, "pages");
 }
-function createGit({ cwd, run }) {
-  const execute = run ?? ((args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
-  const call = (args) => {
-    try {
-      return String(execute(args)).trim();
-    } catch (error) {
-      throw new GitError(`git ${args.join(" ")} failed: ${error?.message ?? error}`, error);
-    }
-  };
+function emptyScene() {
   return {
-    cwd,
-    head() {
-      const value = call(["rev-parse", "HEAD"]);
-      return isCommit(value) ? value : null;
-    },
-    /** Commits HEAD is ahead of `commit`; null when the manifest commit is unknown. */
-    commitBehind(commit) {
-      if (!isCommit(commit)) return null;
-      try {
-        const value = call(["rev-list", "--count", `${commit}..HEAD`]);
-        return Number.parseInt(value, 10);
-      } catch {
-        return null;
-      }
-    },
-    /**
-     * Changes since `commit`: committed diffs, working-tree edits AND untracked files
-     * (`git diff` alone hides untracked, which is exactly the new-file case scan must
-     * propose).
-     */
-    diffNameStatus(commit) {
-      const revision = isCommit(commit) ? commit : "HEAD";
-      const text = call(["diff", "--name-status", revision, "--"]);
-      const entries = text === "" ? [] : text.split("\n").map((line) => {
-        const parts = line.split("	");
-        return { status: parts[0], path: parts[1], from: parts[2] ?? null };
-      }).filter((entry) => entry.path !== void 0);
-      const known = new Set(entries.map((entry) => entry.path));
-      const untracked = call(["ls-files", "--others", "--exclude-standard"]);
-      if (untracked !== "") {
-        for (const path of untracked.split("\n")) {
-          if (path !== "" && !known.has(path)) entries.push({ status: "A", path, from: null });
-        }
-      }
-      return entries;
-    }
+    type: "excalidraw",
+    version: 2,
+    source: SCENE_SOURCE,
+    elements: [],
+    appState: { gridSize: null, viewBackgroundColor: "#ffffff" },
+    files: {}
   };
 }
-
-// src/host.mjs
-import { spawnSync } from "node:child_process";
-import { createHash as createHash2 } from "node:crypto";
-
-// src/svg.mjs
-function escapeXml(value) {
-  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
-}
-function num(value) {
-  return Number.isFinite(value) ? String(Math.round(value * 100) / 100) : "0";
-}
-function textLines(label, x, y, lineHeight = 16) {
-  const lines = String(label ?? "").split("\n");
-  const start = y - (lines.length - 1) * lineHeight / 2;
-  return lines.map((line, index) => `<tspan x="${x}" y="${num(start + index * lineHeight)}">${escapeXml(line)}</tspan>`).join("");
-}
-function sceneToSvg(scene, { colours = /* @__PURE__ */ new Map() } = {}) {
-  const { canvas } = scene;
-  const parts = [];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${num(canvas.width)}" height="${num(canvas.height)}" viewBox="${num(canvas.x)} ${num(canvas.y)} ${num(canvas.width)} ${num(canvas.height)}" role="img" aria-label="${escapeXml(scene.title || scene.viewId)}">`);
-  parts.push('<defs><marker id="designmap-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/></marker></defs>');
-  parts.push(`<rect class="canvas" x="${num(canvas.x)}" y="${num(canvas.y)}" width="${num(canvas.width)}" height="${num(canvas.height)}" fill="#ffffff"/>`);
-  if (scene.title !== "") {
-    parts.push(`<text class="title" x="${num(canvas.x + 12)}" y="${num(canvas.y + 24)}" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="600" fill="#0f172a">${escapeXml(scene.title)}</text>`);
+function assertSlug(slug) {
+  if (typeof slug !== "string" || !SLUG.test(slug)) {
+    throw new MapRefusal("invalid_page", `${JSON.stringify(slug)} is not a page name: use lowercase letters, digits and '-'`);
   }
-  for (const group of scene.groups) {
-    parts.push(`<g class="group" data-group-id="${escapeXml(group.id)}">`);
-    parts.push(`<rect x="${num(group.x)}" y="${num(group.y)}" width="${num(group.w)}" height="${num(group.h)}" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>`);
-    if (group.label !== "") {
-      parts.push(`<text x="${num(group.x + 10)}" y="${num(group.y + 20)}" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#475569">${escapeXml(group.label)}</text>`);
-    }
-    parts.push("</g>");
-  }
-  for (const edge of scene.edges) {
-    if (edge.points.length < 2) continue;
-    const points = edge.points.map((point) => `${num(point.x)},${num(point.y)}`).join(" ");
-    parts.push(`<g class="edge" data-edge-id="${escapeXml(edge.id)}" data-kind="${escapeXml(edge.kind)}">`);
-    parts.push(`<polyline points="${points}" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#designmap-arrow)"/>`);
-    if (edge.label !== "") {
-      const box = labelBoxOf(edge);
-      const lines = Array.isArray(edge.labelLines) && edge.labelLines.length > 0 ? edge.labelLines : wrapEdgeLabel(edge.label);
-      const centreX = box.x + box.w / 2;
-      const startY = box.y + box.h / 2 - (lines.length - 1) * EDGE_LABEL_LINE_HEIGHT / 2;
-      parts.push(`<g class="edge-label" data-edge-id="${escapeXml(edge.id)}">`);
-      parts.push(`<rect x="${num(box.x)}" y="${num(box.y)}" width="${num(box.w)}" height="${num(box.h)}" rx="4" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>`);
-      parts.push(`<text x="${num(centreX)}" y="${num(startY)}" text-anchor="middle" dominant-baseline="middle" font-family="Inter, system-ui, sans-serif" font-size="${EDGE_LABEL_FONT_SIZE}" fill="#334155">${lines.map((line, index) => `<tspan x="${num(centreX)}" y="${num(startY + index * EDGE_LABEL_LINE_HEIGHT)}">${escapeXml(line)}</tspan>`).join("")}</text>`);
-      parts.push("</g>");
-    }
-    parts.push("</g>");
-  }
-  for (const node of scene.nodes) {
-    const palette = paletteFor(node.type);
-    const overlay = colours.get(node.id) ?? {};
-    const fill = overlay.fill ?? palette.fill;
-    const stroke = overlay.stroke ?? palette.stroke;
-    const centreX = node.x + node.w / 2;
-    const centreY = node.y + node.h / 2;
-    parts.push(`<g class="node" data-node-id="${escapeXml(node.id)}" data-type="${escapeXml(node.type)}">`);
-    parts.push(`<rect x="${num(node.x)}" y="${num(node.y)}" width="${num(node.w)}" height="${num(node.h)}" rx="6" fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" stroke-width="1.5"/>`);
-    parts.push(`<text x="${num(centreX)}" y="${num(centreY)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#0f172a">${textLines(node.label, centreX, centreY)}</text>`);
-    parts.push("</g>");
-  }
-  parts.push("</svg>");
-  return `${parts.join("\n")}
-`;
+  return slug;
 }
-
-// src/host.mjs
-var LOG_FILE = "events.jsonl";
-function repoRelative(root, absolute) {
-  return (relative2(root, absolute) || absolute).split(sep).join("/");
+function pagePath(designmapDir, slug) {
+  return join(pagesDir(designmapDir), `${assertSlug(slug)}${PAGE_SUFFIX}`);
 }
-var MAX_ANNOTATIONS = 200;
-var ANNOTATION_TYPES = /* @__PURE__ */ new Set(["rectangle", "ellipse", "diamond", "arrow", "line", "text", "freedraw"]);
-var DEFAULT_SCAN_ROOTS = ["src"];
-var DEFAULT_SCAN_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".py", ".go", ".sql"];
-var TYPE_RULES = [
-  [/(^|\/)(db|database|datastore|storage|schema)\//u, "datastore"],
-  [/(^|\/)(queue|kafka|bus|topic)\//u, "queue"],
-  [/(^|\/)(worker|workers|job|jobs|consumer)\//u, "worker"],
-  [/(^|\/)(ui|web|client|frontend|components?)\//u, "frontend"],
-  [/(^|\/)(external|vendor|third_party|stub)\//u, "external"]
-];
-function createFileLogger(designmapDir) {
-  if (!existsSync2(designmapDir)) return { logger: createLogger(), path: null };
-  const dir = join2(designmapDir, "logs");
-  mkdirSync2(dir, { recursive: true });
-  const path = join2(dir, LOG_FILE);
-  const logger = createLogger((line) => appendFileSync(path, line));
-  return { logger, path };
-}
-function proposalFor(path) {
-  const withoutExtension = path.replace(/\.[^./]+$/u, "");
-  const id = withoutExtension.replace(/[^A-Za-z0-9_.-]+/gu, ".").replace(/\.+/gu, ".").replace(/^[.-]+/u, "");
-  const stem = basename(withoutExtension);
-  const label = stem.split(/[-_.]+/u).filter(Boolean).map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(" ") || id;
-  const type = TYPE_RULES.find(([pattern]) => pattern.test(path))?.[1] ?? "service";
-  return { kind: "node", action: "upsert", value: { id, type, label, group: null, source: path } };
-}
-function extensionOf(path) {
-  const match = /\.[^./]+$/u.exec(path);
-  return match === null ? "" : match[0];
-}
-function nodeIdsBySource(model) {
-  const map = /* @__PURE__ */ new Map();
-  for (const node of model.nodes) {
-    if (node.source === null || node.source === void 0) continue;
-    const list = map.get(node.source) ?? [];
-    list.push(node.id);
-    map.set(node.source, list);
-  }
-  return map;
-}
-var PNG_CONVERTERS = Object.freeze(["rsvg-convert", "convert", "magick"]);
-function resolveExecutable(command, pathEnv = process.env.PATH ?? "") {
-  if (command.includes("/") || isAbsolute2(command)) return existsSync2(command) ? command : null;
-  for (const directory of pathEnv.split(":")) {
-    if (directory === "") continue;
-    const candidate = join2(directory, command);
-    if (existsSync2(candidate)) return candidate;
-  }
-  return null;
-}
-function findPngConverter({ env = process.env } = {}) {
-  const configured = env.DESIGNMAP_PNG_CONVERTER;
-  if (typeof configured === "string" && configured !== "") {
-    const resolved = resolveExecutable(configured, env.PATH);
-    return resolved === null ? { missing: configured } : { command: resolved, configured: true };
-  }
-  for (const candidate of PNG_CONVERTERS) {
-    const resolved = resolveExecutable(candidate, env.PATH);
-    if (resolved !== null) return { command: resolved, configured: false };
-  }
-  return null;
-}
-function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PURE__ */ new Date(), logger } = {}) {
-  const dir = resolve2(designmapDir);
-  const root = resolve2(repoRoot ?? dirname2(dir));
-  const workspace = createWorkspace(dir);
-  const gitRunner = git ?? createGit({ cwd: root });
-  const now = () => clock().toISOString();
-  const log = (event, fields) => logger?.log(event, fields);
-  const head = () => {
+function listPages(designmapDir) {
+  const dir = pagesDir(designmapDir);
+  if (!existsSync(dir)) return [];
+  const rows = [];
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith(PAGE_SUFFIX)) continue;
+    const page = file.slice(0, -PAGE_SUFFIX.length);
+    if (!SLUG.test(page)) continue;
+    let scene;
     try {
-      return gitRunner.head();
-    } catch (error) {
-      if (error instanceof GitError) return null;
-      throw error;
+      scene = JSON.parse(readFileSync(join(dir, file), "utf8"));
+    } catch {
+      rows.push({ page, nodes: 0, edges: 0, modified: statSync(join(dir, file)).mtime.toISOString(), unreadable: true });
+      continue;
     }
+    const elements = Array.isArray(scene?.elements) ? scene.elements : [];
+    const shapes = elements.filter((entry) => SHAPES.has(entry?.type)).length;
+    const arrows = elements.filter((entry) => entry?.type === "arrow").length;
+    rows.push({ page, nodes: shapes, edges: arrows, modified: statSync(join(dir, file)).mtime.toISOString() });
+  }
+  return rows.sort((left, right) => left.modified < right.modified ? 1 : left.modified > right.modified ? -1 : 0);
+}
+var SHAPES = /* @__PURE__ */ new Set(["rectangle", "ellipse", "diamond"]);
+function readPage(designmapDir, slug) {
+  const path = pagePath(designmapDir, slug);
+  if (!existsSync(path)) {
+    throw new MapRefusal("unknown_page", `no page "${slug}" in ${pagesDir(designmapDir)}`);
+  }
+  let scene;
+  try {
+    scene = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new MapRefusal("unreadable_page", `${path}: ${error.message}`);
+  }
+  if (scene === null || typeof scene !== "object" || !Array.isArray(scene.elements)) {
+    return { ...emptyScene(), ...scene !== null && typeof scene === "object" ? scene : {}, elements: [] };
+  }
+  return scene;
+}
+function writePage(designmapDir, slug, scene) {
+  const path = pagePath(designmapDir, slug);
+  mkdirSync(pagesDir(designmapDir), { recursive: true });
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(scene, null, 2)}
+`, "utf8");
+  renameSync(temp, path);
+  return path;
+}
+function createPage(designmapDir, slug) {
+  const path = pagePath(designmapDir, slug);
+  if (existsSync(path)) throw new MapRefusal("page_exists", `page "${slug}" already exists`);
+  return writePage(designmapDir, slug, emptyScene());
+}
+function renamePage(designmapDir, from, to) {
+  const source = pagePath(designmapDir, from);
+  if (!existsSync(source)) throw new MapRefusal("unknown_page", `no page "${from}"`);
+  const target = pagePath(designmapDir, to);
+  if (existsSync(target)) throw new MapRefusal("page_exists", `page "${to}" already exists`);
+  mkdirSync(pagesDir(designmapDir), { recursive: true });
+  renameSync(source, target);
+  return target;
+}
+function deletePage(designmapDir, slug) {
+  const path = pagePath(designmapDir, slug);
+  if (!existsSync(path)) throw new MapRefusal("unknown_page", `no page "${slug}"`);
+  rmSync(path);
+  return path;
+}
+
+// src/ops.mjs
+import { join as join3 } from "node:path";
+
+// src/elements.mjs
+var SHAPE_TYPES = /* @__PURE__ */ new Set(["rectangle", "ellipse", "diamond"]);
+var NODE_FONT_SIZE = 13;
+var NODE_LINE_HEIGHT = 1.25;
+var EDGE_FONT_SIZE = 11;
+var EDGE_LINE_HEIGHT = 1.25;
+var CHAR_WIDTH = 6.9;
+var MIN_NODE_WIDTH = 140;
+var MIN_NODE_HEIGHT = 56;
+var MAX_NODE_WIDTH = 300;
+var NODE_PADDING_X = 16;
+var LINE_HEIGHT_PX = NODE_FONT_SIZE * NODE_LINE_HEIGHT;
+var NODE_GAP = 48;
+var LAYER_GAP = 96;
+var BOUND_TEXT_PADDING = 5;
+var ELLIPSE_INSCRIBED = Math.SQRT2;
+var INK = "#1e1e1e";
+var NODE_FILL = "#a5d8ff";
+var EDGE_INK = "#495057";
+var NODE_COLORS = {
+  blue: "#a5d8ff",
+  green: "#b2f2bb",
+  red: "#ffc9c9",
+  yellow: "#ffec99",
+  violet: "#d0bfff",
+  grey: "#e9ecef",
+  white: "#ffffff",
+  none: "transparent"
+};
+function colorOf(name2, fallback = NODE_FILL) {
+  if (typeof name2 !== "string" || name2 === "") return fallback;
+  return NODE_COLORS[name2.toLowerCase()] ?? fallback;
+}
+function seedOf(text) {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash % 2147483647;
+}
+function element(type, id, fields) {
+  return {
+    id,
+    type,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    angle: 0,
+    strokeColor: INK,
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 2,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    groupIds: [],
+    frameId: null,
+    index: null,
+    roundness: null,
+    seed: seedOf(id),
+    version: 1,
+    versionNonce: seedOf(`nonce:${id}`),
+    isDeleted: false,
+    boundElements: [],
+    updated: 1,
+    link: null,
+    locked: false,
+    ...fields
   };
-  const status = () => {
-    const model = workspace.readModel().model;
-    const warnings = [];
-    const read = readManifest(dir);
-    const headCommit = head();
-    const staleNodes = [];
-    let commit = null;
-    let commitBehind = null;
-    let missingManifest = false;
-    if (read.manifest === null) {
-      missingManifest = true;
-      warnings.push(read.malformed === void 0 ? "manifest_missing" : `manifest_malformed: ${read.malformed}`);
-      for (const node of model.nodes) {
-        if (node.source === null || node.source === void 0) continue;
-        staleNodes.push({ id: node.id, source: node.source, reason: "no_manifest" });
-      }
-    } else {
-      commit = isCommit(read.manifest.commit ?? "") ? read.manifest.commit : null;
-      if (commit === null) warnings.push("manifest_commit_invalid");
-      commitBehind = commit === null ? null : gitRunner.commitBehind(commit);
-      if (commit !== null && commitBehind === null) warnings.push("manifest_commit_unknown");
-      const expected = read.manifest.sourceHashes ?? {};
-      for (const node of model.nodes) {
-        if (node.source === null || node.source === void 0) continue;
-        const absolute = resolveSource(root, node.source);
-        const current = absolute === null ? null : hashFile(absolute);
-        if (!(node.id in expected)) {
-          staleNodes.push({ id: node.id, source: node.source, reason: "not_in_manifest" });
-        } else if (expected[node.id] !== current) {
-          staleNodes.push({ id: node.id, source: node.source, reason: current === null ? "source_missing" : "source_changed" });
-        }
-      }
+}
+function textWidth(text) {
+  return Math.ceil(String(text ?? "").length * CHAR_WIDTH);
+}
+function wrapLabel(label, maxChars) {
+  const words = String(label ?? "").split(/\s+/).filter((word) => word !== "");
+  if (words.length === 0) return [""];
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const next = line === "" ? word : `${line} ${word}`;
+    if (next.length <= maxChars || line === "") line = next;
+    else {
+      lines.push(line);
+      line = word;
     }
-    const stale = missingManifest || commitBehind !== null && commitBehind > 0 || staleNodes.length > 0 || warnings.includes("manifest_commit_unknown") || warnings.includes("manifest_commit_invalid");
-    return {
-      ok: true,
-      stale,
-      missingManifest,
-      commit,
-      head: headCommit,
-      commitBehind,
-      staleNodeIds: staleNodes.map((entry) => entry.id),
-      staleNodes,
-      warnings
-    };
+  }
+  lines.push(line);
+  return lines;
+}
+function innerTextWidth(type, width) {
+  if (type === "ellipse") return Math.max(8, Math.round(width / 2 * ELLIPSE_INSCRIBED) - BOUND_TEXT_PADDING * 2);
+  if (type === "diamond") return Math.max(8, Math.round(width / 2) - BOUND_TEXT_PADDING * 2);
+  return Math.max(8, Math.round(width) - BOUND_TEXT_PADDING * 2);
+}
+function innerTextHeight(type, height) {
+  if (type === "ellipse") return Math.max(8, Math.round(height / 2 * ELLIPSE_INSCRIBED) - BOUND_TEXT_PADDING * 2);
+  if (type === "diamond") return Math.max(8, Math.round(height / 2) - BOUND_TEXT_PADDING * 2);
+  return Math.max(8, Math.round(height) - BOUND_TEXT_PADDING * 2);
+}
+function sizedToText(textWanted, textHeightWanted, type) {
+  const wanted = Math.ceil(textWanted + BOUND_TEXT_PADDING * 2);
+  const wantedHeight = Math.ceil(textHeightWanted + BOUND_TEXT_PADDING * 2);
+  if (type === "ellipse") {
+    return { width: Math.ceil(wanted * ELLIPSE_INSCRIBED), height: Math.ceil(wantedHeight * ELLIPSE_INSCRIBED) };
+  }
+  if (type === "diamond") return { width: wanted * 2, height: wantedHeight * 2 };
+  return { width: wanted, height: wantedHeight };
+}
+function nodeSize(label, type = "rectangle") {
+  const maxChars = Math.floor((MAX_NODE_WIDTH - NODE_PADDING_X * 2) / CHAR_WIDTH);
+  const lines = wrapLabel(label, maxChars);
+  const widest = lines.reduce((max, line) => Math.max(max, line.length), 0);
+  const textWanted = Math.max(widest * CHAR_WIDTH, MIN_NODE_WIDTH - NODE_PADDING_X * 2);
+  const textHeightWanted = lines.length * LINE_HEIGHT_PX;
+  const box = sizedToText(textWanted, textHeightWanted, type);
+  return {
+    width: Math.max(type === "rectangle" ? MIN_NODE_WIDTH : MIN_NODE_WIDTH + 20, box.width),
+    height: Math.max(type === "rectangle" ? MIN_NODE_HEIGHT : MIN_NODE_HEIGHT + 12, box.height),
+    lines
   };
-  const scan = ({ roots = DEFAULT_SCAN_ROOTS, extensions = DEFAULT_SCAN_EXTENSIONS } = {}) => {
-    const model = workspace.readModel().model;
-    const read = readManifest(dir);
-    const headCommit = head();
-    const base = read.manifest?.commit ?? headCommit;
-    const warnings = [];
-    let changes = [];
-    try {
-      changes = gitRunner.diffNameStatus(base);
-    } catch (error) {
-      if (!(error instanceof GitError)) throw error;
-      warnings.push("git_unavailable");
-    }
-    const bySource = nodeIdsBySource(model);
-    const edgesByNode = /* @__PURE__ */ new Map();
-    for (const edge of model.edges) {
-      for (const id of [edge.from, edge.to]) {
-        const list = edgesByNode.get(id) ?? [];
-        if (!list.includes(edge.id)) list.push(edge.id);
-        edgesByNode.set(id, list);
-      }
-    }
-    const changedFiles = [];
-    const proposedOps = [];
-    const affected = /* @__PURE__ */ new Set();
-    const unrepresented = [];
-    const blocked = [];
-    for (const change of changes) {
-      const statusCode = String(change.status ?? "")[0];
-      const path = change.path;
-      const nodeIds = [...bySource.get(path) ?? [], ...change.from === null ? [] : bySource.get(change.from) ?? []];
-      changedFiles.push({ path, status: statusCode, nodeIds: [...new Set(nodeIds)] });
-      if (statusCode === "D") {
-        for (const nodeId of bySource.get(path) ?? []) {
-          const edges = edgesByNode.get(nodeId) ?? [];
-          if (edges.length > 0) blocked.push({ nodeId, reason: "node_has_edges", edges });
-          else proposedOps.push({ kind: "node", action: "remove", id: nodeId });
-        }
-        continue;
-      }
-      if (statusCode === "A" || statusCode === "R" || statusCode === "C") {
-        const referenced = bySource.has(path);
-        const watched = roots.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
-        if (!referenced && watched && extensions.includes(extensionOf(path))) proposedOps.push(proposalFor(path));
-        else if (!referenced) unrepresented.push({ path, status: statusCode });
-        else for (const nodeId of bySource.get(path) ?? []) affected.add(nodeId);
-        continue;
-      }
-      for (const nodeId of bySource.get(path) ?? []) affected.add(nodeId);
-    }
-    return {
-      ok: true,
-      head: headCommit,
-      manifestCommit: read.manifest?.commit ?? null,
-      base,
-      changedFiles,
-      proposedOps,
-      affectedNodes: [...affected].sort(),
-      unrepresented,
-      blocked,
-      warnings
-    };
-  };
-  const apply2 = (ops, { logger: inner } = {}) => {
-    const resolved = Array.isArray(ops) ? ops : ops?.ops;
-    if (!Array.isArray(resolved)) {
-      throw new DesignmapRefusal(REFUSALS.invalidOps, "apply needs an array of ops", { ops });
-    }
-    const result = applyToWorkspace(workspace, resolved, { logger: inner ?? logger });
-    const model = workspace.readModel().model;
-    const headCommit = head();
-    const previous = readManifest(dir).manifest;
-    const manifest = buildManifest({ model, repoRoot: root, commit: headCommit, generatedAt: now(), previous, changed: result.written.model });
-    const written = writeManifest(dir, manifest);
-    return {
-      ok: true,
-      applied: result.applied,
-      skipped: result.skipped,
-      ops: result.ops,
-      diff: result.diff,
-      written: { model: result.written.model, views: result.written.views, manifest: written.written },
-      manifest: { rev: manifest.rev, commit: manifest.commit, generatedAt: manifest.generatedAt, nodes: Object.keys(manifest.sourceHashes).length }
-    };
-  };
-  const envelopeFor = (result, staleReport) => ({
-    ok: true,
-    viewId: result.viewId,
-    scenePath: repoRelative(root, workspace.scenePath(result.viewId)),
-    sceneHash: result.sceneHash,
-    bytes: result.bytes,
-    scene: result.scene,
-    stale: {
-      stale: staleReport.stale,
-      missingManifest: staleReport.missingManifest,
-      commit: staleReport.commit,
-      head: staleReport.head,
-      commitBehind: staleReport.commitBehind,
-      staleNodes: staleReport.staleNodes,
-      warnings: staleReport.warnings
-    },
-    lint: result.lint,
-    generatedAt: now(),
-    commit: staleReport.head
+}
+function buildNode({ id, type = "rectangle", label = "", x = 0, y = 0, width, height, color }) {
+  if (!SHAPE_TYPES.has(type)) type = "rectangle";
+  const size = nodeSize(label, type);
+  const w = Number.isFinite(width) && width > 0 ? width : size.width;
+  const h = Number.isFinite(height) && height > 0 ? height : size.height;
+  const textId = `${id}:label`;
+  const text = String(label ?? "");
+  const shape = element(type, id, {
+    x,
+    y,
+    width: w,
+    height: h,
+    backgroundColor: colorOf(color),
+    roundness: type === "rectangle" ? { type: 3 } : null,
+    boundElements: text === "" ? [] : [{ type: "text", id: textId }]
   });
-  const panelViews = async ({ viewId } = {}) => {
-    const staleReport = status();
-    const viewsDoc = workspace.readViews().views;
-    if (viewId !== void 0 && !viewsDoc.views.some((view) => view.id === viewId)) {
-      throw new DesignmapRefusal(REFUSALS.unknownView, `unknown view "${String(viewId)}"`, { viewId });
-    }
-    const model = workspace.readModel().model;
-    const overlays = workspace.readOverlays().overlays;
-    const ids = viewId === void 0 ? viewsDoc.views.map((view) => view.id) : [viewId];
-    const rows = [];
-    for (const id of ids) {
-      const view = viewsDoc.views.find((candidate) => candidate.id === id);
-      const result = await renderView({
-        model,
-        views: viewsDoc,
-        overlays,
-        viewId: id,
-        staleNodeIds: staleReport.staleNodeIds,
-        logger
-      });
-      rows.push({
-        view: { viewId: id, title: view.title ?? "", level: view.level, parentGroupId: view.parent ?? null },
-        scene: result.scene,
-        meta: {
-          generatedAt: now(),
-          commit: staleReport.head,
-          sceneHash: result.sceneHash,
-          scenePath: repoRelative(root, workspace.scenePath(id)),
-          stale: {
-            stale: staleReport.stale,
-            commitBehind: staleReport.commitBehind,
-            staleNodes: staleReport.staleNodeIds
-          },
-          lint: result.lint
-        }
-      });
-    }
-    const index = workspace.readIndex().index;
-    const indexRows = Array.isArray(index?.views) ? index.views : [];
-    const rootRow = indexRows.find((row) => row.parent === null && row.level === "context") ?? indexRows.find((row) => row.parent === null) ?? null;
-    const rootId = rows.find((row) => row.view.viewId === rootRow?.viewId)?.view.viewId ?? rows.find((row) => row.view.level === "context")?.view.viewId ?? rows[0]?.view.viewId ?? null;
-    const annotations = workspace.readAnnotations().elements;
-    logger?.log("panel.views", { views: rows.length, viewId: viewId ?? null });
-    return {
-      ok: true,
-      views: rows,
-      rootId,
-      overlays: { rows: overlays, path: "designmap/overlays.json" },
-      annotations,
-      stale: {
-        stale: staleReport.stale,
-        commitBehind: staleReport.commitBehind,
-        staleNodes: staleReport.staleNodes
-      },
-      generatedAt: now(),
-      commit: staleReport.head
-    };
-  };
-  const OVERLAY_GAP = 8;
-  const viewForNode = (model, viewsDoc, nodeId, viewId) => {
-    if (viewId !== void 0) return viewsDoc.views.find((view) => view.id === viewId) ?? null;
-    return viewsDoc.views.find((view) => selectView(model, view).nodes.some((node) => node.id === nodeId)) ?? null;
-  };
-  const autoPlace = async ({ nodeId, x, y, viewId, overlays }) => {
-    const model = workspace.readModel().model;
-    const viewsDoc = workspace.readViews().views;
-    const view = viewForNode(model, viewsDoc, nodeId, viewId);
-    if (view === null) return null;
-    const result = await renderView({
-      model,
-      views: viewsDoc,
-      overlays,
-      viewId: view.id,
-      staleNodeIds: [],
-      logger
-    });
-    const self = result.scene.nodes.find((node) => node.id === nodeId);
-    if (self === void 0) return null;
-    const requested = { x: x ?? self.x, y: y ?? self.y, w: self.w, h: self.h };
-    const obstacles = result.scene.nodes.filter((node) => node.id !== nodeId).map((node) => ({ x: node.x, y: node.y, w: node.w, h: node.h }));
-    const collides = obstacles.some((obstacle) => boxesWithinGap(requested, obstacle, OVERLAY_GAP));
-    if (!collides) return { x: requested.x, y: requested.y, moved: false, from: requested };
-    const placed = findFreeSpot({ box: requested, obstacles, gap: OVERLAY_GAP });
-    if (placed === null) return { x: requested.x, y: requested.y, moved: false, from: requested, unresolved: true };
-    return { ...placed, moved: placed.x !== requested.x || placed.y !== requested.y, from: requested };
-  };
-  const label = ({ kind = "node", id, label: next } = {}) => {
-    if (kind !== "node" && kind !== "edge") {
-      throw new DesignmapRefusal("invalid_label_target", `label target must be node or edge, got "${String(kind)}"`, { kind });
-    }
-    if (typeof id !== "string" || id === "") {
-      throw new DesignmapRefusal("invalid_label_target", "label needs a node or edge id", { kind, id });
-    }
-    if (typeof next !== "string") {
-      throw new DesignmapRefusal("invalid_label", "label must be a string", { kind, id, type: typeof next });
-    }
-    const text = next.trim();
-    if (text === "") {
-      const code = kind === "edge" ? REFUSALS.missingEdgeLabel : "invalid_label";
-      throw new DesignmapRefusal(code, `${kind} "${id}" cannot have an empty label`, { kind, id });
-    }
-    if (text.length > 200) {
-      throw new DesignmapRefusal("invalid_label", `label for "${id}" is longer than 200 characters`, { kind, id, length: text.length });
-    }
-    const model = workspace.readModel().model;
-    let row;
-    if (kind === "node") {
-      const node = model.nodes.find((candidate) => candidate.id === id);
-      if (node === void 0) throw new DesignmapRefusal("unknown_node", `unknown node "${id}"`, { id });
-      row = { ...node, label: text };
-    } else {
-      const edge = model.edges.find((candidate) => candidate.id === id);
-      if (edge === void 0) throw new DesignmapRefusal("unknown_edge", `unknown edge "${id}"`, { id });
-      row = { ...edge, label: text };
-    }
-    const result = apply2([{ kind, action: "upsert", value: row }]);
-    logger?.log("label.write", { kind, id, length: text.length });
-    return { ok: true, kind, id, label: text, applied: result.applied, written: result.written, manifest: result.manifest, diff: result.diff };
-  };
-  const render = async ({ viewId, logger: inner, write = true } = {}) => {
-    const staleReport = status();
-    const viewsDoc = workspace.readViews().views;
-    if (viewId !== void 0) {
-      const view = viewsDoc.views.find((candidate) => candidate.id === viewId);
-      if (view === void 0) {
-        throw new DesignmapRefusal(REFUSALS.unknownView, `unknown view "${viewId}"`, {
-          viewId,
-          available: viewsDoc.views.map((candidate) => candidate.id)
-        });
-      }
-    }
-    if (!write) {
-      if (viewId !== void 0) {
-        const result = await renderView({
-          model: workspace.readModel().model,
-          views: viewsDoc,
-          overlays: workspace.readOverlays().overlays,
-          viewId,
-          staleNodeIds: staleReport.staleNodeIds,
-          logger: inner ?? logger
-        });
-        return envelopeFor(result, staleReport);
-      }
-      const views = [];
-      for (const view of viewsDoc.views) {
-        const result = await renderView({
-          model: workspace.readModel().model,
-          views: viewsDoc,
-          overlays: workspace.readOverlays().overlays,
-          viewId: view.id,
-          staleNodeIds: staleReport.staleNodeIds,
-          logger: inner ?? logger
-        });
-        views.push(envelopeFor(result, staleReport));
-      }
-      return { ok: true, views, stale: { stale: staleReport.stale, staleNodes: staleReport.staleNodes, commitBehind: staleReport.commitBehind, missingManifest: staleReport.missingManifest, warnings: staleReport.warnings }, generatedAt: now(), commit: staleReport.head };
-    }
-    const bundle = await renderAll({ workspace, logger: inner ?? logger, staleNodeIds: staleReport.staleNodeIds });
-    const envelopes = [];
-    for (const row of bundle.rendered) envelopes.push(envelopeFor(row, staleReport));
-    const index = {
-      ok: true,
-      indexPath: repoRelative(root, workspace.paths.index),
-      indexHash: bundle.indexHash,
-      views: envelopes,
-      stale: { stale: staleReport.stale, staleNodes: staleReport.staleNodes, commitBehind: staleReport.commitBehind, missingManifest: staleReport.missingManifest, warnings: staleReport.warnings },
-      generatedAt: now(),
-      commit: staleReport.head
-    };
-    return viewId === void 0 ? index : envelopes.find((envelope) => envelope.viewId === viewId);
-  };
-  const lint = async ({ viewId } = {}) => {
-    const staleReport = status();
-    const model = workspace.readModel().model;
-    const viewsDoc = workspace.readViews().views;
-    const overlays = workspace.readOverlays().overlays;
-    const ids = viewId === void 0 ? viewsDoc.views.map((view) => view.id) : [viewId];
-    const results = [];
-    for (const id of ids) {
-      try {
-        const result = await renderView({ model, views: viewsDoc, overlays, viewId: id, staleNodeIds: staleReport.staleNodeIds, logger });
-        results.push({ viewId: id, ok: true, lint: result.lint });
-      } catch (error) {
-        if (!(error instanceof DesignmapRefusal)) throw error;
-        const findings = error.details?.findings ?? [];
-        results.push({ viewId: id, ok: true, lint: { ok: false, findings, counts: countSeverities(findings), rules: [...new Set(findings.map((entry) => entry.rule))].sort(), refusal: error.code } });
-      }
-    }
-    return { ok: true, views: results, stale: { stale: staleReport.stale, staleNodes: staleReport.staleNodes } };
-  };
-  const open = ({ nodeId } = {}) => {
-    const model = workspace.readModel().model;
-    const node = model.nodes.find((candidate) => candidate.id === nodeId);
-    if (node === void 0) {
-      throw new DesignmapRefusal("unknown_node", `unknown node "${nodeId}"`, { nodeId, nodes: model.nodes.map((candidate) => candidate.id) });
-    }
-    if (node.source === null || node.source === void 0) {
-      return { ok: false, code: "missing_source", nodeId, message: `node "${nodeId}" has no source` };
-    }
-    const absolute = resolveSource(root, node.source);
-    const exists = absolute !== null && hashFile(absolute) !== null;
-    if (!exists) return { ok: false, code: "source_missing", nodeId, source: node.source, message: `source "${node.source}" does not exist` };
-    return { ok: true, nodeId, source: node.source, absolute, line: null };
-  };
-  const annotate = (payload = {}) => {
-    const elements = payload.elements;
-    if (!Array.isArray(elements)) {
-      throw new DesignmapRefusal("invalid_annotation", "annotate needs an elements array", { type: typeof elements });
-    }
-    if (elements.length > MAX_ANNOTATIONS) {
-      throw new DesignmapRefusal("annotation_limit", `annotate accepts at most ${MAX_ANNOTATIONS} elements`, { count: elements.length, max: MAX_ANNOTATIONS });
-    }
-    const cleaned = elements.map((element, index) => {
-      if (element === null || typeof element !== "object" || Array.isArray(element)) {
-        throw new DesignmapRefusal("invalid_annotation", `annotation ${index} is not an object`, { index });
-      }
-      if (!ANNOTATION_TYPES.has(element.type)) {
-        throw new DesignmapRefusal("invalid_annotation", `annotation ${index} has unsupported type "${String(element.type)}"`, { index, type: element.type });
-      }
-      for (const axis of ["x", "y", "width", "height"]) {
-        if (!Number.isFinite(element[axis])) {
-          throw new DesignmapRefusal("invalid_annotation", `annotation ${index} ${axis} must be a finite number`, { index, field: axis });
-        }
-      }
-      if (element.customData?.designmap !== void 0) {
-        throw new DesignmapRefusal("annotation_forbidden_fields", `annotation ${index} carries designmap customData`, { index });
-      }
-      if (Array.isArray(element.points) && (element.points.length > 4096 || element.points.some((point) => !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite)))) {
-        throw new DesignmapRefusal("invalid_annotation", `annotation ${index} has invalid points`, { index });
-      }
-      const copy = structuredClone(element);
-      delete copy.customData;
-      delete copy.link;
-      delete copy.isDeleted;
-      delete copy.locked;
-      if (typeof copy.containerId === "string" && copy.containerId.startsWith("dm:")) delete copy.containerId;
-      return copy;
-    });
-    const written = workspace.writeAnnotations(cleaned);
-    logger?.log("annotate.write", { elements: cleaned.length, bytes: Buffer.byteLength(written.text) });
-    return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: repoRelative(root, written.path), hash: written.hash };
-  };
-  const overlay = async (payload = {}) => {
-    const model = workspace.readModel().model;
-    const viewsDoc = workspace.readViews().views;
-    const read = workspace.readOverlays();
-    const current = read.overlays !== null && typeof read.overlays === "object" && !Array.isArray(read.overlays) ? structuredClone(read.overlays) : {};
-    const action = payload.action ?? "upsert";
-    const nodeIds = new Set(model.nodes.map((node) => node.id));
-    const payloadKeys = ["action", "nodeId", "viewId", "row", "x", "y", "fill", "stroke"];
-    const unknown = Object.keys(payload).filter((key) => !payloadKeys.includes(key));
-    if (unknown.length > 0) {
-      throw new DesignmapRefusal("model_fields_forbidden", `overlay cannot write model fields (${unknown.join(", ")})`, { fields: unknown });
-    }
-    const validateRow = (row, nodeId) => {
-      const kept = {};
-      for (const key of Object.keys(row)) {
-        if (!["x", "y", "fill", "stroke"].includes(key)) {
-          throw new DesignmapRefusal("model_fields_forbidden", `overlay row cannot write "${key}" on "${nodeId}"`, { nodeId, field: key });
-        }
-      }
-      for (const axis of ["x", "y"]) {
-        const value = row[axis];
-        if (value === void 0) continue;
-        if (typeof value !== "number" || !Number.isFinite(value)) {
-          throw new DesignmapRefusal("invalid_coordinate", `overlay ${axis} must be a finite number`, { axis, value });
-        }
-        if (value < 0) throw new DesignmapRefusal("negative_coordinate", `overlay ${axis} must not be negative`, { axis, value });
-        kept[axis] = Math.round(value * 100) / 100;
-      }
-      for (const colour of ["fill", "stroke"]) {
-        const value = row[colour];
-        if (value === void 0) continue;
-        if (!isHexColour(value)) {
-          throw new DesignmapRefusal("invalid_colour", `overlay ${colour} "${String(value)}" is not a hex colour`, { colour, value });
-        }
-        kept[colour] = value;
-      }
-      return kept;
-    };
-    if (action === "upsert") {
-      const nodeId = payload.nodeId;
-      if (typeof nodeId !== "string" || !nodeIds.has(nodeId)) {
-        throw new DesignmapRefusal("unknown_node", `unknown node "${String(nodeId)}"`, { nodeId, nodes: [...nodeIds] });
-      }
-      const kept = validateRow({ x: payload.x, y: payload.y, fill: payload.fill, stroke: payload.stroke }, nodeId);
-      if (Object.keys(kept).length === 0) {
-        throw new DesignmapRefusal("invalid_overlay", "overlay upsert needs at least one of x/y/fill/stroke", { nodeId });
-      }
-      let placement = null;
-      if (kept.x !== void 0 || kept.y !== void 0) {
-        placement = await autoPlace({ nodeId, x: kept.x, y: kept.y, viewId: payload.viewId, overlays: current });
-        if (placement !== null && placement.moved) {
-          kept.x = placement.x;
-          kept.y = placement.y;
-        }
-      }
-      const before = current[nodeId] ?? null;
-      current[nodeId] = { ...current[nodeId] ?? {}, ...kept };
-      const written = workspace.writeOverlays(current);
-      logger?.log("overlay.write", { action, nodeId, keys: Object.keys(kept).sort(), rows: Object.keys(current).length, autoPlaced: placement?.moved === true });
-      return {
-        ok: true,
-        action,
-        nodeId,
-        keys: Object.keys(kept).sort(),
-        row: current[nodeId],
-        before,
-        adjusted: placement?.moved === true ? { x: kept.x, y: kept.y, from: placement.from } : null,
-        finding: placement?.unresolved === true ? { code: "overlap_unresolved", severity: "warning", nodeId, message: `no free position found for "${nodeId}"; the overlap stays and the scene lint reports it` } : placement?.moved === true ? { code: "overlap_adjusted", severity: "info", nodeId, from: placement.from, to: { x: kept.x, y: kept.y }, message: `"${nodeId}" was placed ${Math.round(placement.x - placement.from.x)},${Math.round(placement.y - placement.from.y)} px aside to keep it clear of the other nodes` } : null,
-        rows: Object.keys(current).length,
-        overlaysPath: repoRelative(root, written.path)
-      };
-    }
-    if (action === "replace") {
-      const nodeId = payload.nodeId;
-      if (typeof nodeId !== "string" || !nodeIds.has(nodeId)) {
-        throw new DesignmapRefusal("unknown_node", `unknown node "${String(nodeId)}"`, { nodeId });
-      }
-      const row = payload.row ?? null;
-      if (row !== null) {
-        if (typeof row !== "object" || Array.isArray(row)) {
-          throw new DesignmapRefusal("invalid_overlay", "overlay replace row must be an object or null", { nodeId });
-        }
-        const kept = validateRow(row, nodeId);
-        if (Object.keys(kept).length === 0) delete current[nodeId];
-        else current[nodeId] = kept;
-      } else {
-        delete current[nodeId];
-      }
-      const written = workspace.writeOverlays(current);
-      logger?.log("overlay.write", { action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length });
-      return { ok: true, action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) };
-    }
-    if (action === "resetNode") {
-      const nodeId = payload.nodeId;
-      if (typeof nodeId !== "string" || !nodeIds.has(nodeId)) {
-        throw new DesignmapRefusal("unknown_node", `unknown node "${String(nodeId)}"`, { nodeId });
-      }
-      delete current[nodeId];
-      const written = workspace.writeOverlays(current);
-      logger?.log("overlay.write", { action, nodeId, rows: Object.keys(current).length });
-      return { ok: true, action, nodeId, rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) };
-    }
-    if (action === "resetView") {
-      const view = viewsDoc.views.find((candidate) => candidate.id === payload.viewId);
-      if (view === void 0) {
-        throw new DesignmapRefusal(REFUSALS.unknownView, `unknown view "${payload.viewId}"`, { viewId: payload.viewId });
-      }
-      const selected = selectView(model, view);
-      let removed = 0;
-      for (const node of selected.nodes) {
-        if (node.id in current) {
-          delete current[node.id];
-          removed += 1;
-        }
-      }
-      const written = workspace.writeOverlays(current);
-      logger?.log("overlay.write", { action, viewId: view.id, removed, rows: Object.keys(current).length });
-      return { ok: true, action, viewId: view.id, removed, rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) };
-    }
-    throw new DesignmapRefusal("invalid_overlay", `unknown overlay action "${String(action)}" (upsert | replace | resetNode | resetView)`, { action });
-  };
-  const exportSvg = async ({ viewId } = {}) => {
-    const staleReport = status();
-    const viewsDoc = workspace.readViews().views;
-    const id = viewId ?? viewsDoc.views[0]?.id;
-    if (id === void 0) {
-      throw new DesignmapRefusal(REFUSALS.unknownView, "no views to export", { viewId });
-    }
-    const result = await renderView({
-      model: workspace.readModel().model,
-      views: viewsDoc,
-      overlays: workspace.readOverlays().overlays,
-      viewId: id,
-      staleNodeIds: staleReport.staleNodeIds,
-      logger
-    });
-    const svg = sceneToSvg(result.scene, { colours: result.merge.colours });
-    const path = join2(workspace.paths.out, `${id}.svg`);
-    mkdirSync2(dirname2(path), { recursive: true });
-    writeFileSync2(path, svg, "utf8");
-    return {
-      ok: true,
-      viewId: id,
-      svgPath: repoRelative(root, path),
-      bytes: Buffer.byteLength(svg),
-      hash: sha256(svg),
-      sceneHash: result.sceneHash,
-      nodes: result.scene.nodes.length,
-      edges: result.scene.edges.length,
-      labels: result.scene.nodes.map((node) => node.label),
-      colours: [...result.merge.colours.keys()],
-      written: true
-    };
-  };
-  const exportView = async ({ viewId, format = "svg" } = {}) => {
-    const svgResult = await exportSvg({ viewId });
-    if (format === "svg") return { ...svgResult, format: "svg" };
-    if (format !== "png") {
-      throw new DesignmapRefusal("invalid_export_format", `unknown export format "${String(format)}" (svg | png)`, { format });
-    }
-    const converter = findPngConverter();
-    if (converter === null || converter.missing !== void 0) {
-      throw new DesignmapRefusal("png_converter_missing", "PNG export needs rsvg-convert, ImageMagick convert or magick on PATH (or DESIGNMAP_PNG_CONVERTER)", {
-        svgPath: svgResult.svgPath,
-        configured: converter?.missing ?? null,
-        candidates: PNG_CONVERTERS
-      });
-    }
-    const svgAbsolute = join2(root, svgResult.svgPath);
-    const pngAbsolute = join2(workspace.paths.out, `${svgResult.viewId}.png`);
-    const args = converter.command.endsWith("rsvg-convert") ? ["-o", pngAbsolute, svgAbsolute] : [svgAbsolute, pngAbsolute];
-    const run = spawnSync(converter.command, args, { encoding: "utf8" });
-    if (run.error !== void 0 || run.status !== 0) {
-      throw new DesignmapRefusal("png_export_failed", `PNG conversion failed (${converter.command})`, {
-        svgPath: svgResult.svgPath,
-        status: run.status,
-        stderr: String(run.stderr ?? run.error?.message ?? "").slice(0, 2e3)
-      });
-    }
-    const bytes = readFileSync2(pngAbsolute);
-    return {
-      ...svgResult,
-      format: "png",
-      svgPath: svgResult.svgPath,
-      pngPath: repoRelative(root, pngAbsolute),
-      pngBytes: statSync(pngAbsolute).size,
-      pngHash: `sha256:${createHash2("sha256").update(bytes).digest("hex")}`,
-      converter: converter.command
-    };
-  };
-  return {
-    paths: { designmapDir: dir, repoRoot: root, logs: join2(dir, "logs"), manifest: join2(dir, "manifest.json") },
-    workspace,
-    status,
-    scan,
-    apply: apply2,
-    overlay,
-    label,
-    views: panelViews,
-    annotate,
-    render,
-    lint,
-    open,
-    exportSvg,
-    exportView,
-    readManifest: () => readManifest(dir),
-    sourceHashes: () => sourceHashes(workspace.readModel().model, root)
-  };
+  if (text === "") return { shape, text: null };
+  const maxWidth = innerTextWidth(type, w);
+  const lines = wrapLabel(text, Math.max(8, Math.floor(maxWidth / CHAR_WIDTH)));
+  const textHeight = Math.ceil(lines.length * LINE_HEIGHT_PX);
+  const textBoxWidth = Math.max(24, Math.min(maxWidth, Math.ceil(Math.max(...lines.map((line) => line.length)) * CHAR_WIDTH)));
+  const bound = element("text", textId, {
+    x: x + Math.round((w - textBoxWidth) / 2),
+    y: y + Math.round((h - textHeight) / 2),
+    width: textBoxWidth,
+    height: textHeight,
+    text: lines.join("\n"),
+    originalText: text,
+    fontSize: NODE_FONT_SIZE,
+    fontFamily: 2,
+    textAlign: "center",
+    verticalAlign: "middle",
+    containerId: id,
+    autoResize: false,
+    lineHeight: NODE_LINE_HEIGHT,
+    strokeColor: INK
+  });
+  return { shape, text: bound };
 }
-function countSeverities(findings) {
-  const counts = { error: 0, warning: 0, info: 0 };
-  for (const entry of findings) counts[entry.severity] += 1;
-  return counts;
+function buildNote({ id, text = "", x = 0, y = 0, fontSize = 16, color }) {
+  const value = String(text ?? "");
+  const lines = value.split("\n");
+  const width = Math.max(24, textWidth(lines.reduce((longest, line) => line.length > longest.length ? line : longest, "")));
+  const height = Math.max(20, Math.ceil(lines.length * fontSize * 1.25));
+  return element("text", id, {
+    x,
+    y,
+    width,
+    height,
+    text: value,
+    originalText: value,
+    fontSize,
+    fontFamily: 2,
+    textAlign: "left",
+    verticalAlign: "top",
+    containerId: null,
+    autoResize: true,
+    lineHeight: 1.25,
+    strokeColor: colorOf(color, INK)
+  });
+}
+function centre(box) {
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+function anchors(from, to) {
+  const a = centre(from);
+  const b = centre(to);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const sx = dx >= 0 ? from.x + from.width : from.x;
+    const tx = dx >= 0 ? to.x : to.x + to.width;
+    return { start: { x: sx, y: a.y }, end: { x: tx, y: b.y } };
+  }
+  const sy = dy >= 0 ? from.y + from.height : from.y;
+  const ty = dy >= 0 ? to.y : to.y + to.height;
+  return { start: { x: a.x, y: sy }, end: { x: b.x, y: ty } };
+}
+function buildEdge({ id, label = "", from, to, strokeStyle = "solid", startArrowhead = null, endArrowhead = "arrow" }) {
+  const { start, end } = anchors(from, to);
+  const textId = `${id}:label`;
+  const text = String(label ?? "");
+  const points = [[0, 0], [Math.round(end.x - start.x), Math.round(end.y - start.y)]];
+  const labelMaxWidth = Math.max(Math.round(0.7 * Math.abs(end.x - start.x)), EDGE_FONT_SIZE * 11);
+  const lines = wrapLabel(text, Math.max(8, Math.floor(labelMaxWidth / CHAR_WIDTH)));
+  const rendered = lines.join("\n");
+  const arrow = element("arrow", id, {
+    x: start.x,
+    y: start.y,
+    width: end.x - start.x,
+    height: end.y - start.y,
+    points,
+    lastCommittedPoint: null,
+    elbowed: false,
+    strokeColor: EDGE_INK,
+    strokeWidth: 1.4,
+    strokeStyle,
+    startArrowhead,
+    endArrowhead,
+    startBinding: { elementId: from.id, focus: 0, gap: 1 },
+    endBinding: { elementId: to.id, focus: 0, gap: 1 },
+    boundElements: text === "" ? [] : [{ type: "text", id: textId }]
+  });
+  if (text === "") return { arrow, text: null, labelMaxWidth };
+  const widest = lines.reduce((max, line) => Math.max(max, line.length), 0);
+  const width = Math.max(24, Math.min(labelMaxWidth, Math.ceil(widest * CHAR_WIDTH) + 4));
+  const height = Math.ceil(lines.length * EDGE_FONT_SIZE * EDGE_LINE_HEIGHT);
+  const bound = element("text", textId, {
+    x: Math.round((start.x + end.x) / 2 - width / 2),
+    y: Math.round((start.y + end.y) / 2 - height / 2),
+    width,
+    height,
+    text: rendered,
+    originalText: text,
+    fontSize: EDGE_FONT_SIZE,
+    fontFamily: 2,
+    textAlign: "center",
+    verticalAlign: "middle",
+    containerId: id,
+    autoResize: false,
+    lineHeight: EDGE_LINE_HEIGHT,
+    strokeColor: EDGE_INK
+  });
+  return { arrow, text: bound, labelMaxWidth };
+}
+function labelOf(elements, id) {
+  const bound = elements.find((entry) => entry?.containerId === id && entry?.type === "text");
+  return bound === void 0 ? "" : String(bound.originalText ?? bound.text ?? "");
 }
 
-// src/tools.mjs
-var string = (description) => ({ type: "string", description });
-var VALUE_PROPERTIES = {
-  id: { type: "string", description: "Immutable semantic id." },
-  type: { type: "string", enum: NODE_TYPES, description: "Node type (node ops)." },
-  label: { type: "string", description: "Node label or edge label." },
-  group: { oneOf: [{ type: "string" }, { type: "null" }], description: "Node group id or null (node ops)." },
-  source: { oneOf: [{ type: "string" }, { type: "null" }], description: "Repo-relative source path or null (node ops)." },
-  from: { type: "string", description: "Edge source node id (edge ops)." },
-  to: { type: "string", description: "Edge target node id (edge ops)." },
-  kind: { type: "string", enum: EDGE_KINDS, description: "Edge kind (edge ops)." },
-  title: { type: "string", description: "View title (view ops)." },
-  level: { type: "string", enum: VIEW_LEVELS, description: "View level (view ops)." },
-  direction: { type: "string", enum: DIRECTIONS, description: "View direction (view ops)." },
-  include: { type: "array", items: { type: "string" }, description: "View include globs (view ops)." },
-  parent: { oneOf: [{ type: "string" }, { type: "null" }], description: "View parent group id or null (view ops)." }
-};
-var OPS_PARAM = {
-  type: "array",
-  required: true,
-  description: "Semantic ops; applied atomically and idempotently. Coordinates and colours are refused by this schema (no x/y/fill property).",
-  items: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      kind: { type: "string", enum: ["node", "edge", "group", "view"], required: true, description: "Which collection the op addresses." },
-      action: { type: "string", enum: ["upsert", "remove"], required: true, description: "Upsert a value, or remove by id." },
-      id: { type: "string", description: "Id for a remove op." },
-      value: { type: "object", additionalProperties: false, properties: VALUE_PROPERTIES, description: "Semantic row for an upsert op." }
+// src/lint.mjs
+var NODE_FONT = 13;
+var LINE_NODE = NODE_FONT * NODE_LINE_HEIGHT;
+var CLEARANCE = 24;
+var OVERLAP_EPSILON = 0.5;
+var SEVERITY_RANK = { high: 0, medium: 1, low: 2 };
+var PENALTY = { high: 18, medium: 8, low: 3 };
+var SEVERITIES = Object.keys(SEVERITY_RANK);
+var finite = (value) => typeof value === "number" && Number.isFinite(value);
+function isShape(element2) {
+  return element2 !== null && typeof element2 === "object" && element2.isDeleted !== true && SHAPES.has(element2.type);
+}
+function isArrow(element2) {
+  return element2 !== null && typeof element2 === "object" && element2.isDeleted !== true && element2.type === "arrow";
+}
+function isFreeText(element2) {
+  return element2 !== null && typeof element2 === "object" && element2.isDeleted !== true && element2.type === "text" && typeof element2.containerId !== "string";
+}
+function drawn(elements) {
+  return (Array.isArray(elements) ? elements : []).filter((element2) => element2 !== null && typeof element2 === "object" && element2.isDeleted !== true);
+}
+function boxOf(element2) {
+  if (element2 === null || typeof element2 !== "object") return null;
+  if (element2.type === "arrow") {
+    const points = Array.isArray(element2.points) ? element2.points : [];
+    if (!finite(element2.x) || !finite(element2.y) || points.length === 0) return null;
+    const xs = points.map((point) => element2.x + (finite(point?.[0]) ? point[0] : 0));
+    const ys = points.map((point) => element2.y + (finite(point?.[1]) ? point[1] : 0));
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    return { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
+  }
+  if (![element2.x, element2.y, element2.width, element2.height].every(finite)) return null;
+  return { x: element2.x, y: element2.y, width: element2.width, height: element2.height };
+}
+function rectSegments(rect) {
+  const { x, y, width: w, height: h } = rect;
+  return [
+    [[x, y], [x + w, y]],
+    [[x + w, y], [x + w, y + h]],
+    [[x + w, y + h], [x, y + h]],
+    [[x, y + h], [x, y]]
+  ];
+}
+function pointInRect(point, rect) {
+  return point[0] >= rect.x && point[0] <= rect.x + rect.width && point[1] >= rect.y && point[1] <= rect.y + rect.height;
+}
+function segmentsCross(a, b) {
+  const [[ax, ay], [ax2, ay2]] = a;
+  const [[bx, by], [bx2, by2]] = b;
+  const orient = (px, py, qx, qy, rx, ry) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  const o1 = orient(ax, ay, ax2, ay2, bx, by);
+  const o2 = orient(ax, ay, ax2, ay2, bx2, by2);
+  const o3 = orient(bx, by, bx2, by2, ax, ay);
+  const o4 = orient(bx, by, bx2, by2, ax2, ay2);
+  const eps = 0.01;
+  const opposite = (left, right) => left > eps && right < -eps || left < -eps && right > eps;
+  if (opposite(o1, o2) && opposite(o3, o4)) return true;
+  const onSegment = (px, py, qx, qy, rx, ry) => Math.abs(orient(px, py, qx, qy, rx, ry)) <= eps && rx >= Math.min(px, qx) - eps && rx <= Math.max(px, qx) + eps && ry >= Math.min(py, qy) - eps && ry <= Math.max(py, qy) + eps;
+  if (Math.abs(o1) <= eps && onSegment(ax, ay, ax2, ay2, bx, by)) return true;
+  if (Math.abs(o2) <= eps && onSegment(ax, ay, ax2, ay2, bx2, by2)) return true;
+  if (Math.abs(o3) <= eps && onSegment(bx, by, bx2, by2, ax, ay)) return true;
+  return Math.abs(o4) <= eps && onSegment(bx, by, bx2, by2, ax2, ay2);
+}
+function segmentHitsRect(segment, rect) {
+  if (pointInRect(segment[0], rect) || pointInRect(segment[1], rect)) return true;
+  return rectSegments(rect).some((edge) => segmentsCross(segment, edge));
+}
+function overlaps(a, b) {
+  if (a === null || b === null) return null;
+  const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return width > OVERLAP_EPSILON && height > OVERLAP_EPSILON ? { width, height, area: width * height } : null;
+}
+function arrowSegments(arrow) {
+  if (arrow === null || arrow.type !== "arrow" || !finite(arrow.x) || !finite(arrow.y)) return [];
+  const points = Array.isArray(arrow.points) ? arrow.points : [];
+  const absolute = points.map((point) => [arrow.x + (finite(point?.[0]) ? point[0] : 0), arrow.y + (finite(point?.[1]) ? point[1] : 0)]);
+  const segments = [];
+  for (let index = 1; index < absolute.length; index += 1) segments.push([absolute[index - 1], absolute[index]]);
+  return segments;
+}
+function labelBox(elements, element2) {
+  const bound = elements.find((entry) => entry?.containerId === element2?.id && entry?.type === "text" && entry.isDeleted !== true);
+  return bound === void 0 ? null : boxOf(bound);
+}
+function freeSpotFor(shape, shapes) {
+  const width = Math.max(40, shape.width ?? 140);
+  const height = Math.max(32, shape.height ?? 56);
+  const others = shapes.filter((entry) => entry.id !== shape.id);
+  for (let row = 0; row < 40; row += 1) {
+    for (let column = 0; column < 12; column += 1) {
+      const candidate = { x: 40 + column * 240, y: 40 + row * 128, width, height };
+      if (!others.some((other) => overlaps(boxOf(other), candidate) !== null)) return { x: candidate.x, y: candidate.y };
     }
   }
-};
-var jsonOutput = {
-  schema: { type: "json" },
-  render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
-};
-var TOOL_SPECS = [
-  {
-    name: "designmap_apply",
-    method: "apply",
-    description: "Apply semantic designmap ops (upsert/remove node, edge, group, view) and update the manifest. Fields are semantic only: id/type/label/group/source and edge from/to/kind/label. Coordinates and colours are refused by the schema. The whole batch is validated before writing; a dangling reference refuses the batch and leaves the files unchanged. Re-applying the same batch returns applied=0/skipped=N and writes nothing.",
-    parameters: { ops: OPS_PARAM },
-    call: (service, args) => service.apply(args.ops)
-  },
-  {
-    name: "designmap_render",
-    method: "render",
-    description: "Render views to designmap/out/<viewId>.scene.json and designmap/out/index.json. Every scene carries the stale flags from the manifest vs HEAD check, the lint report and the scene hash. Omit viewId to render all views (the result then carries the index and one envelope per view).",
-    parameters: { viewId: string("Render only this view id; omit to render every view.") },
-    call: (service, args) => service.render({ viewId: args.viewId })
-  },
-  {
-    name: "designmap_lint",
-    method: "lint",
-    description: "Lint one view or all views without writing anything: view size, missing edge labels, orphan nodes, dangling references, duplicate ids, long labels, overlaps after the overlay merge, stale nodes, colours outside the palette. Error findings mean render would refuse.",
-    parameters: { viewId: string("Lint only this view id; omit to lint every view.") },
-    call: (service, args) => service.lint({ viewId: args.viewId })
-  },
-  {
-    name: "designmap_status",
-    method: "status",
-    description: "Compare designmap/manifest.json with HEAD and the files on disk. Returns stale, commit, head, commitBehind, staleNodes (with the reason per node) and warnings. A missing manifest is stale=true with a warning; it is not an error.",
-    parameters: {},
-    call: (service) => service.status()
-  },
-  {
-    name: "designmap_scan",
-    method: "scan",
-    description: "Read git changes since the manifest commit and propose semantic ops for the model: new watched source files become upsert-node proposals, deleted files with an edge-free node become remove-node proposals, modified files are listed as affected nodes (their meaning is a human/agent decision). Never writes the model.",
-    parameters: {
-      roots: { type: "array", items: { type: "string" }, description: 'Source roots to watch for new files. Default ["src"].' },
-      extensions: { type: "array", items: { type: "string" }, description: 'File extensions to propose nodes for. Default [".ts",".tsx",".js",".mjs",".py",".go",".sql"].' }
-    },
-    call: (service, args) => service.scan({ roots: args.roots, extensions: args.extensions })
-  },
-  {
-    name: "designmap_open",
-    method: "open",
-    description: "Resolve the source file of one semantic node (repo-relative and absolute) so the caller can open it. A node without source or a missing file is a structured refusal value, not a crash.",
-    parameters: { nodeId: { type: "string", required: true, description: "Semantic node id to open." } },
-    call: (service, args) => service.open({ nodeId: args.nodeId })
-  },
-  {
-    name: "designmap_export",
-    method: "export",
-    description: 'Export the current state of a view, including the overlay positions and colours already merged into the scene. format "svg" (default) writes designmap/out/<viewId>.svg; format "png" writes the same scene as PNG when rsvg-convert, ImageMagick convert or magick is available, and refuses with png_converter_missing otherwise (no rasteriser dependency is shipped). Returns the path(s), hash, size, labels and which nodes carry overlay colours.',
-    parameters: {
-      viewId: string("View to export; omit for the first view."),
-      format: { type: "string", enum: ["svg", "png"], description: "Export format. Default svg; png is optional and needs an external converter." }
-    },
-    call: (service, args) => service.exportView({ viewId: args.viewId, format: args.format ?? "svg" })
+  return { x: 40, y: 40 };
+}
+function layoutBounds(elements) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const element2 of drawn(elements)) {
+    const box = boxOf(element2);
+    if (box === null) continue;
+    minX = Math.min(minX, box.x);
+    minY = Math.min(minY, box.y);
+    maxX = Math.max(maxX, box.x + box.width);
+    maxY = Math.max(maxY, box.y + box.height);
   }
-];
-function createHostTools({ defineTool: defineTool2, hostFor }) {
-  return TOOL_SPECS.map((spec) => defineTool2({
-    name: spec.name,
-    description: spec.description,
-    parameters: spec.parameters,
-    output: jsonOutput,
-    async execute(args, exec) {
-      const { service, logger } = hostFor(exec);
-      logger?.log("tool.enter", { tool: spec.name, arguments: args });
-      const started = performance.now();
-      try {
-        const value = await spec.call(service, args ?? {});
-        logger?.log("tool.exit", {
-          tool: spec.name,
-          ok: value?.ok !== false,
-          code: value?.ok === false ? value.code ?? null : null,
-          ms: Math.round((performance.now() - started) * 100) / 100
-        });
-        return value;
-      } catch (error) {
-        const payload = error instanceof DesignmapRefusal ? { ok: false, code: error.code, message: error.message, details: error.details } : { ok: false, code: error?.code ?? "internal_error", message: String(error?.message ?? error) };
-        logger?.log("tool.exit", {
-          tool: spec.name,
-          ok: false,
-          code: payload.code,
-          ms: Math.round((performance.now() - started) * 100) / 100
-        });
-        return payload;
+  if (!Number.isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0, empty: true };
+  return { x: Math.floor(minX), y: Math.floor(minY), width: Math.ceil(maxX - minX), height: Math.ceil(maxY - minY), empty: false };
+}
+function finding(code, severity, elements, measure, message, repair = null) {
+  return { code, severity, elements: elements.filter((value) => typeof value === "string" && value !== ""), measure, message, repair };
+}
+function shapeLabelFit(element2, label, box) {
+  const maxWidth = innerTextWidth(element2.type, box.width);
+  const maxHeight = innerTextHeight(element2.type, box.height);
+  const longestWord = label.split(/\s+/).reduce((longest, word) => word.length > longest.length ? word : longest, "");
+  const widestLine = Math.ceil(longestWord.length * 6.9);
+  const maxChars = Math.max(4, Math.floor(maxWidth / 6.9));
+  const lines = wrapLabel(label, maxChars);
+  const neededHeight = Math.ceil(lines.length * LINE_NODE);
+  return { maxWidth, maxHeight, widestLine, neededHeight, tooWide: widestLine > maxWidth + 1, tooTall: neededHeight > maxHeight + 1 };
+}
+function findingsOf(elements) {
+  const list = drawn(elements);
+  const shapes = list.filter(isShape);
+  const arrows = list.filter(isArrow);
+  const shapeById = new Map(shapes.map((shape) => [shape.id, shape]));
+  const out = [];
+  for (const shape of shapes) {
+    const box = boxOf(shape);
+    const label = labelOf(list, shape.id);
+    if (label === "") {
+      out.push(finding(
+        "node_without_label",
+        "low",
+        [shape.id],
+        { nodes: shapes.length },
+        `${shape.id} has no label: a reader cannot tell what this box is.`,
+        { op: "node.label", id: shape.id, label: "<name>" }
+      ));
+    } else if (box !== null) {
+      const fit = shapeLabelFit(shape, label, box);
+      const wanted = nodeSize(label, shape.type);
+      if (fit.tooWide) {
+        out.push(finding(
+          "label_overflow",
+          "high",
+          [shape.id],
+          { axis: "width", box: Math.round(box.width), needed: wanted.width },
+          `${shape.id} is too narrow for its label: the longest word needs about ${fit.widestLine} px, the shape gives ${Math.round(fit.maxWidth)} px.`,
+          { op: "node.resize", id: shape.id, width: wanted.width }
+        ));
+      }
+      if (fit.tooTall) {
+        out.push(finding(
+          "label_overflow",
+          "high",
+          [shape.id],
+          { axis: "height", box: Math.round(box.height), needed: wanted.height },
+          `${shape.id} is too short for its wrapped label: it needs about ${fit.neededHeight} px of text height, the shape gives ${Math.round(fit.maxHeight)} px.`,
+          { op: "node.resize", id: shape.id, height: wanted.height }
+        ));
       }
     }
+    if (box !== null && (box.x < 0 || box.y < 0)) {
+      out.push(finding(
+        "off_canvas",
+        "low",
+        [shape.id],
+        { x: Math.round(box.x), y: Math.round(box.y) },
+        `${shape.id} starts at a negative coordinate (${Math.round(box.x)}, ${Math.round(box.y)}); the picture begins off the page origin.`,
+        { op: "node.move", id: shape.id, x: 40, y: 40 }
+      ));
+    }
+  }
+  for (let left = 0; left < shapes.length; left += 1) {
+    for (let right = left + 1; right < shapes.length; right += 1) {
+      const a = shapes[left];
+      const b = shapes[right];
+      const boxA = boxOf(a);
+      const boxB = boxOf(b);
+      if (boxA === null || boxB === null) continue;
+      const overlap = overlaps(boxA, boxB);
+      if (overlap !== null) {
+        const spot = freeSpotFor(boxB, shapes);
+        out.push(finding(
+          "node_overlap",
+          "high",
+          [a.id, b.id],
+          { overlapWidth: Math.round(overlap.width), overlapHeight: Math.round(overlap.height), area: Math.round(overlap.area) },
+          `${a.id} and ${b.id} overlap by ${Math.round(overlap.width)}x${Math.round(overlap.height)} px.`,
+          { op: "node.move", id: b.id, x: spot.x, y: spot.y }
+        ));
+      } else {
+        const gapX = Math.max(boxA.x, boxB.x) - Math.min(boxA.x + boxA.width, boxB.x + boxB.width);
+        const gapY = Math.max(boxA.y, boxB.y) - Math.min(boxA.y + boxA.height, boxB.y + boxB.height);
+        if (gapX >= 0 && gapY >= 0 && gapX < CLEARANCE && gapY < CLEARANCE) {
+          out.push(finding(
+            "node_too_close",
+            "medium",
+            [a.id, b.id],
+            { gapX: Math.round(gapX), gapY: Math.round(gapY), clearance: CLEARANCE },
+            `${a.id} and ${b.id} are only ${Math.round(Math.min(gapX, gapY))} px apart; ${CLEARANCE} px keeps the boxes readable.`,
+            { op: "layout", direction: "LR" }
+          ));
+        }
+      }
+    }
+  }
+  const duplicateGroups = /* @__PURE__ */ new Map();
+  for (const shape of shapes) {
+    const label = labelOf(list, shape.id);
+    if (label === "") continue;
+    if (!duplicateGroups.has(label)) duplicateGroups.set(label, []);
+    duplicateGroups.get(label).push(shape.id);
+  }
+  for (const [label, ids] of duplicateGroups) {
+    if (ids.length < 2) continue;
+    out.push(finding(
+      "duplicate_label",
+      "low",
+      ids,
+      { label, count: ids.length },
+      `${ids.length} boxes carry the label "${label}"; a reader cannot tell them apart.`,
+      { op: "node.label", id: ids[0], label: `${label} (${ids[0]})` }
+    ));
+  }
+  if (shapes.length > 1) {
+    const connected = /* @__PURE__ */ new Set();
+    for (const arrow of arrows) {
+      if (shapeById.has(arrow.startBinding?.elementId)) connected.add(arrow.startBinding.elementId);
+      if (shapeById.has(arrow.endBinding?.elementId)) connected.add(arrow.endBinding.elementId);
+    }
+    for (const shape of shapes) {
+      if (connected.has(shape.id)) continue;
+      out.push(finding(
+        "isolated_node",
+        "low",
+        [shape.id],
+        { nodes: shapes.length },
+        `${shape.id} has no arrow: it is drawn but not connected to the scheme.`,
+        { op: "edge.add", from: shape.id, to: "<node>", label: "<verb>" }
+      ));
+    }
+  }
+  for (const arrow of arrows) {
+    const start = arrow.startBinding?.elementId;
+    const end = arrow.endBinding?.elementId;
+    if (typeof start !== "string" || typeof end !== "string" || !shapeById.has(start) || !shapeById.has(end)) {
+      out.push(finding(
+        "edge_unbound",
+        "high",
+        [arrow.id],
+        { start: start ?? null, end: end ?? null },
+        `${arrow.id} is not attached to two boxes, so it will not follow them when they move.`,
+        { op: "edge.add", from: start ?? "<node>", to: end ?? "<node>", label: labelOf(list, arrow.id) }
+      ));
+    } else if (start === end) {
+      out.push(finding(
+        "edge_self",
+        "low",
+        [arrow.id],
+        { node: start },
+        `${arrow.id} points from ${start} back to itself.`,
+        { op: "element.delete", id: arrow.id }
+      ));
+    }
+    if (labelOf(list, arrow.id) === "") {
+      out.push(finding(
+        "edge_without_label",
+        "low",
+        [arrow.id],
+        {},
+        `${arrow.id} has no label: the reader cannot tell what flows along it.`,
+        { op: "edge.label", id: arrow.id, label: "<verb>" }
+      ));
+    }
+    const segments = arrowSegments(arrow);
+    for (const segment of segments) {
+      for (const shape of shapes) {
+        if (shape.id === start || shape.id === end) continue;
+        const box = boxOf(shape);
+        if (box !== null && segmentHitsRect(segment, box)) {
+          out.push(finding(
+            "edge_crosses_node",
+            "medium",
+            [arrow.id, shape.id],
+            { at: { x: Math.round(segment[0][0]), y: Math.round(segment[0][1]) } },
+            `${arrow.id} passes through the box ${shape.id}.`,
+            { op: "layout", direction: "LR" }
+          ));
+        }
+      }
+    }
+    const arrowLabel = labelBox(list, arrow);
+    if (arrowLabel !== null) {
+      for (const shape of shapes) {
+        const box = boxOf(shape);
+        if (box !== null && overlaps(arrowLabel, box) !== null) {
+          out.push(finding(
+            "edge_label_on_node",
+            "high",
+            [arrow.id, shape.id],
+            { overlap: true },
+            `The label of ${arrow.id} sits on the box ${shape.id}.`,
+            { op: "layout", direction: "LR" }
+          ));
+        }
+      }
+    }
+  }
+  for (let left = 0; left < arrows.length; left += 1) {
+    for (let right = left + 1; right < arrows.length; right += 1) {
+      const a = arrows[left];
+      const b = arrows[right];
+      const endpointsOf = (arrow) => [arrow.startBinding?.elementId, arrow.endBinding?.elementId].filter((id) => typeof id === "string");
+      const shared = endpointsOf(a).filter((id) => endpointsOf(b).includes(id));
+      if (shared.length > 0) continue;
+      const crossed = arrowSegments(a).some((one) => arrowSegments(b).some((two) => segmentsCross(one, two)));
+      if (crossed) {
+        out.push(finding(
+          "edge_crossing",
+          "medium",
+          [a.id, b.id],
+          { pair: [a.id, b.id] },
+          `${a.id} and ${b.id} cross each other.`,
+          { op: "layout", direction: "LR" }
+        ));
+      }
+    }
+  }
+  const bounds = layoutBounds(elements);
+  if (!bounds.empty && bounds.height > bounds.width * 2.5 && shapes.length > 2) {
+    out.push(finding(
+      "page_too_tall",
+      "medium",
+      [],
+      { width: bounds.width, height: bounds.height, ratio: Math.round(bounds.height / bounds.width * 10) / 10 },
+      `The page is ${bounds.width}x${bounds.height} px - a vertical column. A left-to-right flow reads better.`,
+      { op: "layout", direction: "LR" }
+    ));
+  }
+  return out.slice().sort((left, right) => {
+    const bySeverity = (SEVERITY_RANK[left.severity] ?? 9) - (SEVERITY_RANK[right.severity] ?? 9);
+    if (bySeverity !== 0) return bySeverity;
+    if (left.code !== right.code) return left.code < right.code ? -1 : 1;
+    return left.elements.join(",").localeCompare(right.elements.join(","));
+  });
+}
+function analyzeScene(scene) {
+  const elements = Array.isArray(scene?.elements) ? scene.elements : [];
+  const findings = findingsOf(elements);
+  const counts = { high: 0, medium: 0, low: 0 };
+  for (const entry of findings) counts[entry.severity] = (counts[entry.severity] ?? 0) + 1;
+  const score = Math.max(0, 100 - findings.reduce((total, entry) => total + (PENALTY[entry.severity] ?? 0), 0));
+  const shapes = elements.filter(isShape).length;
+  const arrows = elements.filter(isArrow).length;
+  const verdict = findings.length === 0 ? shapes === 0 ? "empty" : "clean" : score >= 85 ? "readable" : score >= 60 ? "crowded" : "broken";
+  return { score, verdict, findings, counts: { ...counts, total: findings.length }, nodes: shapes, edges: arrows, bounds: layoutBounds(elements) };
+}
+
+// src/outline.mjs
+var SHAPE_NAMES = { rectangle: "box", ellipse: "ellipse", diamond: "diamond" };
+var MAX_GEOMETRY_ROWS = 120;
+function shapesOf(elements) {
+  return elements.filter((entry) => entry?.isDeleted !== true && SHAPES.has(entry?.type));
+}
+function arrowsOf(elements) {
+  return elements.filter((entry) => entry?.isDeleted !== true && entry?.type === "arrow");
+}
+function outlineLines(scene, page) {
+  const elements = Array.isArray(scene?.elements) ? scene.elements : [];
+  const shapes = shapesOf(elements);
+  const arrows = arrowsOf(elements);
+  const byId2 = new Map(shapes.map((shape) => [shape.id, labelOf(elements, shape.id) || shape.id]));
+  const lines = [`page: ${page} \u2014 ${shapes.length} node(s), ${arrows.length} edge(s)`];
+  for (const shape of shapes) {
+    const label = labelOf(elements, shape.id);
+    lines.push(`- [${SHAPE_NAMES[shape.type] ?? shape.type}] ${label === "" ? `(no label) ${shape.id}` : label}  ${shape.id}`);
+  }
+  for (const arrow of arrows) {
+    const from = byId2.get(arrow.startBinding?.elementId) ?? arrow.startBinding?.elementId ?? "?";
+    const to = byId2.get(arrow.endBinding?.elementId) ?? arrow.endBinding?.elementId ?? "?";
+    const label = labelOf(elements, arrow.id);
+    lines.push(`- ${from} -> ${to}${label === "" ? "" : `: ${label}`}  ${arrow.id}`);
+  }
+  const freeText = elements.filter((entry) => isFreeText(entry));
+  for (const note of freeText) {
+    const value = String(note.text ?? "").replace(/\n/g, " / ");
+    lines.push(`- [note] ${value}  ${note.id}`);
+  }
+  if (shapes.length > 0) {
+    lines.push("", "geometry (id x,y w x h):");
+    for (const shape of shapes.slice(0, MAX_GEOMETRY_ROWS)) {
+      lines.push(`- ${shape.id} ${Math.round(shape.x)},${Math.round(shape.y)} ${Math.round(shape.width)}x${Math.round(shape.height)}`);
+    }
+    if (shapes.length > MAX_GEOMETRY_ROWS) lines.push(`- \u2026 ${shapes.length - MAX_GEOMETRY_ROWS} more node(s)`);
+    const bounds = layoutBounds(elements);
+    lines.push(`page bounds: ${bounds.width}x${bounds.height} at ${bounds.x},${bounds.y}`);
+  }
+  const analysis = analyzeScene(scene);
+  if (elements.length === 0) return lines;
+  if (analysis.findings.length > 0) {
+    lines.push("", `readability: ${analysis.score}/100 ${analysis.verdict} \u2014 ${analysis.findings.length} finding(s), see map_lint for repairs:`);
+    for (const entry of analysis.findings.slice(0, 8)) {
+      lines.push(`- [${entry.severity}] ${entry.code}${entry.elements.length === 0 ? "" : ` ${entry.elements.join(", ")}`}: ${entry.message}`);
+    }
+    if (analysis.findings.length > 8) lines.push(`- \u2026 ${analysis.findings.length - 8} more; call map_lint`);
+  } else {
+    lines.push("", `readability: ${analysis.score}/100 ${analysis.verdict}`);
+  }
+  return lines;
+}
+function hintsOf(scene) {
+  return findingsOf(Array.isArray(scene?.elements) ? scene.elements : []).map((entry) => ({
+    kind: entry.code,
+    severity: entry.severity,
+    elements: entry.elements,
+    message: entry.message,
+    repair: entry.repair
   }));
 }
-function agentCwd(agent) {
-  const cwd = agent?.session?.header?.cwd;
-  return typeof cwd === "string" && cwd.length > 0 ? cwd : process.cwd();
+function geometryOf(elements, limit = MAX_GEOMETRY_ROWS) {
+  return shapesOf(elements).slice(0, limit).map((shape) => {
+    const label = labelOf(elements, shape.id);
+    return {
+      id: shape.id,
+      kind: shape.type,
+      x: Math.round(shape.x),
+      y: Math.round(shape.y),
+      width: Math.round(shape.width),
+      height: Math.round(shape.height),
+      ...label === "" ? {} : { label }
+    };
+  });
+}
+function readOutline(scene, page) {
+  const elements = Array.isArray(scene?.elements) ? scene.elements : [];
+  const analysis = analyzeScene(scene);
+  return {
+    ok: true,
+    page,
+    format: "outline",
+    nodes: shapesOf(elements).length,
+    edges: elements.filter(isArrow).length,
+    outline: outlineLines(scene, page).join("\n"),
+    geometry: geometryOf(elements),
+    readability: { score: analysis.score, verdict: analysis.verdict, counts: analysis.counts },
+    hints: hintsOf(scene)
+  };
+}
+function lintOutline(scene, page) {
+  const analysis = analyzeScene(scene);
+  return {
+    ok: true,
+    page,
+    score: analysis.score,
+    verdict: analysis.verdict,
+    counts: analysis.counts,
+    bounds: analysis.bounds,
+    nodes: analysis.nodes,
+    edges: analysis.edges,
+    findings: analysis.findings
+  };
+}
+
+// src/tidy.mjs
+var ORIGIN_X = 40;
+var ORIGIN_Y = 40;
+var LABEL_MARGIN = 24;
+function ranksOf(elements) {
+  const shapes = shapesOf(elements);
+  const ids = new Set(shapes.map((shape) => shape.id));
+  const edges = [];
+  for (const arrow of arrowsOf(elements)) {
+    const from = arrow.startBinding?.elementId;
+    const to = arrow.endBinding?.elementId;
+    if (ids.has(from) && ids.has(to) && from !== to) edges.push([from, to]);
+  }
+  const rank = new Map([...ids].map((id) => [id, 0]));
+  for (let pass = 0; pass < ids.size; pass += 1) {
+    let changed = false;
+    for (const [from, to] of edges) {
+      const next = Math.min(rank.get(from) + 1, ids.size - 1);
+      if (rank.get(to) < next) {
+        rank.set(to, next);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return rank;
+}
+function overlapPairs(shapes) {
+  let pairs = 0;
+  for (let left = 0; left < shapes.length; left += 1) {
+    for (let right = left + 1; right < shapes.length; right += 1) {
+      const a = shapes[left];
+      const b = shapes[right];
+      const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+      const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+      if (w > 0 && h > 0) pairs += 1;
+    }
+  }
+  return pairs;
+}
+function layeredOrder(elements, rank) {
+  const shapes = shapesOf(elements);
+  const order = new Map(shapes.map((shape, index) => [shape.id, index]));
+  const layers = /* @__PURE__ */ new Map();
+  for (const shape of shapes) {
+    const level = rank.get(shape.id) ?? 0;
+    if (!layers.has(level)) layers.set(level, []);
+    layers.get(level).push(shape);
+  }
+  const preds = /* @__PURE__ */ new Map();
+  const succs = /* @__PURE__ */ new Map();
+  for (const arrow of arrowsOf(elements)) {
+    const from = arrow.startBinding?.elementId;
+    const to = arrow.endBinding?.elementId;
+    if (!order.has(from) || !order.has(to) || from === to) continue;
+    if (!preds.has(to)) preds.set(to, []);
+    if (!succs.has(from)) succs.set(from, []);
+    preds.get(to).push(from);
+    succs.get(from).push(to);
+  }
+  const levels = [...layers.keys()].sort((left, right) => left - right);
+  const position = /* @__PURE__ */ new Map();
+  for (const level of levels) {
+    layers.get(level).forEach((shape, index) => position.set(shape.id, index));
+  }
+  const barycentre = (shape, neighbours) => {
+    const ids = neighbours.get(shape.id) ?? [];
+    const known = ids.filter((id) => position.has(id));
+    if (known.length === 0) return null;
+    return known.reduce((total, id) => total + position.get(id), 0) / known.length;
+  };
+  const sortLayer = (layer, neighbours) => {
+    layer.sort((left, right) => {
+      const a = barycentre(left, neighbours);
+      const b = barycentre(right, neighbours);
+      if (a === null && b === null) return order.get(left.id) - order.get(right.id);
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a - b || order.get(left.id) - order.get(right.id);
+    });
+    layer.forEach((shape, index) => position.set(shape.id, index));
+  };
+  for (let pass = 0; pass < 4; pass += 1) {
+    for (let index = 1; index < levels.length; index += 1) sortLayer(layers.get(levels[index]), preds);
+    for (let index = levels.length - 2; index >= 0; index -= 1) sortLayer(layers.get(levels[index]), succs);
+  }
+  return { levels, layers };
+}
+function labelWidthByLevel(elements, rank) {
+  const widths = /* @__PURE__ */ new Map();
+  for (const arrow of arrowsOf(elements)) {
+    const from = arrow.startBinding?.elementId;
+    const to = arrow.endBinding?.elementId;
+    if (!rank.has(from) || !rank.has(to)) continue;
+    const level = rank.get(from);
+    const width = textWidth(labelOf(elements, arrow.id));
+    widths.set(level, Math.max(widths.get(level) ?? 0, width));
+  }
+  return widths;
+}
+function layoutElements(elements, options = {}) {
+  const list = Array.isArray(elements) ? elements : [];
+  const direction = options.direction === "TB" ? "TB" : "LR";
+  const nodeGap = Number.isFinite(options.nodeGap) && options.nodeGap > 0 ? Math.round(options.nodeGap) : NODE_GAP;
+  const baseLayerGap = Number.isFinite(options.layerGap) && options.layerGap > 0 ? Math.round(options.layerGap) : LAYER_GAP;
+  const originX = Number.isFinite(options.originX) ? Math.round(options.originX) : ORIGIN_X;
+  const originY = Number.isFinite(options.originY) ? Math.round(options.originY) : ORIGIN_Y;
+  const shapes = shapesOf(list);
+  const rank = ranksOf(list);
+  const { levels, layers } = layeredOrder(list, rank);
+  const labelWidths = labelWidthByLevel(list, rank);
+  const placed = /* @__PURE__ */ new Map();
+  let moved = 0;
+  if (direction === "LR") {
+    let cursorX = originX;
+    for (const level of levels) {
+      const column = layers.get(level);
+      const boxes = column.map((shape) => ({ shape, box: buildNode({ id: shape.id, type: shape.type, label: labelOf(list, shape.id) }).shape }));
+      const columnWidth = boxes.reduce((max, entry) => Math.max(max, entry.box.width), 0);
+      let cursorY = originY;
+      for (const entry of boxes) {
+        const x = Math.round(cursorX + (columnWidth - entry.box.width) / 2);
+        const y = Math.round(cursorY);
+        if (Math.round(entry.shape.x) !== x || Math.round(entry.shape.y) !== y) moved += 1;
+        placed.set(entry.shape.id, { id: entry.shape.id, x, y, width: entry.box.width, height: entry.box.height });
+        cursorY += entry.box.height + nodeGap;
+      }
+      cursorX += columnWidth + Math.max(baseLayerGap, (labelWidths.get(level) ?? 0) + LABEL_MARGIN);
+    }
+  } else {
+    let cursorY = originY;
+    for (const level of levels) {
+      const row = layers.get(level);
+      const boxes = row.map((shape) => ({ shape, box: buildNode({ id: shape.id, type: shape.type, label: labelOf(list, shape.id) }).shape }));
+      const rowHeight = boxes.reduce((max, entry) => Math.max(max, entry.box.height), 0);
+      let cursorX = originX;
+      for (const entry of boxes) {
+        const x = Math.round(cursorX);
+        const y = Math.round(cursorY + (rowHeight - entry.box.height) / 2);
+        if (Math.round(entry.shape.x) !== x || Math.round(entry.shape.y) !== y) moved += 1;
+        placed.set(entry.shape.id, { id: entry.shape.id, x, y, width: entry.box.width, height: entry.box.height });
+        cursorX += entry.box.width + nodeGap;
+      }
+      cursorY += rowHeight + Math.max(baseLayerGap, (labelWidths.get(level) ?? 0) + LABEL_MARGIN);
+    }
+  }
+  const relocated = list.map((element2) => {
+    if (element2 === null || typeof element2 !== "object") return element2;
+    const own = placed.get(element2.id);
+    if (own !== void 0) return { ...element2, x: own.x, y: own.y, width: own.width, height: own.height };
+    if (typeof element2.containerId === "string" && element2.type === "text") {
+      const container = placed.get(element2.containerId);
+      if (container !== void 0) {
+        const width = Number.isFinite(element2.width) ? element2.width : container.width;
+        const height = Number.isFinite(element2.height) ? element2.height : 20;
+        return { ...element2, x: Math.round(container.x + (container.width - width) / 2), y: Math.round(container.y + (container.height - height) / 2) };
+      }
+    }
+    return element2;
+  });
+  const byId2 = new Map(relocated.map((element2) => [element2?.id, element2]));
+  const arrows = relocated.map((element2) => {
+    if (element2?.type !== "arrow") return element2;
+    const from = element2.startBinding?.elementId;
+    const to = element2.endBinding?.elementId;
+    const source = byId2.get(from);
+    const target = byId2.get(to);
+    if (source === void 0 || target === void 0 || !placed.has(from) || !placed.has(to)) return element2;
+    const edge = buildEdge({ id: element2.id, label: labelOf(list, element2.id), from: source, to: target, strokeStyle: element2.strokeStyle });
+    return { ...element2, x: edge.arrow.x, y: edge.arrow.y, points: edge.arrow.points, width: edge.arrow.width, height: edge.arrow.height };
+  });
+  const arrowText = /* @__PURE__ */ new Map();
+  for (const element2 of arrows) {
+    if (element2?.type !== "arrow") continue;
+    const from = byId2.get(element2.startBinding?.elementId);
+    const to = byId2.get(element2.endBinding?.elementId);
+    if (from === void 0 || to === void 0 || !placed.has(from.id) || !placed.has(to.id)) continue;
+    const label = labelOf(list, element2.id);
+    if (label === "") continue;
+    const edge = buildEdge({ id: element2.id, label, from, to, strokeStyle: element2.strokeStyle });
+    if (edge.text !== null) arrowText.set(edge.text.id, edge.text);
+  }
+  const settled = arrows.map((element2) => {
+    const replacement = element2?.type === "text" && typeof element2.containerId === "string" ? arrowText.get(element2.id) : void 0;
+    if (replacement === void 0) return element2;
+    return { ...element2, x: replacement.x, y: replacement.y, width: replacement.width, height: replacement.height, text: replacement.text, originalText: replacement.originalText };
+  });
+  return {
+    elements: settled,
+    moved,
+    overlapsBefore: overlapPairs(shapes),
+    overlapsAfter: overlapPairs(shapesOf(settled)),
+    direction,
+    layers: levels.length
+  };
+}
+function tidyElements(elements, { originX = ORIGIN_X, originY = ORIGIN_Y } = {}) {
+  const result = layoutElements(elements, { direction: "LR", originX, originY });
+  return {
+    elements: result.elements,
+    moved: result.moved,
+    overlapsBefore: result.overlapsBefore,
+    overlapsAfter: result.overlapsAfter
+  };
+}
+
+// src/excalidraw-render.mjs
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2, readdirSync as readdirSync2, statSync as statSync2 } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join as join2, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+// client/bundle-patch.js
+var EXPORT_CLOSED = "loadScene:!1,saveToActiveFile:!1,export:!1";
+var EXPORT_OPEN = "loadScene:!1,saveToActiveFile:!1,export:!0";
+var FrameBundleMismatch = class extends Error {
+  constructor(what) {
+    super(what);
+    this.name = "FrameBundleMismatch";
+    this.code = "FRAME_BUNDLE_MISMATCH";
+  }
+};
+function patchExportSwitch(text) {
+  if (!text.includes(EXPORT_CLOSED)) {
+    throw new FrameBundleMismatch(
+      "client.frame.js is not the vendored Excalidraw bundle this exporter expects (no export switch found)"
+    );
+  }
+  return text.replace(EXPORT_CLOSED, EXPORT_OPEN);
+}
+
+// src/excalidraw-render.mjs
+var HERE = dirname(fileURLToPath(import.meta.url));
+var PLUGIN_DIR = resolve(HERE, "..");
+var FRAME_FILE = join2(PLUGIN_DIR, "client.frame.js");
+var PADDING = 24;
+var MIN_VIEWPORT = { width: 320, height: 200 };
+var MAX_VIEWPORT = { width: 2400, height: 2400 };
+var DEVICE_SCALE = 2;
+var EDITED_CHROME_SELECTOR = [
+  ".App-toolbar-container",
+  ".App-menu_top",
+  ".App-menu_bottom",
+  // The bottom bar is `.App-bottom-bar` in 0.18.1; its footer repeats the `App-toolbar` class,
+  // but the bar is the positioned island that floats over the drawing.
+  ".App-bottom-bar",
+  ".dropdown-menu-button",
+  ".sidebar-trigger",
+  ".main-menu-trigger",
+  ".layer-ui__wrapper__top-right",
+  // The footer carries the undo/redo pair and the zoom controls; it is a floating white bar
+  // OVER the bottom of the drawing and covered the last row of the picture until it was added
+  // here (measured 2026-11-27: the clean render still showed the undo/redo bar).
+  ".layer-ui__wrapper__footer",
+  ".HintViewer",
+  ".help-icon",
+  ".zoom-button"
+].join(",");
+var CLEAN_STYLE_ID = "designmap-clean-render";
+function pageBounds(elements) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const note = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  for (const element2 of Array.isArray(elements) ? elements : []) {
+    if (element2 === null || typeof element2 !== "object" || element2.isDeleted === true) continue;
+    if (element2.type === "arrow") {
+      note(element2.x, element2.y);
+      for (const point of Array.isArray(element2.points) ? element2.points : []) note(element2.x + point[0], element2.y + point[1]);
+      continue;
+    }
+    note(element2.x, element2.y);
+    note(element2.x + (element2.width ?? 0), element2.y + (element2.height ?? 0));
+  }
+  if (!Number.isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0, empty: true };
+  const width = Math.ceil(maxX - minX);
+  const height = Math.ceil(maxY - minY);
+  return { x: Math.floor(minX), y: Math.floor(minY), width, height, empty: width <= 0 || height <= 0 };
+}
+function frameFor(bounds, { padding = PADDING } = {}) {
+  const empty = bounds === null || typeof bounds !== "object" || bounds.empty === true || bounds.width <= 0 || bounds.height <= 0;
+  if (empty) {
+    return { bounds: { x: 0, y: 0, width: 0, height: 0, empty: true }, viewport: { ...MIN_VIEWPORT }, zoom: 1, scrollX: 0, scrollY: 0, empty: true };
+  }
+  const wanted = { width: bounds.width + padding * 2, height: bounds.height + padding * 2 };
+  const viewport = {
+    width: Math.min(MAX_VIEWPORT.width, Math.max(MIN_VIEWPORT.width, Math.ceil(wanted.width))),
+    height: Math.min(MAX_VIEWPORT.height, Math.max(MIN_VIEWPORT.height, Math.ceil(wanted.height)))
+  };
+  const zoom = Math.max(0.05, Math.min(1.5, Math.min(viewport.width / wanted.width, viewport.height / wanted.height)));
+  const centreX = bounds.x + bounds.width / 2;
+  const centreY = bounds.y + bounds.height / 2;
+  return {
+    bounds,
+    viewport,
+    zoom,
+    scrollX: viewport.width / (2 * zoom) - centreX,
+    scrollY: viewport.height / (2 * zoom) - centreY,
+    empty: false
+  };
+}
+async function loadPlaywright() {
+  try {
+    return await import("playwright-core");
+  } catch {
+  }
+  const candidates = [
+    join2(PLUGIN_DIR, "..", "..", ".tools", "node_modules", "playwright-core", "index.mjs"),
+    join2(homedir(), "dsh-kit", ".tools", "node_modules", "playwright-core", "index.mjs")
+  ];
+  for (const candidate of candidates) {
+    if (!existsSync2(candidate)) continue;
+    try {
+      return await import(pathToFileURL(candidate).href);
+    } catch {
+    }
+  }
+  return null;
+}
+function chromiumBinary() {
+  const override = process.env.DESIGNMAP_CHROMIUM;
+  if (typeof override === "string" && override !== "" && existsSync2(override)) return override;
+  const root = join2(homedir(), ".cache", "ms-playwright");
+  if (!existsSync2(root)) return null;
+  const candidates = [];
+  for (const entry of readdirSync2(root)) {
+    if (!entry.startsWith("chromium-")) continue;
+    const binary = join2(root, entry, "chrome-linux64", "chrome");
+    if (existsSync2(binary)) candidates.push({ binary, order: Number(entry.split("-")[1]) || 0 });
+  }
+  candidates.sort((left, right) => right.order - left.order);
+  return candidates.length === 0 ? null : candidates[0].binary;
+}
+function patchedFrame() {
+  const text = readFileSync2(FRAME_FILE, "utf8");
+  try {
+    return patchExportSwitch(text);
+  } catch (error) {
+    if (error instanceof FrameBundleMismatch) {
+      throw new MapRefusal("renderer_unavailable", `${FRAME_FILE} is not the vendored Excalidraw frame this exporter expects: ${error.message}`);
+    }
+    throw error;
+  }
+}
+async function renderWithExcalidraw(elements, outDir, page, { timeoutMs = 9e4 } = {}) {
+  if (!Array.isArray(elements)) {
+    throw new MapRefusal("renderer_unavailable", "a render needs the page elements");
+  }
+  const playwright = await loadPlaywright();
+  if (playwright === null) {
+    throw new MapRefusal("renderer_unavailable", "playwright-core is not installed (looked beside the plugin and in <kit>/.tools/node_modules)");
+  }
+  const executablePath = chromiumBinary();
+  if (executablePath === null) {
+    throw new MapRefusal("renderer_unavailable", "no Chromium binary in ~/.cache/ms-playwright (set DESIGNMAP_CHROMIUM)");
+  }
+  if (!existsSync2(FRAME_FILE)) {
+    throw new MapRefusal("renderer_unavailable", `the vendored Excalidraw bundle is missing: ${FRAME_FILE}`);
+  }
+  const bundle = patchedFrame();
+  let browser;
+  try {
+    browser = await playwright.chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+  } catch (error) {
+    throw new MapRefusal("renderer_unavailable", `Chromium did not launch: ${error?.message ?? error}`);
+  }
+  try {
+    const framed = frameFor(pageBounds(elements));
+    const context = await browser.newContext({ viewport: framed.viewport, deviceScaleFactor: DEVICE_SCALE, acceptDownloads: true });
+    const tab = await context.newPage();
+    await tab.setContent('<!doctype html><html><head><meta charset="utf-8"><style>html,body,#root{height:100%;margin:0;background:#ffffff}</style></head><body><div id="root"></div></body></html>');
+    await tab.addScriptTag({ content: bundle });
+    await tab.waitForFunction(() => document.querySelectorAll("canvas").length > 0, null, { timeout: timeoutMs });
+    await tab.evaluate((scene) => {
+      window.postMessage({ source: "design-map-panel", type: "load", scene }, "*");
+    }, {
+      elements,
+      appState: {
+        viewBackgroundColor: "#ffffff",
+        gridSize: null,
+        zoom: { value: framed.zoom },
+        scrollX: framed.scrollX,
+        scrollY: framed.scrollY
+      }
+    });
+    await tab.waitForTimeout(1800);
+    mkdirSync2(outDir, { recursive: true });
+    const pngPath = join2(outDir, `${page}.png`);
+    await tab.evaluate(({ selector, id }) => {
+      const style = document.createElement("style");
+      style.id = id;
+      style.textContent = `${selector}{display:none!important}`;
+      document.head.append(style);
+    }, { selector: EDITED_CHROME_SELECTOR, id: CLEAN_STYLE_ID });
+    await tab.waitForTimeout(150);
+    const canvas = tab.locator(".excalidraw canvas").first();
+    const box = await canvas.boundingBox();
+    if (box === null) throw new MapRefusal("renderer_unavailable", "Excalidraw rendered no canvas to capture");
+    await canvas.screenshot({ path: pngPath });
+    await tab.evaluate((id) => {
+      const style = document.getElementById(id);
+      if (style !== null) style.remove();
+    }, CLEAN_STYLE_ID);
+    const png = {
+      path: pngPath,
+      bytes: statSync2(pngPath).size,
+      width: Math.round(box.width * DEVICE_SCALE),
+      height: Math.round(box.height * DEVICE_SCALE)
+    };
+    let svg = { path: null, bytes: 0, reason: null };
+    try {
+      await tab.click('[data-testid="main-menu-trigger"]', { timeout: 1e4 });
+      await tab.waitForTimeout(400);
+      await tab.locator(".dropdown-menu-container").getByText("Save to...", { exact: true }).first().click({ timeout: 1e4 });
+      await tab.waitForTimeout(900);
+      const svgButton = tab.locator('[role="dialog"] button, .Modal button, .ImageExportModal button').filter({ hasText: /^SVG$/ }).first();
+      if (await svgButton.count() === 0) {
+        svg.reason = "Excalidraw's export dialog showed no SVG control";
+      } else {
+        const downloadPromise = tab.waitForEvent("download", { timeout: 2e4 }).catch(() => null);
+        await svgButton.click();
+        const download = await downloadPromise;
+        if (download === null) {
+          svg.reason = "Excalidraw's export dialog produced no download";
+        } else {
+          const svgPath = join2(outDir, `${page}.svg`);
+          await download.saveAs(svgPath);
+          svg = { path: svgPath, bytes: statSync2(svgPath).size, reason: null };
+        }
+      }
+    } catch (error) {
+      svg.reason = `Excalidraw's export dialog failed: ${error?.message ?? error}`;
+    }
+    return {
+      png,
+      svg,
+      width: png.width,
+      height: png.height,
+      image: { width: png.width, height: png.height, devicePixelRatio: DEVICE_SCALE },
+      bounds: framed.bounds,
+      page: { bounds: framed.bounds, viewport: framed.viewport, zoom: framed.zoom },
+      empty: framed.empty,
+      elements: elements.length,
+      renderer: "excalidraw",
+      // Evidence for the caller that the capture is the drawing and not the editor: the same
+      // selector list is applied to the DOM before the screenshot.
+      chromeHidden: true
+    };
+  } finally {
+    await browser.close().catch(() => {
+    });
+  }
+}
+
+// src/ops.mjs
+var OPS = /* @__PURE__ */ new Set([
+  "node.add",
+  "node.move",
+  "node.resize",
+  "node.label",
+  "node.style",
+  "edge.add",
+  "edge.label",
+  "element.delete",
+  "page.create",
+  "page.rename",
+  "page.delete",
+  "tidy",
+  "layout",
+  "diagram",
+  "note.add",
+  "align"
+]);
+var GAP = 48;
+var CELL_WIDTH = 340;
+var CELL_HEIGHT = 160;
+function nextId(elements, prefix) {
+  let index = 1;
+  while (elements.some((entry) => entry.id === `${prefix}${index}`)) index += 1;
+  return `${prefix}${index}`;
+}
+function shapeOf(elements, id) {
+  const shape = elements.find((entry) => entry?.id === id && SHAPES.has(entry?.type) && entry.isDeleted !== true);
+  if (shape === void 0) throw new MapRefusal("unknown_node", `no node "${id}" on this page`);
+  return shape;
+}
+function arrowOf(elements, id) {
+  const arrow = elements.find((entry) => entry?.id === id && entry.type === "arrow" && entry.isDeleted !== true);
+  if (arrow === void 0) throw new MapRefusal("unknown_node", `no edge "${id}" on this page`);
+  return arrow;
+}
+function overlapsRect(a, b, margin = 0) {
+  return a.x < b.x + b.width + margin && b.x < a.x + a.width + margin && a.y < b.y + b.height + margin && b.y < a.y + a.height + margin;
+}
+function shapesOn(elements) {
+  return elements.filter((entry) => entry?.isDeleted !== true && SHAPES.has(entry?.type));
+}
+function freeCell(elements, size) {
+  const width = Math.max(80, size?.width ?? 140);
+  const height = Math.max(40, size?.height ?? 56);
+  const shapes = shapesOn(elements);
+  for (let row = 0; row < 40; row += 1) {
+    for (let column = 0; column < 10; column += 1) {
+      const candidate = { x: 40 + column * CELL_WIDTH, y: 40 + row * CELL_HEIGHT, width, height };
+      if (!shapes.some((shape) => overlapsRect(shape, candidate, 16))) return { x: candidate.x, y: candidate.y };
+    }
+  }
+  return { x: 40, y: 40 };
+}
+function spotBeside(elements, anchor, size, below = false) {
+  const shapes = shapesOn(elements);
+  if (below) {
+    let y = anchor.y + anchor.height + GAP;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const candidate = { x: anchor.x, y, width: size.width, height: size.height };
+      if (!shapes.some((shape) => overlapsRect(shape, candidate, 16))) return { x: candidate.x, y: candidate.y };
+      y += Math.round(size.height + GAP);
+    }
+    return { x: anchor.x, y: anchor.y + anchor.height + GAP };
+  }
+  let x = anchor.x + anchor.width + GAP;
+  for (let attempt = 0; attempt < 120 && x < 2400; attempt += 1) {
+    const candidate = { x, y: anchor.y, width: size.width, height: size.height };
+    if (!shapes.some((shape) => overlapsRect(shape, candidate, 16))) return { x: candidate.x, y: candidate.y };
+    x += 32;
+  }
+  return { x: anchor.x, y: anchor.y + anchor.height + GAP };
+}
+function byId(elements) {
+  return new Map(elements.filter((entry) => entry !== null && typeof entry === "object").map((entry) => [entry.id, entry]));
+}
+function reanchorArrows(elements) {
+  const map = byId(elements);
+  return elements.map((element2) => {
+    if (element2?.type !== "arrow") return element2;
+    const from = map.get(element2.startBinding?.elementId);
+    const to = map.get(element2.endBinding?.elementId);
+    if (from === void 0 || to === void 0 || !SHAPES.has(from.type) || !SHAPES.has(to.type)) return element2;
+    const built = buildEdge({ id: element2.id, label: labelOf(elements, element2.id), from, to, strokeStyle: element2.strokeStyle });
+    return {
+      ...element2,
+      x: built.arrow.x,
+      y: built.arrow.y,
+      width: built.arrow.width,
+      height: built.arrow.height,
+      points: built.arrow.points,
+      boundElements: built.arrow.boundElements
+    };
+  });
+}
+function moveShapes(elements, moves) {
+  const map = byId(elements);
+  const moved = elements.map((element2) => {
+    const target = moves.get(element2?.id);
+    if (target !== void 0) return { ...element2, x: target.x, y: target.y };
+    if (element2?.type === "text" && typeof element2.containerId === "string") {
+      const source = map.get(element2.containerId);
+      const destination = moves.get(element2.containerId);
+      if (source !== void 0 && destination !== void 0) {
+        return { ...element2, x: Math.round(element2.x + destination.x - source.x), y: Math.round(element2.y + destination.y - source.y) };
+      }
+    }
+    return element2;
+  });
+  return reanchorArrows(moved);
+}
+function replaceShape(elements, shape, { label, width, height, type, growOnly = false }) {
+  const text = label ?? labelOf(elements, shape.id);
+  const wanted = nodeSize(text, type ?? shape.type);
+  const built = buildNode({
+    id: shape.id,
+    type: type ?? shape.type,
+    label: text,
+    x: shape.x,
+    y: shape.y,
+    width: growOnly ? Math.max(shape.width, wanted.width) : width,
+    height: growOnly ? Math.max(shape.height, wanted.height) : height
+  });
+  const nextShape = { ...built.shape, backgroundColor: shape.backgroundColor, strokeColor: shape.strokeColor, strokeStyle: shape.strokeStyle };
+  const kept = elements.filter((entry) => entry.id !== shape.id && entry?.containerId !== shape.id);
+  kept.push(nextShape);
+  if (built.text !== null) kept.push(built.text);
+  return reanchorArrows(kept);
+}
+function bindArrow(elements, arrow, fromId, toId) {
+  return elements.map((element2) => {
+    if (element2?.id !== fromId && element2?.id !== toId) return element2;
+    const bound = Array.isArray(element2.boundElements) ? element2.boundElements.filter((entry) => entry?.id !== arrow.id) : [];
+    return { ...element2, boundElements: [...bound, { type: "arrow", id: arrow.id }] };
+  });
+}
+function removeElement(elements, id) {
+  const attached = /* @__PURE__ */ new Set([id]);
+  for (const element2 of elements) {
+    if (element2?.type === "arrow" && (element2.startBinding?.elementId === id || element2.endBinding?.elementId === id)) attached.add(element2.id);
+    if (element2?.type === "text" && attached.has(element2.containerId)) attached.add(element2.id);
+  }
+  return elements.filter((entry) => !attached.has(entry?.id)).map((entry) => Array.isArray(entry?.boundElements) ? { ...entry, boundElements: entry.boundElements.filter((bind) => !attached.has(bind?.id)) } : entry);
+}
+function applyLayout(elements, options, notes) {
+  const result = layoutElements(elements, options);
+  notes.push(`${result.direction} layout: ${result.moved} shape(s) moved, overlaps ${result.overlapsBefore} -> ${result.overlapsAfter}, ${result.layers} layer(s)`);
+  return result.elements;
+}
+function countsOf(elements) {
+  return { nodes: shapesOn(elements).length, edges: elements.filter((entry) => entry?.type === "arrow" && entry.isDeleted !== true).length };
+}
+function verdictOf(scene) {
+  const analysis = analyzeScene(scene);
+  return { score: analysis.score, verdict: analysis.verdict, counts: analysis.counts };
+}
+function resolveRef(refs, value, what) {
+  if (typeof value !== "string" || value.trim() === "") throw new MapRefusal("unknown_node", `${what} names no node`);
+  const exact = refs.get(value);
+  if (exact !== void 0) return exact;
+  const folded = refs.get(value.trim().toLowerCase());
+  if (folded !== void 0) return folded;
+  throw new MapRefusal("unknown_node", `${what} "${value}" is not one of the diagram's nodes`);
+}
+function applyOp(designmapDir, op) {
+  const kind = typeof op?.op === "string" ? op.op : "";
+  if (!OPS.has(kind)) {
+    throw new MapRefusal("unknown_op", `"${kind}" is not one of ${[...OPS].join(", ")}`);
+  }
+  if (kind === "page.create") {
+    createPage(designmapDir, op.page);
+    return { ok: true, page: op.page, action: kind, nodes: 0, edges: 0, hints: [], readability: { score: 100, verdict: "empty", counts: { high: 0, medium: 0, low: 0, total: 0 } } };
+  }
+  if (kind === "page.rename") {
+    renamePage(designmapDir, op.page, op.to);
+    return { ok: true, page: op.to, action: kind, from: op.page, nodes: 0, edges: 0, hints: [] };
+  }
+  if (kind === "page.delete") {
+    deletePage(designmapDir, op.page);
+    return { ok: true, page: op.page, action: kind, deleted: true, nodes: 0, edges: 0, hints: [] };
+  }
+  const scene = readPage(designmapDir, op.page);
+  let elements = Array.isArray(scene.elements) ? scene.elements.slice() : [];
+  let id = typeof op.id === "string" ? op.id : void 0;
+  let notes = [];
+  let created = null;
+  if (kind === "node.add") {
+    id = id ?? nextId(elements, "n");
+    const label = String(op.label ?? "");
+    const type = op.kind ?? op.shape ?? "rectangle";
+    const size = nodeSize(label, ["ellipse", "diamond"].includes(type) ? type : "rectangle");
+    let spot;
+    if (Number.isFinite(op.x) && Number.isFinite(op.y)) spot = { x: op.x, y: op.y };
+    else if (typeof op.from === "string") spot = spotBeside(elements, shapeOf(elements, op.from), size, op.below === true);
+    else spot = freeCell(elements, size);
+    const node = buildNode({ id, type, label, x: spot.x, y: spot.y, color: op.color });
+    elements.push(node.shape);
+    if (node.text !== null) elements.push(node.text);
+  } else if (kind === "node.move") {
+    const shape = shapeOf(elements, id);
+    const x = Number.isFinite(op.x) ? op.x : shape.x;
+    const y = Number.isFinite(op.y) ? op.y : shape.y;
+    elements = moveShapes(elements, /* @__PURE__ */ new Map([[id, { x, y }]]));
+  } else if (kind === "node.resize") {
+    const shape = shapeOf(elements, id);
+    const width = Number.isFinite(op.width) && op.width > 0 ? op.width : shape.width;
+    const height = Number.isFinite(op.height) && op.height > 0 ? op.height : shape.height;
+    elements = replaceShape(elements, shape, { width, height });
+  } else if (kind === "node.label") {
+    elements = replaceShape(elements, shapeOf(elements, id), { label: String(op.label ?? ""), growOnly: true });
+  } else if (kind === "node.style") {
+    const shape = shapeOf(elements, id);
+    const backgroundColor = typeof op.color === "string" && op.color.startsWith("#") ? op.color : colorOf(op.color, shape.backgroundColor);
+    elements = elements.map((entry) => entry.id === id ? { ...entry, backgroundColor } : entry);
+  } else if (kind === "edge.add") {
+    id = id ?? nextId(elements, "e");
+    const from = shapeOf(elements, op.from);
+    const to = shapeOf(elements, op.to);
+    const edge = buildEdge({ id, label: op.label ?? "", from, to, strokeStyle: op.style === "dashed" ? "dashed" : "solid" });
+    elements = bindArrow(elements, edge.arrow, from.id, to.id);
+    elements.push(edge.arrow);
+    if (edge.text !== null) elements.push(edge.text);
+  } else if (kind === "edge.label") {
+    const arrow = arrowOf(elements, id);
+    const from = elements.find((entry) => entry.id === arrow.startBinding?.elementId);
+    const to = elements.find((entry) => entry.id === arrow.endBinding?.elementId);
+    elements = elements.filter((entry) => !(entry?.type === "text" && entry.containerId === arrow.id));
+    const index = elements.findIndex((entry) => entry.id === arrow.id);
+    if (from === void 0 || to === void 0) {
+      notes.push("edge label skipped: the arrow has no bound endpoint");
+      if (index >= 0) elements[index] = { ...arrow, boundElements: [] };
+    } else {
+      const edge = buildEdge({ id: arrow.id, label: String(op.label ?? ""), from, to, strokeStyle: arrow.strokeStyle });
+      if (index >= 0) elements[index] = edge.arrow;
+      if (edge.text !== null) elements.push(edge.text);
+    }
+  } else if (kind === "element.delete") {
+    const ids = Array.isArray(op.ids) ? op.ids : [id];
+    for (const target of ids) {
+      if (typeof target !== "string" || target === "") continue;
+      elements = removeElement(elements, target);
+    }
+  } else if (kind === "note.add") {
+    id = id ?? nextId(elements, "t");
+    const text = String(op.text ?? op.label ?? "");
+    const note = buildNote({ id, text, x: Number.isFinite(op.x) ? op.x : 40, y: Number.isFinite(op.y) ? op.y : 40, fontSize: op.fontSize, color: op.color });
+    if (!Number.isFinite(op.x) && !Number.isFinite(op.y)) {
+      const spot = freeCell(elements, note);
+      note.x = spot.x;
+      note.y = spot.y;
+    }
+    elements.push(note);
+  } else if (kind === "tidy") {
+    const result = tidyElements(elements);
+    elements = result.elements;
+    notes = notes.concat([`overlaps ${result.overlapsBefore} -> ${result.overlapsAfter}`, `${result.moved} shape(s) moved`]);
+  } else if (kind === "layout") {
+    elements = applyLayout(elements, {
+      direction: op.direction === "TB" ? "TB" : "LR",
+      nodeGap: op.nodeGap,
+      layerGap: op.layerGap,
+      originX: op.x,
+      originY: op.y
+    }, notes);
+  } else if (kind === "diagram") {
+    if (op.replace === true) elements = [];
+    const specs = Array.isArray(op.nodes) ? op.nodes : [];
+    if (specs.length === 0) throw new MapRefusal("invalid_diagram", "diagram needs at least one node");
+    const refs = /* @__PURE__ */ new Map();
+    const nodeIds = [];
+    for (const spec of specs) {
+      const nodeId = typeof spec?.id === "string" && spec.id !== "" ? spec.id : nextId(elements, "n");
+      if (elements.some((entry) => entry?.id === nodeId)) throw new MapRefusal("duplicate_id", `node id "${nodeId}" already exists on this page`);
+      const node = buildNode({ id: nodeId, type: spec?.kind ?? "rectangle", label: spec?.label ?? "", x: 0, y: 0, color: spec?.color });
+      elements.push(node.shape);
+      if (node.text !== null) elements.push(node.text);
+      refs.set(nodeId, nodeId);
+      const label = String(spec?.label ?? "").trim();
+      if (label !== "") refs.set(label.toLowerCase(), nodeId);
+      nodeIds.push(nodeId);
+    }
+    const edgeIds = [];
+    for (const spec of Array.isArray(op.edges) ? op.edges : []) {
+      const fromId = resolveRef(refs, spec?.from, "edge.from");
+      const toId = resolveRef(refs, spec?.to, "edge.to");
+      const edgeId = typeof spec?.id === "string" && spec.id !== "" ? spec.id : nextId(elements, "e");
+      const from = shapeOf(elements, fromId);
+      const to = shapeOf(elements, toId);
+      const edge = buildEdge({ id: edgeId, label: spec?.label ?? "", from, to, strokeStyle: spec?.style === "dashed" ? "dashed" : "solid" });
+      elements = bindArrow(elements, edge.arrow, fromId, toId);
+      elements.push(edge.arrow);
+      if (edge.text !== null) elements.push(edge.text);
+      edgeIds.push(edgeId);
+    }
+    elements = applyLayout(elements, {
+      direction: op.direction === "TB" ? "TB" : "LR",
+      nodeGap: op.nodeGap,
+      layerGap: op.layerGap,
+      originX: Number.isFinite(op.x) ? op.x : void 0,
+      originY: Number.isFinite(op.y) ? op.y : void 0
+    }, notes);
+    created = { nodes: nodeIds, edges: edgeIds };
+    id = void 0;
+  } else if (kind === "align") {
+    const mode = typeof op.mode === "string" ? op.mode : "left";
+    const shapes = Array.isArray(op.ids) && op.ids.length > 0 ? op.ids.map((target) => shapeOf(elements, target)) : shapesOn(elements);
+    if (shapes.length < 2) throw new MapRefusal("too_few_nodes", "align needs at least two boxes");
+    const moves = /* @__PURE__ */ new Map();
+    if (mode === "left") {
+      const x = Math.min(...shapes.map((shape) => shape.x));
+      for (const shape of shapes) moves.set(shape.id, { x, y: shape.y });
+    } else if (mode === "right") {
+      const edge = Math.max(...shapes.map((shape) => shape.x + shape.width));
+      for (const shape of shapes) moves.set(shape.id, { x: edge - shape.width, y: shape.y });
+    } else if (mode === "top") {
+      const y = Math.min(...shapes.map((shape) => shape.y));
+      for (const shape of shapes) moves.set(shape.id, { x: shape.x, y });
+    } else if (mode === "center-x") {
+      const center = shapes.reduce((total, shape) => total + shape.x + shape.width / 2, 0) / shapes.length;
+      for (const shape of shapes) moves.set(shape.id, { x: Math.round(center - shape.width / 2), y: shape.y });
+    } else if (mode === "center-y") {
+      const center = shapes.reduce((total, shape) => total + shape.y + shape.height / 2, 0) / shapes.length;
+      for (const shape of shapes) moves.set(shape.id, { x: shape.x, y: Math.round(center - shape.height / 2) });
+    } else if (mode === "distribute-x" || mode === "distribute-y") {
+      const horizontal = mode === "distribute-x";
+      const sorted = shapes.slice().sort((left, right) => horizontal ? left.x - right.x : left.y - right.y);
+      const first = horizontal ? sorted[0].x : sorted[0].y;
+      const last = horizontal ? sorted[sorted.length - 1].x : sorted[sorted.length - 1].y;
+      const step = (last - first) / (sorted.length - 1);
+      sorted.forEach((shape, index) => moves.set(shape.id, horizontal ? { x: Math.round(first + step * index), y: shape.y } : { x: shape.x, y: Math.round(first + step * index) }));
+    } else {
+      throw new MapRefusal("unknown_mode", `align mode "${mode}" is not one of left, right, top, center-x, center-y, distribute-x, distribute-y`);
+    }
+    elements = moveShapes(elements, moves);
+  }
+  scene.elements = elements;
+  writePage(designmapDir, op.page, scene);
+  const counts = countsOf(elements);
+  return {
+    ok: true,
+    page: op.page,
+    action: kind,
+    ...id === void 0 ? {} : { id },
+    ...counts,
+    ...created === null ? {} : { created },
+    hints: hintsOf(scene),
+    readability: verdictOf(scene),
+    notes
+  };
+}
+async function renderPage(designmapDir, page) {
+  const scene = readPage(designmapDir, page);
+  const outDir = join3(designmapDir, "out");
+  const rendered = await renderWithExcalidraw(Array.isArray(scene.elements) ? scene.elements : [], outDir, page);
+  return { ok: true, page, ...rendered, readability: verdictOf(scene) };
 }
 
 // src/command.mjs
-var OPS = ["status", "scan", "apply", "render", "lint", "open", "export", "overlay", "annotate", "views", "label"];
-var OVERLAY_FIELDS = ["action", "nodeId", "viewId", "row", "x", "y", "fill", "stroke"];
-function overlayPayload(op) {
-  const payload = {};
-  for (const field of OVERLAY_FIELDS) {
-    if (op[field] !== void 0) payload[field] = op[field];
-  }
-  return payload;
-}
+var OPS2 = ["pages", "page", "save", "tidy-page", "render-page", "lint", "edit"];
+var REPAIR_OPS = /* @__PURE__ */ new Set(["node.move", "node.resize", "node.label", "node.style", "edge.label", "element.delete", "layout", "tidy", "align"]);
 function createCommandHandler({ hostFor }) {
   return async function handler(invocation) {
-    const { service, logger } = hostFor({ agent: invocation.agent });
+    const { designmapDir } = hostFor({ agent: invocation.agent });
     let op;
     try {
       op = JSON.parse(invocation.rawInput);
     } catch {
       return { kind: "error", text: "designmap: expected a JSON operation" };
     }
-    if (op === null || typeof op !== "object" || !OPS.includes(op.op)) {
-      return { kind: "error", text: `designmap: unknown op (${OPS.join(" | ")})` };
+    if (op === null || typeof op !== "object" || !OPS2.includes(op.op)) {
+      return { kind: "error", text: `designmap: unknown op (${OPS2.join(" | ")})` };
     }
-    logger?.log("tool.enter", { tool: "command", op: op.op });
-    const started = performance.now();
     try {
       let value;
       switch (op.op) {
-        case "status":
-          value = service.status();
+        case "pages":
+          value = { ok: true, pages: listPages(designmapDir) };
           break;
-        case "scan":
-          value = service.scan({ roots: op.roots, extensions: op.extensions });
+        case "page":
+          value = { ok: true, page: op.page, scene: readPage(designmapDir, op.page) };
           break;
-        case "apply":
-          value = service.apply(op.ops);
+        case "save": {
+          if (op.scene === null || typeof op.scene !== "object" || !Array.isArray(op.scene.elements)) {
+            return { kind: "error", text: "designmap: invalid_scene: save needs a scene with an elements array" };
+          }
+          const previous = readPage(designmapDir, op.page);
+          const next = {
+            ...previous,
+            ...op.scene,
+            type: "excalidraw",
+            version: previous.version ?? op.scene.version ?? 2,
+            source: previous.source ?? op.scene.source,
+            appState: op.scene.appState ?? previous.appState ?? {},
+            files: op.scene.files ?? previous.files ?? {},
+            elements: op.scene.elements
+          };
+          writePage(designmapDir, op.page, next);
+          value = { ok: true, page: op.page, elements: next.elements.length, previousElements: previous.elements.length, savedAt: (/* @__PURE__ */ new Date()).toISOString() };
           break;
-        case "render":
-          value = await service.render({ viewId: op.viewId });
+        }
+        case "tidy-page":
+          value = applyOp(designmapDir, { op: "tidy", page: op.page });
           break;
+        case "render-page":
+          value = await renderPage(designmapDir, op.page);
+          break;
+        // The panel's "Check" button: the same readability report map_lint returns, so the
+        // human and the agent read the same findings about the same file.
         case "lint":
-          value = await service.lint({ viewId: op.viewId });
+          value = lintOutline(readPage(designmapDir, op.page), op.page);
           break;
-        case "open":
-          value = service.open({ nodeId: op.nodeId });
+        // One repair from the panel's finding list: the operation a finding carries is the SAME
+        // map_get/map_edit op the agent would send, validated against that op set.
+        case "edit": {
+          const operation = op.operation;
+          if (operation === null || typeof operation !== "object" || typeof operation.op !== "string" || !OPS.has(operation.op) || !REPAIR_OPS.has(operation.op)) {
+            return { kind: "error", text: "designmap: invalid_operation: edit needs an operation with a map op name" };
+          }
+          value = applyOp(designmapDir, operation);
           break;
-        case "export":
-          value = await service.exportView({ viewId: op.viewId, format: op.format });
-          break;
-        case "overlay":
-          value = await service.overlay(overlayPayload(op));
-          break;
-        case "annotate":
-          value = service.annotate({ elements: op.elements });
-          break;
-        case "views":
-          value = await service.views({ viewId: op.viewId });
-          break;
-        case "label":
-          value = service.label({ kind: op.kind, id: op.id, label: op.label });
-          break;
+        }
         default:
-          return { kind: "error", text: `designmap: unknown op (${OPS.join(" | ")})` };
+          return { kind: "error", text: `designmap: unknown op (${OPS2.join(" | ")})` };
       }
       return { kind: "success", text: JSON.stringify(value) };
     } catch (error) {
-      if (error instanceof DesignmapRefusal) {
+      if (error instanceof MapRefusal || typeof error?.code === "string") {
         return { kind: "error", text: `designmap: ${error.code}: ${error.message}` };
       }
       return { kind: "error", text: `designmap: internal_error: ${String(error?.message ?? error)}` };
-    } finally {
-      logger?.log("tool.exit", { tool: "command", op: op.op, ms: Math.round((performance.now() - started) * 100) / 100 });
     }
   };
+}
+
+// src/page-tools.mjs
+var string = (description, required = false) => ({ type: "string", description, ...required ? { required: true } : {} });
+var number = (description) => ({ type: "number", description });
+var boolean = (description) => ({ type: "boolean", description });
+var enums = (values, description, required = false) => ({ type: "string", enum: values, description, ...required ? { required: true } : {} });
+var objects = (properties, description) => ({ type: "array", description, items: { type: "object", properties, additionalProperties: false } });
+var SHAPE_KINDS = ["rectangle", "ellipse", "diamond"];
+var ALIGN_MODES = ["left", "right", "top", "center-x", "center-y", "distribute-x", "distribute-y"];
+var jsonOutput = {
+  schema: { type: "json" },
+  render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+};
+var PAGE_TOOL_SPECS = [
+  {
+    name: "map_list",
+    description: "List the design-map pages: one Excalidraw file per page under designmap/pages/, with node and edge counts and the last-modified time. Read-only.",
+    parameters: {},
+    call: ({ designmapDir }) => ({ ok: true, pages: listPages(designmapDir) })
+  },
+  {
+    name: "map_read",
+    description: 'Read one page before changing it. The default outline lists every node (`- [box] Checkout API  n1`), every edge (`- CLI -> API: asks  e1`), a compact geometry table (id x,y w x h), the page bounds and the readability verdict (`62/100 crowded`). `format:"json"` returns the exact scene. Read-only; never refuses a crowded page.',
+    parameters: {
+      page: string("Page name (the file name without .excalidraw).", true),
+      format: enums(["outline", "json"], "outline (default) or json for exact positions.")
+    },
+    call: ({ designmapDir }, args) => {
+      const scene = readPage(designmapDir, args.page);
+      const read = readOutline(scene, args.page);
+      if (args.format === "json") {
+        return { ...read, format: "json", elements: scene.elements, appState: scene.appState ?? {}, hints: hintsOf(scene) };
+      }
+      return read;
+    }
+  },
+  {
+    name: "map_lint",
+    description: "Check how readable one page is, before and after drawing it. Returns a score (100 clean; below 60 broken), a verdict, and every finding with the ids it measured, the measured value and a `repair` you can send to map_edit unchanged: node_overlap, label_overflow (the text does not fit the shape's inscribed area), edge_label_on_node, edge_crosses_node, edge_crossing, node_too_close, edge_unbound, edge_without_label, node_without_label, isolated_node, duplicate_label, page_too_tall, off_canvas. A low score is a report, never a refusal: a crowded page still opens and still saves.",
+    parameters: {
+      page: string("Page name to check.", true),
+      severity: enums(["high", "medium", "low"], "Only findings of this severity or worse.")
+    },
+    call: ({ designmapDir }, args) => {
+      const report = lintOutline(readPage(designmapDir, args.page), args.page);
+      if (args.severity === void 0 || args.severity === "") return report;
+      const rank = { high: 0, medium: 1, low: 2 };
+      const limit = rank[args.severity] ?? 2;
+      return { ...report, findings: report.findings.filter((entry) => (rank[entry.severity] ?? 3) <= limit) };
+    }
+  },
+  {
+    name: "map_edit",
+    description: 'Draw or repair one page with ONE op. Draw a whole scheme with op "diagram" in one call: nodes [{id?, label, kind?, color?}] and edges [{from, to, label?, style?}] - "from"/"to" accept a node id or its label; then it lays the page out (direction "LR" default, "TB" for top-down) with the edge labels in the gaps. Example: {"op":"diagram","page":"system","nodes":[{"label":"CLI"},{"label":"Orchestrator"},{"label":"Taskboard"}],"edges":[{"from":"CLI","to":"Orchestrator","label":"asks"},{"from":"Orchestrator","to":"Taskboard","label":"writes"}]}. Repair with op "layout" (direction), "tidy" (left-to-right), "align" (mode), or single ops: node.add (label/kind/color; x/y omitted = a free spot in the flow; from = beside that node), node.move, node.resize, node.label, node.style, edge.add (from/to ids), edge.label, note.add (text), element.delete (id or ids), page.create, page.rename, page.delete. You pass labels and places, never seeds, versions or bindings. Only unknown_page, unknown_node and a bad diagram reference are refused.',
+    parameters: {
+      page: string("Page name; for page.create the page to create, for page.rename the current name.", true),
+      op: { type: "string", enum: [...OPS], required: true, description: "The op to apply." },
+      id: string("Element id returned by map_read (node ops, edge.label, element.delete). Omitted on node.add/edge.add/note.add: a new id is returned."),
+      ids: { type: "array", items: { type: "string" }, description: "Several element ids (element.delete) or the shapes to align (align)." },
+      label: string("Node or edge label (node.add, node.label, edge.add, edge.label)."),
+      text: string("Note text (note.add)."),
+      x: number("Page x for node.add, node.move, note.add, layout/diagram origin."),
+      y: number("Page y for node.add, node.move, note.add, layout/diagram origin."),
+      width: number("Node width (node.resize)."),
+      height: number("Node height (node.resize)."),
+      from: string("Source node id (edge.add), or the node to place the new one beside (node.add). In diagram edges, a node id or label."),
+      to: string("Target node id (edge.add) or the new page name (page.rename). In diagram edges, a node id or label."),
+      kind: enums(SHAPE_KINDS, "Shape of a new node (node.add, diagram nodes). Default rectangle."),
+      color: string("Fill colour: a name (blue, green, red, yellow, violet, grey, white, none) or #rrggbb (node.add, node.style, diagram nodes)."),
+      fontSize: number("Note font size (note.add), default 16."),
+      style: enums(["solid", "dashed"], "Arrow line style (edge.add, diagram edges). Default solid."),
+      mode: enums(ALIGN_MODES, "How to align the selected boxes (align)."),
+      direction: enums(["LR", "TB"], "Layout direction for diagram/LR by default; TB stacks the layers top to bottom."),
+      nodeGap: number("Gap between boxes inside a layer (layout, diagram). Default 48."),
+      layerGap: number("Gap between layers (layout, diagram). Default 96, raised to fit the widest edge label."),
+      below: boolean("Place a new node UNDER the node named by from instead of to its right (node.add)."),
+      replace: boolean("diagram only: clear the page before drawing the new scheme."),
+      nodes: objects({
+        id: string("Optional node id."),
+        label: string("Node label."),
+        kind: enums(SHAPE_KINDS, "Shape."),
+        color: string("Fill colour: a name (blue, green, red, yellow, violet, grey, white, none) or #rrggbb.")
+      }, "diagram only: the nodes of the scheme, in reading order."),
+      edges: objects({
+        id: string("Optional edge id."),
+        from: string("Source node id or label."),
+        to: string("Target node id or label."),
+        label: string("Edge label."),
+        style: enums(["solid", "dashed"], "Line style.")
+      }, "diagram only: the arrows of the scheme.")
+    },
+    call: ({ designmapDir }, args) => applyOp(designmapDir, { ...args, newPage: args.to_page ?? args.newPage })
+  },
+  {
+    name: "map_render",
+    description: "Render one page to a picture with Excalidraw itself in a headless browser: designmap/out/<page>.png (read it with read_image) and designmap/out/<page>.svg (Excalidraw's own export), framed to the page bounds with the editor toolbar and menu hidden - the picture shows the drawing only. Use it after map_lint to see what the human will see. Refuses renderer_unavailable when no browser is present.",
+    parameters: { page: string("Page name to render.", true) },
+    call: ({ designmapDir }, args) => renderPage(designmapDir, args.page)
+  }
+];
+function createPageTools({ defineTool: defineTool2, pageHostFor }) {
+  return PAGE_TOOL_SPECS.map((spec) => defineTool2({
+    name: spec.name,
+    description: spec.description,
+    parameters: spec.parameters,
+    output: jsonOutput,
+    async execute(args, exec) {
+      const host = pageHostFor(exec);
+      try {
+        return await spec.call(host, args ?? {});
+      } catch (error) {
+        if (error?.name === "MapRefusal" || typeof error?.code === "string") {
+          return { ok: false, code: error.code ?? "internal_error", message: String(error?.message ?? error) };
+        }
+        return { ok: false, code: "internal_error", message: String(error?.message ?? error) };
+      }
+    }
+  }));
 }
 
 // index.js
 var name = "designmap";
 var inject = ["tools", "commands"];
 var DEFAULT_PRESETS = ["orchestrator"];
-function apply(ctx, config = {}) {
-  const dirName = typeof config.dir === "string" && config.dir !== "" ? config.dir : "designmap";
-  const presets = Array.isArray(config.presets) && config.presets.length > 0 ? config.presets : DEFAULT_PRESETS;
-  const hostFor = (exec) => {
-    const cwd = agentCwd(exec.agent);
-    const designmapDir = join3(cwd, dirName);
-    const { logger, path } = createFileLogger(designmapDir);
-    return {
-      service: createHostService({ designmapDir, repoRoot: cwd, logger }),
-      logger,
-      logPath: path
-    };
-  };
-  const tools = createHostTools({ defineTool, hostFor });
-  function presetOf(ctx2, agent) {
+function agentCwd(agent) {
+  const cwd = agent?.session?.header?.cwd;
+  return typeof cwd === "string" && cwd.length > 0 ? cwd : process.cwd();
+}
+function presetOf(ctx, agent) {
+  try {
+    const resolved = ctx.get?.("toolFamilies")?.presetFor?.(agent?.session);
+    if (typeof resolved === "string" && resolved.trim() !== "") return resolved;
+  } catch {
+  }
+  try {
+    const projected = ctx.get?.("agentPresets")?.presetForSession?.(agent?.session);
+    if (typeof projected === "string" && projected.trim() !== "") return projected;
+  } catch {
+  }
+  try {
+    const header = agent?.session?.header?.agentPreset;
+    return typeof header === "string" && header !== "" ? header : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function installPresetGate(ctx, { allowed, tools = [], toolsFor, onInstalled }) {
+  const installed = /* @__PURE__ */ new Map();
+  const resolve2 = (agent) => {
     try {
-      const resolved = ctx2.get?.("toolFamilies")?.presetFor?.(agent?.session);
-      if (typeof resolved === "string" && resolved.trim() !== "") return resolved;
-    } catch {
-    }
-    try {
-      const projected = ctx2.get?.("agentPresets")?.presetForSession?.(agent?.session);
-      if (typeof projected === "string" && projected.trim() !== "") return projected;
-    } catch {
-    }
-    try {
-      const header = agent?.session?.header?.agentPreset;
-      return typeof header === "string" && header !== "" ? header : void 0;
+      return presetOf(ctx, agent);
     } catch {
       return void 0;
     }
-  }
-  function installPresetGate(ctx2, { allowed, tools: tools2 = [], toolsFor, onInstalled }) {
-    const installed = /* @__PURE__ */ new Map();
-    const resolve3 = (agent) => {
-      try {
-        return presetOf(ctx2, agent);
-      } catch {
-        return void 0;
-      }
-    };
-    const sync = (agent, presetOverride) => {
-      if (agent === void 0 || agent === null) return;
-      try {
-        const preset = typeof presetOverride === "string" && presetOverride !== "" ? presetOverride : resolve3(agent);
-        const current = installed.get(agent);
-        if (current !== void 0 && current.preset === preset) return;
-        if (current !== void 0) {
-          for (const dispose of current.disposers) {
-            try {
-              dispose();
-            } catch {
-            }
+  };
+  const sync = (agent, presetOverride) => {
+    if (agent === void 0 || agent === null) return;
+    try {
+      const preset = typeof presetOverride === "string" && presetOverride !== "" ? presetOverride : resolve2(agent);
+      const current = installed.get(agent);
+      if (current !== void 0 && current.preset === preset) return;
+      if (current !== void 0) {
+        for (const dispose of current.disposers) {
+          try {
+            dispose();
+          } catch {
           }
-          installed.delete(agent);
         }
-        if (typeof preset !== "string" || !allowed(preset)) return;
-        const selected = typeof toolsFor === "function" ? toolsFor(preset) : tools2;
-        const disposers = selected.map((tool) => agent.ctx.tools.register(tool)).filter((dispose) => typeof dispose === "function");
-        installed.set(agent, { preset, disposers });
-        onInstalled?.(agent, preset);
-      } catch {
+        installed.delete(agent);
       }
-    };
-    ctx2.on("agent/created", ({ agent }) => sync(agent));
-    if (typeof ctx2.root?.on === "function") {
-      ctx2.root.on("session/event", (session, event) => {
-        if (event?.type !== "agent-preset/selected") return;
-        let live;
-        try {
-          live = ctx2.get?.("agents")?.get?.(session?.id);
-        } catch {
-          live = void 0;
-        }
-        if (live !== void 0 && live !== null) sync(live, event?.data?.agentPreset);
-      });
+      if (typeof preset !== "string" || !allowed(preset)) return;
+      const selected = typeof toolsFor === "function" ? toolsFor(preset) : tools;
+      const disposers = selected.map((tool) => agent.ctx.tools.register(tool)).filter((dispose) => typeof dispose === "function");
+      installed.set(agent, { preset, disposers });
+      onInstalled?.(agent, preset);
+    } catch {
     }
-    ctx2.on("agent/pre-step", (payload, next) => {
-      sync(payload?.agent);
-      return next();
-    }, { prepend: true });
-    return sync;
+  };
+  ctx.on("agent/created", ({ agent }) => sync(agent));
+  if (typeof ctx.root?.on === "function") {
+    ctx.root.on("session/event", (session, event) => {
+      if (event?.type !== "agent-preset/selected") return;
+      let live;
+      try {
+        live = ctx.get?.("agents")?.get?.(session?.id);
+      } catch {
+        live = void 0;
+      }
+      if (live !== void 0 && live !== null) sync(live, event?.data?.agentPreset);
+    });
   }
+  ctx.on("agent/pre-step", (payload, next) => {
+    sync(payload?.agent);
+    return next();
+  }, { prepend: true });
+  return sync;
+}
+function apply(ctx, config = {}) {
+  const dirName = typeof config.dir === "string" && config.dir !== "" ? config.dir : "designmap";
+  const presets = Array.isArray(config.presets) && config.presets.length > 0 ? config.presets : DEFAULT_PRESETS;
+  const pageHostFor = (exec) => ({ designmapDir: join4(agentCwd(exec.agent), dirName) });
+  const pageTools = createPageTools({ defineTool, pageHostFor });
   installPresetGate(ctx, {
-    tools,
+    tools: pageTools,
     allowed: (preset) => presets.includes(preset)
   });
   ctx.commands.register({
     name: "designmap",
-    description: "Read or change the designmap living document (status | scan | apply | render | lint | open | export). Used by the Design map panel and by the human.",
+    description: "Read or change one design-map page (pages | page | save | tidy-page | render-page). Used by the Project state -> Map editor and by the human.",
     recordInput: false,
-    handler: createCommandHandler({ hostFor })
+    handler: createCommandHandler({ hostFor: (invocation) => pageHostFor(invocation) })
   });
 }
 export {

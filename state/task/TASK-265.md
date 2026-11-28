@@ -2,10 +2,10 @@
 id: TASK-265
 kind: task
 title: "Сведение: make verify, make test, тарболы, кейс компакции, живой профиль"
-status: review
-revision: 4
+status: done
+revision: 5
 createdAt: 2026-11-20T12:11:52.161Z
-updatedAt: 2026-11-20T12:19:58.681Z
+updatedAt: 2026-11-23T08:24:16.500Z
 boardId: task-mwoxv322-ht8iaf
 nonScope: ["Не трогать ~/.npm/dsh, не перезапускать :3080, не запускать kit-update --apply против реального DSH_HOME", "Не менять текст политики оркестратора и продуктовое поведение ради зелёного теста — правится тест/доказательство, а не продукт", "Не менять плагины и установщики сверх того, что нужно для согласованности версий и тарболов", "Не коммитить и не пушить"]
 owner:
@@ -13,6 +13,8 @@ owner:
   label: BACKEND
 preset: backend
 reqIds: [REQ-178]
+resultEvidence: ["make verify -> 19/19 exit 0; check-portability 19/19", "make test -> 70/70 passed exit 0", "live profile mtime 12:00:32 / 14:25:51, каталога ~/.npm/dsh/.dsh-kit-backups нет", "два устаревших ожидания обновлены с red-first против копий из git HEAD: policy-gating 4/5 -> 5/5, orchestrator-policy-proof 13/19 -> 19/19"]
+resultSummary: "Сведение: make verify зелёный, make test 70/70 после правки проверки компакции, тарболы совпадают с исходниками, живой профиль не тронут; два устаревших ожидания доказаны красными на копиях из HEAD."
 role: BACKEND
 scope: ["Makefile, scripts/*.mjs (только ради согласованности и разбора красных)", "plugins/*/test/*.test.mjs и scripts/*-proof.mjs — только устаревшие ожидания, с доказательством red→green", "plugins/*.tgz — перепаковка разошедшихся", "docs/cases/ — перепроверка кейса через case_run"]
 ---

@@ -1,21 +1,11 @@
 /**
- * The live DSH host adapter for the designmap panel.
+ * The live DSH host adapter for the page editor.
  *
- * Reads (scenes, index, overlays, manifest) go through `remote.workspaceFiles`, the only
- * read-only file API a client plugin has. Writes go through `remote.commands.execute`
- * and the host's `/designmap` command, because the client cannot write the workspace:
- *   {op:'overlay', action:'upsert'|'replace'|'resetNode'|'resetView', …}
- *   {op:'render'}   re-run the generator after a reset/undo so the scene shows the
- *                   layout position again (this op writes out/, unlike the overlay write)
- *
- * The overlay payload builder refuses anything that is not x/y/fill/stroke with the
- * named `model_fields_forbidden` error before a command leaves the page. The host
- * repeats that refusal (src/host.mjs), so a crafted payload is refused twice.
+ * A client plugin's file API is read-only, so every page operation goes through
+ * `remote.commands.execute` and the host's `/designmap` command: list designmap/pages,
+ * open ONE page file, save that same file back, tidy it and render it. There is no view,
+ * overlay, annotation or manifest document behind a page.
  */
-
-const OVERLAY_ACTIONS = new Set(['upsert', 'replace', 'resetNode', 'resetView'])
-const OVERLAY_KEYS = new Set(['action', 'nodeId', 'viewId', 'row', 'x', 'y', 'fill', 'stroke'])
-const ROW_KEYS = new Set(['x', 'y', 'fill', 'stroke'])
 
 function remoteFailure(code, message) {
   return { ok: false, error: { code, message } }
@@ -30,7 +20,7 @@ function parseCommandFailure(outcome) {
 
 async function executeCommand(remote, sessionId, op) {
   if (remote?.commands === undefined || typeof remote.commands.execute !== 'function') {
-    return remoteFailure('command_unavailable', 'This build has no designmap command; overlay writes are unavailable.')
+    return remoteFailure('command_unavailable', 'This build has no designmap command; page edits are unavailable.')
   }
   let result
   try {
@@ -51,144 +41,55 @@ async function executeCommand(remote, sessionId, op) {
   }
 }
 
-/** The panel's write surface: visual fields only, named refusal otherwise. */
-export function validateOverlayPayload(payload) {
-  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
-    return remoteFailure('invalid_overlay', 'The overlay payload must be an object.')
-  }
-  const fields = Object.keys(payload).filter((key) => !OVERLAY_KEYS.has(key))
-  if (fields.length > 0) {
-    return remoteFailure('model_fields_forbidden', `The panel can only write overlays (x/y/fill/stroke); ${fields.join(', ')} belongs to the model.`)
-  }
-  if (!OVERLAY_ACTIONS.has(payload.action)) {
-    return remoteFailure('invalid_overlay', `Unknown overlay action "${String(payload.action)}".`)
-  }
-  if (payload.row !== undefined && payload.row !== null) {
-    if (typeof payload.row !== 'object' || Array.isArray(payload.row)) {
-      return remoteFailure('invalid_overlay', 'The overlay row must be an object or null.')
-    }
-    const rowFields = Object.keys(payload.row).filter((key) => !ROW_KEYS.has(key))
-    if (rowFields.length > 0) {
-      return remoteFailure('model_fields_forbidden', `The overlay row can only hold x/y/fill/stroke; ${rowFields.join(', ')} belongs to the model.`)
-    }
-  }
-  return { ok: true }
-}
-
-/**
- * @param {object} options
- * @param {object} options.remote - the client remote service (`ctx.remote`).
- * @param {string} options.sessionId - session whose workspace root anchors relative paths.
- */
+/** The panel's page surface: one page file per call, saved through the host command. */
 export function createRemoteHost({ remote, sessionId }) {
-  if (remote === undefined || remote === null) throw new Error('designmap: the host remote service is unavailable')
-  if (typeof sessionId !== 'string' || sessionId === '') {
-    return {
-      load: async () => remoteFailure('no_session', 'Open a conversation to load the design map.'),
-      refreshView: async () => remoteFailure('no_session', 'Open a conversation to edit the design map.'),
-      openSource: async () => remoteFailure('no_session', 'Open a conversation to open source files.'),
-      writeOverlay: async () => remoteFailure('no_session', 'Open a conversation to edit the design map.'),
-      writeLabel: async () => remoteFailure('no_session', 'Open a conversation to edit the design map.'),
-      writeAnnotations: async () => remoteFailure('no_session', 'Open a conversation to save annotations.'),
-      renderViews: async () => remoteFailure('no_session', 'Open a conversation to render the design map.'),
-    }
-  }
-
   return {
     /**
-     * The panel's read path: the host renders every view WITH the stored visual layer
-     * (`op:'views'`, renderView write:false) and this adapter hands that payload to the
-     * view untouched. The panel used to list `out/*.scene.json` and merge overlays in the
-     * browser, which gave the map two geometry owners: a moved node kept its old arrows
-     * and label plates. Nothing here computes geometry.
+     * The page document. The panel lists designmap/pages, opens ONE page file and writes
+     * that same file back; there is no view, overlay or annotation document behind it.
+     * `savePage` is debounced by the caller and the host re-reads the file before writing.
      */
-    async load({ viewId } = {}) {
-      const result = await executeCommand(remote, sessionId, { op: 'views', ...(viewId === undefined ? {} : { viewId }) })
-      if (result?.ok !== true) return result
-      const payload = result.value
-      if (payload === null || typeof payload !== 'object' || !Array.isArray(payload.views)) {
-        return remoteFailure('command_result_invalid', 'The designmap command returned no views.')
-      }
-      if (payload.views.length === 0) {
-        return {
-          ok: true,
-          value: {
-            views: [],
-            rootId: null,
-            missing: true,
-            overlays: { rows: payload.overlays?.rows ?? {}, path: 'designmap/overlays.json' },
-            annotations: Array.isArray(payload.annotations) ? payload.annotations : [],
-          },
-        }
-      }
-      return { ok: true, value: payload }
+    async pages() {
+      return executeCommand(remote, sessionId, { op: 'pages' })
     },
 
-    /** Re-render one view after a human edit. Same command, one view, still no writes. */
-    async refreshView(viewId) {
-      return this.load({ viewId })
+    async page(page) {
+      if (typeof page !== 'string' || page === '') return remoteFailure('invalid_page', 'A page name is required.')
+      return executeCommand(remote, sessionId, { op: 'page', page })
     },
 
-    /**
-     * A label is a model field, so the human's edit goes through the host's `label` op
-     * (apply + manifest), never through overlays.json.
-     */
-    async writeLabel({ kind, id, label } = {}) {
-      if (kind !== 'node' && kind !== 'edge') {
-        return remoteFailure('invalid_label_target', 'The label target must be a node or an edge.')
+    async savePage(page, scene) {
+      if (typeof page !== 'string' || page === '') return remoteFailure('invalid_page', 'A page name is required.')
+      if (scene === null || typeof scene !== 'object' || !Array.isArray(scene.elements)) {
+        return remoteFailure('invalid_scene', 'A save needs the scene the editor is showing.')
       }
-      if (typeof id !== 'string' || id === '') return remoteFailure('invalid_label_target', 'The label target needs an id.')
-      if (typeof label !== 'string' || label.trim() === '') {
-        // An empty edge label would make every render refuse (the lint treats it as an
-        // error), so the panel refuses it by the same code before it leaves the page.
-        return kind === 'edge'
-          ? remoteFailure('missing_edge_label', 'An edge must keep a label; the model refuses an empty one.')
-          : remoteFailure('invalid_label', 'A node label must not be empty.')
-      }
-      return executeCommand(remote, sessionId, { op: 'label', kind, id, label })
+      return executeCommand(remote, sessionId, { op: 'save', page, scene })
     },
 
-    validateOverlayPayload,
-
-    async writeOverlay(payload) {
-      const valid = validateOverlayPayload(payload)
-      if (valid.ok !== true) return valid
-      return executeCommand(remote, sessionId, { op: 'overlay', ...payload })
+    /** The same code the agent's tidy op runs. */
+    async tidyPage(page) {
+      return executeCommand(remote, sessionId, { op: 'tidy-page', page })
     },
 
-    async writeAnnotations(elements) {
-      if (!Array.isArray(elements)) return remoteFailure('invalid_annotation', 'Annotations are an array of elements.')
-      return executeCommand(remote, sessionId, { op: 'annotate', elements })
+    /** The same readability report map_lint returns: the panel's Check button. */
+    async lintPage(page) {
+      if (typeof page !== 'string' || page === '') return remoteFailure('invalid_page', 'A page name is required.')
+      return executeCommand(remote, sessionId, { op: 'lint', page })
     },
 
-    async renderViews(payload = {}) {
-      return executeCommand(remote, sessionId, { op: 'render', ...payload })
+    /** One map_edit operation from the panel's finding list: a ready repair, applied. */
+    async edit(operation) {
+      if (operation === null || typeof operation !== 'object' || typeof operation.op !== 'string') {
+        return remoteFailure('invalid_operation', 'An edit needs one map operation.')
+      }
+      return executeCommand(remote, sessionId, { op: 'edit', operation })
     },
 
-    async openSource(node) {
-      if (typeof node?.source !== 'string' || node.source === '') {
-        return remoteFailure('source_missing', `${node?.label ?? node?.id ?? 'This node'} has no source path in this scene.`)
-      }
-      const stat = await remote.workspaceFiles.stat(sessionId, node.source)
-      if (stat?.ok !== true) {
-        return {
-          ok: false,
-          error: stat?.error ?? { code: 'stat_failed', message: `Could not stat ${node.source}` },
-        }
-      }
-      const absolutePath = stat.value?.absolutePath
-      if (typeof absolutePath !== 'string' || absolutePath === '') {
-        return remoteFailure('stat_failed', `The host returned no absolute path for ${node.source}.`)
-      }
-      if (remote.session === undefined || typeof remote.session.openWorkspacePath !== 'function') {
-        return remoteFailure('open_unavailable', 'This build has no desktop opener; the source path is verified but cannot be opened.')
-      }
-      const opened = await remote.session.openWorkspacePath({ path: absolutePath })
-      if (opened?.ok !== true) {
-        return { ok: false, error: opened?.error ?? { code: 'open_failed', message: `Could not open ${node.source}.` } }
-      }
-      return { ok: true, value: { opened: true } }
+    /** The same code map_render runs. */
+    async renderPage(page) {
+      return executeCommand(remote, sessionId, { op: 'render-page', page })
     },
+
     canWrite: typeof remote?.commands?.execute === 'function',
   }
 }

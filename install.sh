@@ -15,7 +15,7 @@
 #   dsh web --port 3080
 #
 # Per-machine after install: configure API credentials (first GUI run), and
-# see USERGUIDE.md for Windows notes (openCommand) and first-run checks.
+# see docs/GUIDE.md for the working guide and rules/DEPLOYMENT.md for the first-run checks.
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -129,4 +129,4 @@ echo
 echo "== done =="
 echo "   DSH_HOME : ${DSH_HOME}"
 echo "   start    : dsh web --port 3080   (converges the kit first; ./start.sh also works)"
-echo "   docs     : open USERGUIDE.md for first-run checks and per-machine config."
+echo "   docs     : docs/GUIDE.md (how to work), rules/DEPLOYMENT.md (first-run checks and per-machine config)."

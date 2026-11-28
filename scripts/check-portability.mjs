@@ -61,7 +61,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, posix, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { inspectInstallerSteps } from './lib/installer-steps.mjs'
@@ -150,14 +150,7 @@ const CHECKS = [
     // made the panel render check crash on Windows while passing on the platform it was
     // written on.
     paths: ['plugins', 'scripts'],
-    // Vendored, generated build outputs copied byte-for-byte from the DSH client loader
-    // so the static harness and the render spike run the REAL loader. They are not kit
-    // source, and the match is the loader's own generated `import(...)` call.
-    allow: [
-      'plugins/designmap/harness/vendor/dsh-client-modules.client.js',
-      'scripts/designmap-render-spike/public/vendor/dsh-client-modules.client.js',
-    ],
-    allowReason: "vendored DSH client-loader build, not kit source: the match is the loader's generated module factory",
+    allow: [],
   },
   {
     id: 'no-url-pathname-as-path',
@@ -168,12 +161,7 @@ const CHECKS = [
     pattern: /^(?:(?!\/\/|\*)[\s\S])*?\.pathname\b/,
     why: 'a filesystem path derived from a file URL\'s pathname property is `/C:/…` on Windows, so use fileURLToPath(new URL(...)); the kit has read an empty tree this way four times',
     paths: ['plugins', 'scripts'],
-    // The one legitimate use: this value is the `url` of a synthetic HTTP request, never a
-    // filesystem path. Anything else that property is used for reaches `fileURLToPath`.
-    // Both dev servers resolve a request path through an `inside(root, target)` guard
-    // before touching the filesystem, never through `fileURLToPath`.
-    allow: ['plugins/designmap/harness/serve.mjs', 'scripts/designmap-render-spike/serve.mjs'],
-    allowReason: 'an HTTP request path from `new URL(request.url)`, guarded by an inside(root) check; never a file URL',
+    allow: [],
   },
   {
     id: 'no-hand-built-file-url',
@@ -205,7 +193,7 @@ const CHECKS = [
     // check-documentation reads `git ls-files` for one purpose: a plugin whose source is not
     // committed yet (another chat's working-tree row) must not move the count the documents
     // state. Same prerequisite as here - git is what makes a checkout a checkout.
-    allow: ['scripts/check-portability.mjs', 'scripts/check-documentation.mjs', 'scripts/independent-verification-proof.mjs'],
+    allow: ['scripts/check-portability.mjs', 'scripts/check-documentation.mjs', 'scripts/independent-verification-proof.mjs', 'scripts/state-merge-proof.mjs'],
     allowReason:
       'git is required to have a checkout at all, so it cannot be "unavailable on Linux" the way npm is unresolvable on Windows; unlike npm it is on PATH everywhere the kit runs. The P1 proof commits the wrong-product tree so its HEAD can be named (W1), which only git can do',
   },
@@ -923,6 +911,46 @@ for (const spec of CHECKS) {
     problems.length === 0
       ? `${compared} packed file(s) match the source tree byte for byte`
       : problems.slice(0, 6).join(' | '),
+  )
+
+  // ── every relative import of a packed module must resolve INSIDE the tarball ──
+  // THE FAILURE THIS CATCHES: a plugin's `files` list is the allow-list npm pack obeys, so a
+  // module added later can be imported by packed code while nobody adds it to `files`. The
+  // tarball installs, the required row dies with ERR_MODULE_NOT_FOUND, and the tools that row
+  // registered disappear from every session — while `tarball:matches-source` stays green,
+  // because every file it compared did match. Measured 2026-11-23: taskboard 0.1.84 and
+  // test-cases 0.1.35 omitted lib/journal.mjs, both rows failed to import, and the orchestrator
+  // (waiting for the taskboard service) lost delegate_task too.
+  const importProblems = []
+  let importsCompared = 0
+  for (const row of inventory?.plugins ?? []) {
+    if (typeof row.tarballPrefix !== 'string') continue
+    const versions = readdirSync(pluginDir).filter((name) => isVersionOf(name, row.tarballPrefix))
+    if (versions.length !== 1) continue
+    const entries = readTarball(join(pluginDir, versions[0]))
+    if (entries === null) continue
+    const packed = new Set(entries.keys())
+    for (const [name, bytes] of entries) {
+      if (!/\.(mjs|js|cjs)$/.test(name)) continue
+      const source = bytes.toString('utf8')
+      const specs = new Set()
+      for (const match of source.matchAll(/(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/g)) specs.add(match[1])
+      for (const spec of specs) {
+        importsCompared += 1
+        const target = posix.normalize(posix.join(posix.dirname(name), spec))
+        const candidates = [target, `${target}.mjs`, `${target}.js`, `${target}.cjs`, `${target}/index.mjs`, `${target}/index.js`]
+        if (!candidates.some((candidate) => packed.has(candidate))) {
+          importProblems.push(`${row.id}: ${name.replace(/^package\//, '')} imports ${spec}, which ${versions[0]} does not carry`)
+        }
+      }
+    }
+  }
+  check(
+    'tarball:imports-resolve',
+    importProblems.length === 0,
+    importProblems.length === 0
+      ? `${importsCompared} relative module specifier(s) resolve inside their tarballs`
+      : importProblems.slice(0, 6).join(' | '),
   )
 
   // ── a repack of an existing version must have changed the version ──────────

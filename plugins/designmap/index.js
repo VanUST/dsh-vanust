@@ -1,21 +1,21 @@
 /**
- * designmap host plugin (M3): registers the seven agent tools and the `/designmap`
- * human command over the M0 core and the M3 host service.
+ * designmap host plugin (design-map v2): the five page tools and the `/designmap` command.
  *
- * Registration follows the shipped `design-map` 0.2.0 pattern: `inject
- * ['tools','commands']`, tools registered per agent from `agent/created` and gated by
- * `agentPreset` (default: orchestrator only — an agent that never received the tool
- * cannot be argued into writing the design of the system it is working in), while the
- * command stays ungated because it is the human panel path.
+ * The page document is the only store: one Excalidraw file per page under
+ * designmap/pages/, edited by the Project state -> Map panel through the command and by
+ * agents through map_list / map_read / map_lint / map_edit / map_render. There is no model,
+ * view, overlay, annotation or manifest behind it.
  *
- * The plugin knows nothing about layout; it resolves the session workspace, builds a
- * host service, and lets `src/tools.mjs` call it.
+ * Registration follows the shipped pattern: `inject ['tools','commands']`, tools
+ * registered per agent from `agent/created` and gated by `agentPreset` (default:
+ * orchestrator only — an agent that never received the tool cannot be argued into writing
+ * the design of the system it is working in), while the command stays ungated because it
+ * is the human panel path.
  */
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createHostService, createFileLogger } from './src/host.mjs'
-import { createHostTools, agentCwd } from './src/tools.mjs'
 import { createCommandHandler } from './src/command.mjs'
+import { createPageTools } from './src/page-tools.mjs'
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'designmap'
@@ -23,39 +23,21 @@ export const name = 'designmap'
 /** Both registries are required. */
 export const inject = ['tools', 'commands']
 
-/** Presets that receive the agent tools by default. */
+/** Presets that receive the page tools by default. */
 const DEFAULT_PRESETS = ['orchestrator']
 
-/**
- * @param ctx - Cordis host context.
- * @param config - `{dir?: string, presets?: string[]}`.
- *   `dir` is the designmap directory relative to the session workspace (default
- *   `designmap`); `presets` overrides which agent presets receive the tools.
- */
-export function apply(ctx, config = {}) {
-  const dirName = typeof config.dir === 'string' && config.dir !== '' ? config.dir : 'designmap'
-  const presets = Array.isArray(config.presets) && config.presets.length > 0 ? config.presets : DEFAULT_PRESETS
-
-  /** Resolve the caller's workspace and open a per-call host service + JSONL logger. */
-  const hostFor = exec => {
-    const cwd = agentCwd(exec.agent)
-    const designmapDir = join(cwd, dirName)
-    const { logger, path } = createFileLogger(designmapDir)
-    return {
-      service: createHostService({ designmapDir, repoRoot: cwd, logger }),
-      logger,
-      logPath: path,
-    }
-  }
-
-  const tools = createHostTools({ defineTool, hostFor })
+/** Resolve the session workspace an agent call runs against. */
+function agentCwd(agent) {
+  const cwd = agent?.session?.header?.cwd
+  return typeof cwd === 'string' && cwd.length > 0 ? cwd : process.cwd()
+}
 
 /**
  * The preset in force: the tool-families service owns the resolution (projection first,
  * remembered selection, creation header last). Reading `agent.session.header.agentPreset`
- * here resolved the preset the session was CREATED with — the profile default `orchestrator`
- * — so every seat received the orchestrator tool set. The lookup is guarded because a
- * composition without the service must not fail a session creation.
+ * here resolved the preset the session was CREATED with — the profile default
+ * `orchestrator` — so every seat received the orchestrator tool set. The lookup is
+ * guarded because a composition without the service must not fail a session creation.
  */
 function presetOf(ctx, agent) {
   try {
@@ -142,15 +124,28 @@ function installPresetGate(ctx, { allowed, tools = [], toolsFor, onInstalled }) 
   return sync
 }
 
+/**
+ * @param ctx - Cordis host context.
+ * @param config - `{dir?: string, presets?: string[]}`.
+ *   `dir` is the designmap directory relative to the session workspace (default
+ *   `designmap`); `presets` overrides which agent presets receive the tools.
+ */
+export function apply(ctx, config = {}) {
+  const dirName = typeof config.dir === 'string' && config.dir !== '' ? config.dir : 'designmap'
+  const presets = Array.isArray(config.presets) && config.presets.length > 0 ? config.presets : DEFAULT_PRESETS
+  const pageHostFor = (exec) => ({ designmapDir: join(agentCwd(exec.agent), dirName) })
+
+  const pageTools = createPageTools({ defineTool, pageHostFor })
+
   installPresetGate(ctx, {
-    tools,
+    tools: pageTools,
     allowed: (preset) => presets.includes(preset),
   })
 
   ctx.commands.register({
     name: 'designmap',
-    description: 'Read or change the designmap living document (status | scan | apply | render | lint | open | export). Used by the Design map panel and by the human.',
+    description: 'Read or change one design-map page (pages | page | save | tidy-page | render-page). Used by the Project state -> Map editor and by the human.',
     recordInput: false,
-    handler: createCommandHandler({ hostFor }),
+    handler: createCommandHandler({ hostFor: (invocation) => pageHostFor(invocation) }),
   })
 }

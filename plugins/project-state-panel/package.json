@@ -1,7 +1,7 @@
 {
   "name": "@cc/dsh-project-state-panel",
-  "version": "0.1.46",
-  "description": "Project state panel: one read-only panel over the generated state projections with four modes — business requirements, the task board, the design map and tests/traceability — sharing one selection. It reads state/views/index.json and the state entity frontmatter; the design map is drawn by the existing designmap React Flow renderer, so it owns no geometry and writes nothing.",
+  "version": "0.1.51",
+  "description": "Project state panel: one read-only panel over the generated state projections with four modes — business requirements, the task board, the design map and tests/traceability — sharing one selection. It reads state/views/index.json and the state entity frontmatter; the design map mode mounts the designmap PageEditor full-height (always editable, full-screen), so it owns no geometry and writes nothing itself.",
   "type": "module",
   "main": "index.mjs",
   "exports": {

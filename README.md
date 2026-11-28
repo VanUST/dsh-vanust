@@ -4,6 +4,24 @@ Portable setup for **DeepSeek Harness (dsh)** plus the 29 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
+## Start here
+
+| you want to… | read |
+|---|---|
+| know what the kit adds and which plugin does what | this page (the catalog below) |
+| work in the repository: layout, tools, presets, deployment, verification, traps | [docs/GUIDE.md](docs/GUIDE.md) |
+| install, update, roll back or operate a machine | [rules/DEPLOYMENT.md](rules/DEPLOYMENT.md) |
+| write a report or a task in the project's words | [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md) |
+| know what a preset is supposed to prove | [docs/PRESET-PLAYBOOKS.md](docs/PRESET-PLAYBOOKS.md) |
+| record or run an acceptance case | [docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md](docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md) |
+| draw or read the system design map | [docs/DESIGNMAP-V2.md](docs/DESIGNMAP-V2.md) |
+
+New machine in one line: `./install.sh` then `./start.sh`. Before the first change in this
+repository, read `docs/GUIDE.md` §8-9: where the working rules live, and the traps that already
+cost a retry.
+
+
+
 - **`@cc/dsh-image-window`** — keeps only the newest image in a session's request by offloading
   the one that falls out of the window as a new image arrives. The harness's own image offload is
   reactive and removes the *oldest* image after the route rejects the request; that head rewrite
@@ -42,30 +60,16 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   gives arrows/space, full screen, an overview grid, speaker notes and one printed slide
   per page; a click advances the slide, which is also how the previewed frame takes the
   keyboard.
-- **`@cc/dsh-design-map`** — one Excalidraw scene, `design.excalidraw` at the project
-  root, that the **orchestrator** and the human both edit. The orchestrator gets a
-  `design_map` tool over a *visual* vocabulary: a node's `kind` chooses the shape (rectangle
-  service, ellipse store, diamond decision, dashed rectangle external), `layer` puts it in a
-  titled band, `edges[].label` names the flow on the arrow and `title` labels the map -
-  positions and routing are laid out for it. Every result carries `preview` (the real
-  geometry as text) and `health` (the validator's verdict), so the agent sees what it drew
-  and runs `layout` when a map is broken instead of editing blind. The tool is gated per
-  agent on `agentPreset === 'orchestrator'` - a delegated specialist never receives it,
-  because a child must not rewrite the design it was asked to work inside; the human gets a
-  **Design map** panel embedding the real MIT editor in an iframe `srcdoc` built from a
-  vendored frame, with no CDN, where every label and flow is an editable bound text. The
-  panel reads through `workspaceFiles` and saves through the `/design-map` command (not a
-  tool, so it is never gated), one file carries one revision counter, and a read returns
-  `updatedAt`/`stale` for the orchestrator.
-- **`@cc/dsh-designmap`** *(M4, replaces `@cc/dsh-design-map`)* — semantic
-  `designmap/model.yaml` + `designmap/views.yaml` rendered by a deterministic ELK
-  layered layout into `designmap/out/<viewId>.scene.json` and `out/index.json`, with a
-  zod-strict contract, overlay merge + GC and lint. Seven `designmap_*` host tools cover
-  status/scan/apply/render/lint/open/export; the human edits only the visual layer
-  (`designmap/overlays.json`) through `/designmap op:'overlay'`, and the read-only
-  sidebar panel renders the same scene (`client.js`). SVG is canonical; PNG is optional
-  and needs an external converter. The 0.2.0 Excalidraw panel is disabled in the profile
-  patch (files kept for rollback). The vision loop is deliberately not shipped.
+- **`@cc/dsh-designmap`** — the system design map as one Excalidraw page per map under
+  `designmap/pages/<slug>.excalidraw`, edited by the human in **Project state → Design map**
+  — always editable, full height, with a full-screen control — and by the orchestrator and
+  the architect through five host tools (`map_list`, `map_read`, `map_lint`, `map_edit`,
+  `map_render`). `map_edit` draws a whole scheme with the `diagram` op and `map_lint` names
+  every readability defect with a repair; `map_render` renders a page to a clean PNG/SVG
+  with Excalidraw itself in a headless browser. The page file is the only store — there is
+  no model, view, overlay, annotation or manifest behind it. The five tools are gated to the
+  orchestrator and architect presets, so a delegated specialist cannot rewrite the design it
+  was asked to work inside.
 - **`@cc/dsh-test-cases`** — the observed test-case library in `docs/cases/`. Twelve host tools (`case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_gate`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_remove`, `case_drift`) over one JSON file per case: compare-and-set edits keep history, an automated case records its test path, exact run command and the observed red/green runs, a documented-only case keeps steps, expected behaviour and the reason it cannot be a test. `case_run` executes the stored command through the host shell and records the measurement (exit code, duration, the declared checks evaluated over the driver's `CASE_SUMMARY`); a green run with no recorded red is a measurement, not a verification — the measured red is `case_run` with `mode:'red'` and a negative control. A changed surface file or a missing test marks a case stale instead of deleting the requirement; `case_gate` and the taskboard refuse to close a task whose linked automated case is not verified; the orchestrator gets only the intake subset (record a human requirement as unverified, read the library). The rule is observe first, then persist — no speculative tests.
 - **`@cc/dsh-analysis`** — analysis before decomposition. One repo-tracked
   `docs/analysis/<initiative>.json` per initiative keeps the business outcome **separate**
@@ -152,7 +156,10 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   that store the sha256 of their target, compare-and-set transitions, an append-only
   `state/events.jsonl` with replay, `snapshot()` and a read-only `verify()` whose findings
   (orphan, broken link, REQ without criteria, TASK without REQ unless chore+reason, stale hash,
-  broken frontmatter) leave a human edit blocked rather than silently overwritten.
+  broken frontmatter) leave a human edit blocked rather than silently overwritten. The same
+  directory is the project's ledger across machines: `scripts/state-merge.mjs` resolves a
+  `state/` conflict from git, renumbers the row that lost its number, merges one row known
+  under two numbers and prints every collision it resolved (`make pull` runs it after a pull).
 - **`@cc/dsh-project-state-panel`** — one read-only panel over the generated projections,
   with four modes that share a selection: business requirements, the task board, the design
   map and tests/traceability. It reads `state/views/index.json` for the link contract and the
@@ -206,12 +213,15 @@ invent a justification.
   running, `codex_signin_status` reports pending/authorized/cancelled/failed, and
   `codex_signin_cancel` withdraws it. The pi-ai flow writes the grant; the tools never see a
   token.
-- **Role presets** — ten `@deepseek-ai/dsh-agent-preset` declarations in
-  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `presenter`, `backend`, `research`,
-  `gatherer`, `reviewer`, `critic`, `tester`, `docs`. **`presenter`** makes an idea land for a
-  person outside the subject: it storyboards the explanation, renders it with
+- **Role presets** — eleven `@deepseek-ai/dsh-agent-preset` declarations in
+  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `presenter`, `backend`, `devops`,
+  `research`, `gatherer`, `reviewer`, `critic`, `tester`, `docs`. **`presenter`** makes an idea
+  land for a person outside the subject: it storyboards the explanation, renders it with
   `presentation`/`dashboard`/`diagram` and proves every slide in a browser — the deck is
-  the deliverable, and a slide nobody looked at is not finished.
+  the deliverable, and a slide nobody looked at is not finished. **`devops`** owns the running
+  deployment: it deploys, switches the dev/prod version, rolls back and cleans up, one live
+  deployment task per chat (`delegate_task` refuses a second with `devops_lane_busy`), and
+  proves the live runtime from outside the process it restarted.
   A role is its persona and its tool list, not a request in the brief: the orchestrator has no
   shell, but it DOES carry `write`/`edit` (a small self-evident change is its own to make; a
   change whose proof is a command's output still goes to a role that can run one), research has
@@ -309,7 +319,7 @@ that instance gets the same tools, and Octocode needs an explicit `octocode inde
 revision (10m32s for 147 files, measured). Adoption so far is **partial** — Serena was
 called, Octocode was never called, and the enhanced arm spent more prompt tokens — so this
 kit makes **no efficiency claim**. Runbook: [§1.2 of rules/DEPLOYMENT.md](rules/DEPLOYMENT.md);
-evidence: [reports/code-search/report.md](reports/code-search/report.md).
+evidence: `reports/code-search/report.md`, a local report (the whole `reports/` tree is gitignored).
 
 **Prompt, skills and model policy are now deployment surfaces.** The harness still owns the
 persona and the request pipeline, but this kit deliberately adds a root/child orchestration
@@ -363,7 +373,6 @@ dsh-kit/
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
 ├── plugins/designmap/        # source of @cc/dsh-designmap (M4: YAML model → ELK scene → panel)
-├── plugins/design-map/       # source of @cc/dsh-design-map (0.2.0, retired in the profile patch)
 ├── plugins/project-rules/    # source of @cc/dsh-project-rules (one frozen rules section + editor panel)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
@@ -386,7 +395,8 @@ dsh-kit/
 ├── scripts/pack-plugin.mjs    # repack an in-repo plugin with a version bump and one tarball left behind
 ├── scripts/check-portability.mjs  # platform, packaging and inventory checks
 ├── scripts/check-documentation.mjs # the pin, the named scripts and the plugin set
-└── USERGUIDE.md               # per-machine setup, startup, first-run checks, Windows notes, troubleshooting
+├── docs/GUIDE.md              # how to work here: layout, tools, presets, deployment, verification, traps
+└── docs/                      # durable contracts (TERMINOLOGY, PRESET-PLAYBOOKS, CASE-LIBRARY, DESIGNMAP-V2)
 ```
 
 **Machine-local, never synced:** `$DSH_HOME/sessions`, `$DSH_HOME/storages`,
@@ -411,7 +421,7 @@ node scripts/kit-update.mjs --apply            # converge this machine, then rec
 
 `kit-update.mjs` is the update path for a machine that is already installed —
 including one where a plugin was added to the kit after that machine was set up
-(see USERGUIDE §5). Its one rule to know: **bump a plugin's version before
+(see `rules/DEPLOYMENT.md` §3). Its one rule to know: **bump a plugin's version before
 repacking it.** pnpm resolves a `file:` dependency by its path string, so a
 tarball that keeps its filename is served from the profile's lockfile snapshot;
 the updater drops that lockfile and verifies the installed bytes against the
@@ -429,21 +439,27 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   `plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/`,
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
-- **Reviewer's overview** — `docs/HARNESS-OVERVIEW.md`: the harness composition, all 8 kit
-  presets and the 4 built-in presets with their personas, the 29 plugins, the system-prompt
-  section map with its source files, and the discrepancies a reviewer should check.
-- **Design rationale** — `docs/` carries the analysis notes this kit was built from
-  (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not
-  contracts, and the artifacts win wherever they disagree.
+- **Working guide** — [docs/GUIDE.md](docs/GUIDE.md): the repository map, the 29 plugins and the
+  12 presets with their tool sets, the deployment and verification principles, the working rules
+  and the traps measured here. It is the page a session reads before changing anything.
+- **Durable contracts** — `docs/TERMINOLOGY.md` (the words), `docs/PRESET-PLAYBOOKS.md` (what each
+  preset must prove), `docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md` (how an acceptance case is recorded
+  and closed), `docs/DESIGNMAP-V2.md` (the design map), `docs/PRESENTATION-TOOLCHAIN.md` (the
+  visualisation tools). `docs/analysis/` holds the design record per initiative and `docs/cases/`
+  the observed acceptance cases. Runtime records (dated audits, handoffs, proofs, plans) are not
+  kept in `docs/`: their evidence lives in those two stores, in `reports/`, or in git history.
 - **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
   inventory) and `node scripts/check-documentation.mjs` (the pin, the named scripts, the
   plugin set). `make verify` runs them, together with the schema, context-budget, glossary
   and session-identity checks; all of those READ the tree.
 - **The tests that run it** — `make test` runs every plugin test file through `node --test`
-  (then the tests under `scripts/test`), and then every `scripts/*-proof.mjs`, one process
-  each, stopping at the first failure with exit 1. `make test ONLY=taskboard` runs the paths
-  containing that word. There is no root `package.json` and no test framework to install:
-  the runner is `scripts/test-all.mjs` and the tests are plain `node:test` files.
+  (then the tests under `scripts/test`), then every acceptance test under `tests/`, and then
+  every `scripts/*-proof.mjs`, one process each, stopping at the first failure with exit 1. The
+  acceptance group is reported separately because its author is a different seat from the
+  implementer, and a missing or empty `tests/` refuses the run rather than shrinking the gate.
+  `make test ONLY=taskboard` runs the paths containing that word. There is no root
+  `package.json` and no test framework to install: the runner is `scripts/test-all.mjs` and the
+  tests are plain `node:test` files.
   A test exists only where one was asked for and the behaviour is non-trivial; what proves a
   change is still running the product and quoting what it produced. `rules/DEPLOYMENT.md` §4
   is the same pair with the details.
@@ -452,7 +468,7 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
 candidate and rebuild the plugins against its checkout first:
 `npm i -g @deepseek-ai/dsh@<candidate>`, then `node scripts/pack-plugin.mjs --dir plugins/<name>`
 for each plugin, and only then touch the live profile. Details: **`rules/DEPLOYMENT.md`**
-§3–4 and **`USERGUIDE.md`** §7 (the short version).
+§3–4 (the short version).
 
 **Versions:** harness pin `0.2.2-rc.3` · Node ≥ 24 · pnpm 11.7 (corepack).
 

@@ -3,7 +3,7 @@
  * One panel, four modes over ONE selection:
  *   Requirements   the REQ registry with criteria and its gaps
  *   Board          TASK grouped by status, filtered by the selected REQ
- *   Design map     the designmap scene, drawn by the existing React Flow renderer
+ *   Design map     the designmap PAGE EDITOR over designmap/pages/*.excalidraw (v2 P2)
  *   Tests & trace  TEST rows and the REQ x TASK/TEST/DECISION matrix
  *
  * Data: `state/views/index.json` is the link contract. The entity files under
@@ -27,10 +27,18 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useCallback, useEffect, useMemo, useRef, useState } = React
     const designmap = require('@cc/dsh-designmap')
-    const SceneCanvas = designmap !== null && typeof designmap === 'object' ? designmap.SceneCanvas : undefined
+    // v2 P2: the design map mode hosts the PAGE EDITOR, not the v1 React Flow scene. The client
+    // external stays in package.json; only the import target changes.
+    const PageEditor = designmap !== null && typeof designmap === 'object' ? designmap.PageEditor : undefined
+    const createDesignmapHost = designmap !== null && typeof designmap === 'object' ? designmap.createRemoteHost : undefined
 
     const PANEL_ID = 'project-state'
     const SESSION_KEY = 'dsh:project-state-panel:session'
+    // A WINDOW EVENT, NOT A SHARED STORE. The panel and the session header are two slots of the
+    // same document, so a status the owner just wrote can move the header counters immediately
+    // instead of waiting for their five-second poll (REQ-136: the panel shows the new status
+    // without a reload).
+    const STATE_CHANGED_EVENT = 'dsh:project-state-changed'
     const INDEX_PATH = 'state/views/index.json'
     const ANALYSIS_DIR = 'docs/analysis'
     const KIND_DIR = { req: 'req', task: 'task', test: 'test', decision: 'decision' }
@@ -697,8 +705,13 @@ window.__ModuleLoader__.load({
 .ps-alert code { font: 11px/1.5 ui-monospace, monospace; }
 .ps-warnline { border: 1px solid color-mix(in srgb, var(--ps-warn) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-warn) 7%, transparent); color: var(--ps-ink); border-radius: 8px; padding: 6px 9px; margin: 0 0 10px; font-size: 11.5px; }
 .ps-mapbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; font-size: 11.5px; color: var(--ps-muted); }
-.ps-mapstage { height: min(64vh, 620px); min-height: 320px; border: 1px solid var(--ps-line); border-radius: 10px; overflow: hidden; background: var(--ps-surface); }
+.ps-mapstage { height: 100%; min-height: 0; border: 0; border-radius: 0; overflow: hidden; background: var(--ps-surface); }
 .ps-mapstage > .dmv { height: 100%; }
+/* The Design map is the one mode that is a canvas rather than a document: it takes the whole
+   body (no 14px padding, no page scroll) so the editor fills the panel and grows with it. The
+   620px ceiling the map used to have is what made the Excalidraw page a strip. */
+.ps-main-map { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.ps-main-map .ps-mapstage { flex: 1 1 auto; }
 .ps-maplist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .ps-maplist li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .ps-nodebadge { position: absolute; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 999px; border: 1px solid color-mix(in srgb, #FFB020 58%, var(--ps-line)); /* #FFB020 is TYPE_COLOR.req */ background: color-mix(in srgb, #FFB020 22%, var(--ps-surface)); color: var(--ps-ink); font: 9.5px/14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; text-align: center; white-space: nowrap; pointer-events: none; }
@@ -1138,35 +1151,6 @@ window.__ModuleLoader__.load({
       return { kind, id, path, frontmatter: parsed.frontmatter, body: parsed.body }
     }
 
-    async function loadMapViews(remote, sessionId) {
-      if (remote?.commands === undefined || typeof remote.commands.execute !== 'function') {
-        return { ok: false, code: 'command_unavailable', message: 'This build has no command transport, so the designmap scene cannot be requested.' }
-      }
-      let result
-      try {
-        result = await remote.commands.execute(sessionId, `/designmap ${JSON.stringify({ op: 'views' })}`, [])
-      } catch (error) {
-        return { ok: false, code: 'command_failed', message: errorText(error) }
-      }
-      if (result?.ok !== true) return { ok: false, code: result?.error?.code ?? 'command_failed', message: errorText(result?.error) }
-      const outcome = result.value?.result
-      if (outcome?.kind === 'error') {
-        const text = String(outcome.text ?? '')
-        const match = /^designmap:\s*([A-Za-z0-9_]+):\s*([\s\S]*)$/.exec(text)
-        return { ok: false, code: match === null ? 'command_failed' : match[1], message: match === null ? text : match[2] }
-      }
-      if (outcome?.kind !== 'success') return { ok: false, code: 'command_failed', message: 'The designmap command returned an unexpected result.' }
-      let payload
-      try {
-        payload = JSON.parse(outcome.text)
-      } catch (error) {
-        return { ok: false, code: 'command_result_invalid', message: errorText(error) }
-      }
-      if (payload === null || typeof payload !== 'object' || !Array.isArray(payload.views)) {
-        return { ok: false, code: 'command_result_invalid', message: 'The designmap command returned no views.' }
-      }
-      return { ok: true, payload }
-    }
 
     /* ---------- cross-links ---------- */
 
@@ -1219,14 +1203,6 @@ window.__ModuleLoader__.load({
       return [...ids].sort()
     }
 
-    function nodesForRequirement(scene, reqId, links) {
-      const ids = new Set()
-      if (scene === null || scene === undefined) return ids
-      for (const node of scene.nodes ?? []) {
-        if (requirementsForNode(node, links).includes(reqId)) ids.add(node.id)
-      }
-      return ids
-    }
 
     /**
      * One class per status, not four shared tones: `active` and `review` used to be the same
@@ -1650,87 +1626,33 @@ window.__ModuleLoader__.load({
 
     /* ---------- map mode ---------- */
 
-    function MapMode({ data, analysisLinks, map, viewId, onView, filter, onOpenNode, onReload, onSelectReq }) {
-      if (map.phase === 'loading' || map.phase === 'idle') return h('div', null, h('p', { className: 'ps-kicker' }, 'Design map'), h('p', { className: 'ps-loading' }, 'Requesting the designmap scene…'))
-      if (map.phase === 'error') {
-        return h('div', null,
-          h('p', { className: 'ps-kicker' }, 'Design map'),
-          h(Alert, { code: map.code }, map.message),
-          h('p', { className: 'ps-muted', style: { color: 'var(--ps-muted)', fontSize: 12 } }, 'The map is drawn by designmap; this panel only asks for the rendered scene. A missing designmap row or an unrendered model is shown here, not worked around.'),
-          h('button', { type: 'button', className: 'ps-btn small', onClick: onReload }, 'Retry'),
-        )
-      }
-      const views = map.payload.views
-      if (views.length === 0) {
-        return h('div', null,
-          h('p', { className: 'ps-kicker' }, 'Design map'),
-          h(Empty, { title: 'No design map in this workspace' }, h('p', null, 'designmap has no rendered view here. The agent creates the model and renders it with designmap; this panel does not draw a map of its own.')),
-        )
-      }
-      const active = views.find((entry) => entry?.view?.viewId === viewId) ?? views[0]
-      const scene = active.scene
-      const highlight = filter === null ? null : nodesForRequirement(scene, filter, analysisLinks)
-      const badges = {}
-      let linkedNodes = 0
-      for (const node of scene.nodes ?? []) {
-        const reqs = requirementsForNode(node, analysisLinks)
-        if (reqs.length > 0) {
-          linkedNodes += 1
-          badges[node.id] = `REQ ${reqs.length}`
-        }
-      }
-      return h('div', null,
-        h('div', { className: 'ps-mapbar' },
-          h('span', { className: 'ps-kicker', style: { margin: 0 } }, 'Design map'),
-          views.length > 1
-            ? h('label', { className: 'ps-count' }, h('span', { className: 'ps-visually-hidden' }, 'Design map view'),
-                h('select', {
-                  className: 'ps-btn small',
-                  value: active.view.viewId,
-                  onChange: (event) => onView(event.target.value),
-                  'aria-label': 'Design map view',
-                }, views.map((entry) => h('option', { key: entry.view.viewId, value: entry.view.viewId }, entry.view.title || entry.view.viewId))),
-              )
-            : null,
-          h('span', { className: 'ps-meta' }, `${scene.nodes.length} nodes · ${scene.edges.length} edges · ${linkedNodes} traced to a requirement`),
-          h('span', { className: 'ps-spacer' }),
-          h('button', { type: 'button', className: 'ps-btn small', onClick: onReload }, 'Reload scene'),
-        ),
-        filter !== null
-          ? h('p', { className: 'ps-warnline' },
-              highlight.size > 0
-                ? `Highlighting ${highlight.size} node${highlight.size === 1 ? '' : 's'} traced to ${filter}. Other nodes are dimmed; the scene geometry is unchanged.`
-                : `No node on this view is traced to ${filter}. The map link comes from the analysis record trace[].componentId; a missing row is a gap in the projection, not a missing scene.`)
-          : null,
-        h('div', { className: 'ps-mapstage' },
-          SceneCanvas === undefined
-            ? h('div', { className: 'ps-empty' }, h('h2', null, 'The designmap renderer is not available'), h('p', null, 'The installed @cc/dsh-designmap client does not export SceneCanvas. This panel will not draw a second map.'))
-            : h(SceneCanvas, {
-                scene,
-                overlays: map.payload.overlays?.rows ?? {},
-                highlight,
-                dim: filter !== null,
-                overlay: h(React.Fragment, null, (scene.nodes ?? []).filter((node) => badges[node.id] !== undefined).map((node) => h('div', {
-                  key: `badge-${node.id}`,
-                  className: 'ps-nodebadge',
-                  style: { left: node.x + node.w - 9, top: node.y - 9 },
-                  title: `${badges[node.id]} traced to ${requirementsForNode(node, analysisLinks).join(', ')}`,
-                }, badges[node.id]))),
-                label: `${active.view.title || active.view.viewId}: design map, read-only`,
-                onNodeClick: (node) => onOpenNode(node, active),
-              }),
-        ),
-        h('p', { className: 'ps-meta', style: { marginTop: 6 } }, 'Click a node to see the requirements traced to it. Geometry: designmap (React Flow); this panel computes none.'),
-        linkedNodes > 0
-          ? h('div', null,
-              h('p', { className: 'ps-kicker', style: { marginTop: 12 } }, 'Requirements traced to this map'),
-              h('ul', { className: 'ps-maplist' }, (scene.nodes ?? []).filter((node) => requirementsForNode(node, analysisLinks).length > 0).map((node) => h('li', { key: node.id },
-                h('span', { className: 'ps-meta' }, node.label || node.id),
-                requirementsForNode(node, analysisLinks).map((reqId) => h(TypeChip, { key: reqId, kind: 'req', id: reqId, onClick: () => onSelectReq(reqId) })),
-              ))),
-            )
-          : null,
+    /**
+     * Design map = the page editor (v2 P2). The editor lives here because the state panel has a
+     * control that opens it and the designmap package no longer registers a main slot. The page
+     * file is the only store: the editor lists designmap/pages, opens one scene, and writes that
+     * scene back through the designmap command (pages | page | save | tidy-page | render-page).
+     */
+    function MapMode({ remote, sessionId }) {
+      const host = useMemo(
+        () => (createDesignmapHost === undefined || typeof createDesignmapHost !== 'function'
+          ? null
+          : createDesignmapHost({ remote, sessionId })),
+        [remote, sessionId],
       )
+      if (PageEditor === undefined) {
+        return h('div', null,
+          h('p', { className: 'ps-kicker' }, 'Design map'),
+          h(Empty, { title: 'The page editor is not available' },
+            h('p', null, 'The installed @cc/dsh-designmap client does not export PageEditor. Update the designmap plugin to the v2 build.')),
+        )
+      }
+      if (host === null) {
+        return h('div', null,
+          h('p', { className: 'ps-kicker' }, 'Design map'),
+          h('p', { className: 'ps-empty' }, 'Open a conversation to load the design map.'),
+        )
+      }
+      return h('div', { className: 'ps-mapstage', 'data-designmap-page-editor': 'true' }, h(PageEditor, { host }))
     }
 
     /* ---------- evidence block + drawer ---------- */
@@ -2277,6 +2199,27 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * The owner's optimistic status, applied to the panel's one data object.
+     *
+     * WHY IT IS A PURE HELPER. The status badge is a controlled select: until `data` carries the
+     * new status, the browser paints the old one back even though the board and the TASK already
+     * changed. The patch therefore runs BEFORE the command, and after a refusal it is undone
+     * with the same helper. It touches the index row and the loaded entity, nothing else.
+     */
+    function applyTaskStatus(data, taskId, status) {
+      if (data === null || typeof data !== 'object') return data
+      if (data.phase !== 'ready' && data.phase !== 'refreshing') return data
+      if (data.index === null || typeof data.index !== 'object' || !Array.isArray(data.index.tasks)) return data
+      const tasks = data.index.tasks.map((row) => (row.id === taskId ? { ...row, status } : row))
+      const entities = new Map(data.entities)
+      const current = entities.get(taskId)
+      if (current !== undefined && current.frontmatter !== undefined) {
+        entities.set(taskId, { ...current, frontmatter: { ...current.frontmatter, status } })
+      }
+      return { ...data, index: { ...data.index, tasks }, entities }
+    }
+
     function ProjectStatePage(props) {
       const remote = props.remote
       const sessionsById = props.useSessions === undefined ? {} : props.useSessions((snapshot) => snapshot.byId)
@@ -2287,11 +2230,12 @@ window.__ModuleLoader__.load({
       const [subview, setSubview] = useState('tests')
       const [reloadToken, setReloadToken] = useState(0)
       const [data, setData] = useState({ phase: 'loading' })
+      // The previous status a refused write must restore; a ref because the callback cannot
+      // read the state it is about to replace.
+      const dataRef = useRef(data)
+      dataRef.current = data
       const [drawer, setDrawer] = useState(null)
       const [drawerTab, setDrawerTab] = useState('overview')
-      const [map, setMap] = useState({ phase: 'idle' })
-      const [viewId, setViewId] = useState(null)
-      const [mapReload, setMapReload] = useState(0)
       // The evidence column belongs to the panel, not to the shell layout: layout has no
       // handle on it, so the panel keeps the show/hide state and the button reflects it.
       const [railOpen, setRailOpen] = useState(false)
@@ -2312,8 +2256,6 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         setFilter(null)
         setDrawer(null)
-        setMap({ phase: 'idle' })
-        setViewId(null)
       }, [sessionId])
 
       useEffect(() => {
@@ -2328,7 +2270,16 @@ window.__ModuleLoader__.load({
         // The cached paint REPLACES the workspace object too, so it gets the same entity merge
         // as the fresh read below: a drawer that is open while the index refreshes must keep
         // its entity, otherwise its Edit form blanks out on every reload.
-        if (cached !== null) setData((previous) => withLoadedEntities(previous, workspaceFromIndex(cached).workspace))
+        // THE CACHE IS A FIRST-PAINT DEVICE, NOT A REFRESH. Repainting it on every reload put
+        // the pre-write status back after the owner changed one (the optimistic patch was
+        // overwritten by the cached old index, and the fresh read landed ~1.5 s later - the
+        // owner's "nothing changes"). A panel that is already showing data keeps it until the
+        // fresh read replaces it.
+        if (cached !== null) {
+          setData((previous) => (previous.phase === 'ready' || previous.phase === 'refreshing'
+            ? previous
+            : withLoadedEntities(previous, workspaceFromIndex(cached).workspace)))
+        }
         setData((previous) => (previous.phase === 'ready' ? { ...previous, phase: 'refreshing' } : { phase: 'loading' }))
         loadWorkspace(remote, sessionId, controller.signal).then(
           (next) => {
@@ -2348,26 +2299,8 @@ window.__ModuleLoader__.load({
         return () => controller.abort()
       }, [remote, sessionId, reloadToken])
 
-      useEffect(() => {
-        if (mode !== 'map' || sessionId === null || sessionId === undefined) return undefined
-        let cancelled = false
-        setMap((previous) => ({ ...previous, phase: 'loading', error: null }))
-        loadMapViews(remote, sessionId).then(
-          (result) => {
-            if (cancelled) return
-            if (result.ok !== true) {
-              setMap({ phase: 'error', code: result.code, message: result.message })
-              return
-            }
-            setMap({ phase: 'ready', payload: result.payload })
-            setViewId((current) => current ?? result.payload.rootId ?? result.payload.views[0]?.view?.viewId ?? null)
-          },
-          (error) => {
-            if (!cancelled) setMap({ phase: 'error', code: 'map_load_failed', message: errorText(error) })
-          },
-        )
-        return () => { cancelled = true }
-      }, [mode, sessionId, mapReload, remote])
+      // v2 P2: the Design map mode no longer asks designmap for a rendered scene; the page
+      // editor loads designmap/pages itself through the same command transport.
 
       // The analysis records are needed only by the Design map's REQ links: fetch them the
       // first time that mode opens instead of holding the first paint for ~20 JSON files.
@@ -2424,12 +2357,6 @@ window.__ModuleLoader__.load({
         }).catch(() => {})
       }, [remote, sessionId])
 
-      const openNode = useCallback((node, view) => {
-        returnFocus.current = document.activeElement
-        setDrawer({ kind: 'node', id: node.id, node, view })
-        setDrawerTab('overview')
-        setRailOpen(true)
-      }, [])
 
       const closeDrawer = useCallback(() => {
         setDrawer(null)
@@ -2464,35 +2391,42 @@ window.__ModuleLoader__.load({
       }, [statusNotice])
       const changeStatus = useCallback((taskId, status, reason = '') => {
         if (typeof sessionId !== 'string' || sessionId === '') return
+        const before = (dataRef.current?.index?.tasks ?? []).find((row) => row.id === taskId)?.status
+        // OPTIMISTIC FIRST. The badge is a controlled select: it paints the old value until the
+        // data object carries the new one, and the command's round trip (board write, TASK
+        // mirror, projections) is long enough for "nothing changed" to be what the owner sees.
+        // The write is confirmed below; a refusal restores the previous status.
+        setData((previous) => applyTaskStatus(previous, taskId, status))
         setStatusBusy(taskId)
         setStatusNotice(null)
         changeTaskStatus(remote, sessionId, { taskId, status, reason }).then(
           (result) => {
             setStatusBusy(null)
             if (result.ok !== true) {
+              if (typeof before === 'string' && before !== '') {
+                setData((previous) => applyTaskStatus(previous, taskId, before))
+              }
               setStatusNotice({ tone: 'bad', code: result.code, message: result.message ?? 'the status change was refused' })
               // A stale revision means the board moved under the panel: re-read it so the next
               // attempt carries the revision it needs.
               if (result.code === 'stale') setReloadToken((value) => value + 1)
               return
             }
-            // OPTIMISTIC, then the projection: the board already answered with the row it wrote,
-            // and the command mirrored it before answering, so the re-read finds the new status.
-            setData((previous) => {
-              if (previous.phase !== 'ready' && previous.phase !== 'refreshing') return previous
-              const tasks = previous.index.tasks.map((row) => (row.id === taskId ? { ...row, status } : row))
-              const entities = new Map(previous.entities)
-              const current = entities.get(taskId)
-              if (current !== undefined && current.frontmatter !== undefined) {
-                entities.set(taskId, { ...current, frontmatter: { ...current.frontmatter, status } })
-              }
-              return { ...previous, index: { ...previous.index, tasks }, entities }
-            })
+            // The board answered with the row it wrote and the command mirrored it before
+            // answering; keep the optimistic value (the controlled select must not flicker) and
+            // re-read the projection in the background.
+            setData((previous) => applyTaskStatus(previous, taskId, status))
             setStatusNotice({ tone: 'ok', code: null, message: `${taskId} is now ${status}; the state journal records the change` })
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent(STATE_CHANGED_EVENT))
+            }
             setReloadToken((value) => value + 1)
           },
           (error) => {
             setStatusBusy(null)
+            if (typeof before === 'string' && before !== '') {
+              setData((previous) => applyTaskStatus(previous, taskId, before))
+            }
             setStatusNotice({ tone: 'bad', code: 'status_change_failed', message: errorText(error) })
           },
         )
@@ -2543,6 +2477,10 @@ window.__ModuleLoader__.load({
                 ? `${id}: ${release.join(', ')} returned to the source; revision ${saved.revision}`
                 : `${id} saved at revision ${saved.revision}${mine.length === 0 ? '' : `; yours now: ${mine.join(', ')}`}`,
             })
+            // A status edited by hand moves the same counters: the header re-reads at once.
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent(STATE_CHANGED_EVENT))
+            }
             // SETTLE THE PANEL IN PLACE: the entity from disk plus the index row it affects
             // (title, status, revision, updatedAt). No index reload - a reload replaces the
             // workspace object and the open drawer with it, which blanked the form the owner
@@ -2706,7 +2644,7 @@ window.__ModuleLoader__.load({
               h('p', { style: { marginTop: 6 } }, 'Lens over state/views; you can change a task status here (recorded in the journal).'),
             ),
           ),
-          h('section', { className: 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
+          h('section', { className: mode === 'map' ? 'ps-main ps-main-map' : 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
             statusNotice === null
               ? null
               : h('div', { className: `ps-notice ${statusNotice.tone}`, role: 'status', 'aria-live': 'polite' },
@@ -2719,17 +2657,7 @@ window.__ModuleLoader__.load({
               : mode === 'board'
                 ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort, sessionsById, onChangeStatus: changeStatus, statusBusy, hideChores, onHideChores: setHideChores })
                 : mode === 'map'
-                  ? h(MapMode, {
-                      data,
-                      analysisLinks,
-                      map,
-                      viewId,
-                      onView: setViewId,
-                      filter,
-                      onOpenNode: openNode,
-                      onReload: () => setMapReload((value) => value + 1),
-                      onSelectReq: (reqId) => { setFilter(reqId); setModeState('req') },
-                    })
+                  ? h(MapMode, { remote, sessionId })
                   : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
           ),
           railOpen && drawer !== null ? h('div', { className: 'ps-rail', id: 'ps-rail' },
@@ -2799,7 +2727,15 @@ window.__ModuleLoader__.load({
         }
         tick().catch((error) => { if (!cancelled) setCounts({ phase: 'error', message: errorText(error) }) })
         const timer = setInterval(() => { tick().catch(() => {}) }, 5000)
-        return () => { cancelled = true; controller.abort(); clearInterval(timer) }
+        // The panel just wrote a status: do not make the owner wait for the next poll.
+        const onChanged = () => { tick().catch(() => {}) }
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener(STATE_CHANGED_EVENT, onChanged)
+        return () => {
+          cancelled = true
+          controller.abort()
+          clearInterval(timer)
+          if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') window.removeEventListener(STATE_CHANGED_EVENT, onChanged)
+        }
       }, [remote, sessionId])
 
       const subagents = activeSubagents(sessionsById, sessionId)
@@ -2855,6 +2791,7 @@ window.__ModuleLoader__.load({
         // The hand-edit surface: what the Edit tab builds and what it sends, so a test proves the
         // patch and the refusal codes instead of re-implementing them.
         EDIT_FIELDS, EDIT_STATUS_CHOICES, initialDraft, buildEditPatch, parseStateReply, editStateEntity, runStateCommand,
+        applyTaskStatus, STATE_CHANGED_EVENT,
       },
       apply(ctx) {
         ctx.slots.inject('main', () => ctx.slots.register({

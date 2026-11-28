@@ -17,7 +17,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createStateService } from '../../project-state/lib/core.mjs'
 import { createTools } from '../test-cases.mjs'
-import { mirrorCase } from '../mirror.mjs'
+import { mirrorCase, testPayload } from '../mirror.mjs'
+import { deprecateCase, readCase, writeCase } from '../lib/store.mjs'
 
 const clock = () => '2026-01-06T00:00:00.000Z'
 
@@ -45,6 +46,48 @@ const baseCase = (overrides = {}) => JSON.parse(JSON.stringify({
   authorRole: 'orchestrator',
   ...overrides,
 }))
+
+
+/*
+PROOF: a retired case is terminal in the register, and a re-recorded case comes back to live
+Behavior: mirrorCase maps a case whose status is deprecated (or superseded) to its TEST row with status
+  'deprecated', keeping the same TEST id and its caseId; when the same case is written again as
+  unverified, that row is updated back to 'unverified' — no hand edit of the TEST file and no second row.
+Fails when: a retired case still mirrors as unverified, the row loses its caseId, a re-record creates a
+  duplicate TEST, or a re-recorded case stays terminal.
+*/
+test('a retired case mirrors to a terminal row and a re-recorded case comes back', async () => {
+  const { cwd, core, tools, exec } = await harness()
+  const recorded = await tools.case_record.execute(baseCase({ title: 'Retire the map proof' }), exec)
+  assert.equal(recorded.ok, true)
+  const caseId = recorded.case.id
+  const dir = join(cwd, 'docs', 'cases')
+  const rowsFor = async () => (await core.list('test')).rows.filter((row) => row.caseId === caseId)
+  const [before] = await rowsFor()
+  assert.equal(before.status, 'unverified')
+  assert.equal(testPayload({ status: 'superseded' }).status, 'deprecated')
+
+  const retired = deprecateCase(dir, caseId, { reason: 'its surface was retired with the design map' })
+  const mirrored = await mirrorCase(core, { cwd, record: retired.record })
+  assert.equal(mirrored.ok, true)
+  assert.equal((await rowsFor()).length, 1, 'the mirror rewrites the same TEST row, never a second')
+  const [terminal] = await rowsFor()
+  assert.equal(terminal.id, before.id, 'the mirror rewrites the same TEST row')
+  assert.equal(terminal.status, 'deprecated')
+  const kept = await core.get(terminal.id)
+  assert.equal(kept.frontmatter.caseId, caseId)
+
+  // Re-recorded: the case is written again as a live case, and the mirror brings the row back.
+  const reRecorded = { ...readCase(dir, caseId).record, status: 'unverified', revision: retired.record.revision + 1 }
+  delete reRecorded.deprecateReason
+  writeCase(dir, reRecorded)
+  const back = await mirrorCase(core, { cwd, record: reRecorded })
+  assert.equal(back.ok, true)
+  const [live] = await rowsFor()
+  assert.equal(live.id, before.id)
+  assert.equal(live.status, 'unverified')
+  assert.equal((await rowsFor()).length, 1, 'a re-record must not create a second TEST')
+})
 
 test('a case without reqId or authorRole is refused before any file is written', async () => {
   const { cwd, tools, exec } = await harness()

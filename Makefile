@@ -48,7 +48,7 @@ endif
 CORPUS   ?= .cache/session-analysis/corpus.json
 ANALYSIS ?= .cache/session-analysis/analysis.json
 
-.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor session-identity harness-guard harness-guard-apply verify test cases
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor session-identity harness-guard harness-guard-apply verify test cases pull
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -63,10 +63,13 @@ help:
 	@echo "make session-identity         - report stored messages with no identity (they refuse the whole session)"
 	@echo "make harness-guard            - check the harness patch that makes that class impossible (3 = unpatched)"
 	@echo "make verify                   - run every check the kit ships (they READ the tree)"
+	@echo "  check-role-table            - the README role table must name exactly DEFAULT_ROLE_TOOLS"
+	@echo "  check-prompt-playbooks      - every preset keeps its two-direction playbook and CHILD_POLICY stays current"
 	@echo "make test                     - run the tests that RUN the kit: plugin tests, then proof scripts"
 	@echo "  ONLY=<substring>            - run only the test and proof paths containing it"
 	@echo "make cases                    - execute the automated cases in docs/cases; exit 1 when one is not verified"
 	@echo "  TAG=<tag> ARGS=<cli args>   - e.g. make cases TAG=benchmark, or ARGS=\"--id <case>\""
+	@echo "make pull                     - git pull, then merge state/ from git and print the collisions"
 
 usage:
 	@$(NODE) $(ANALYTICS) $(EXPORT_ARG) $(OPEN_ARG)
@@ -138,15 +141,20 @@ verify:
 	node scripts/check-portability.mjs
 	node scripts/check-documentation.mjs
 	node scripts/check-glossary.mjs
+	node scripts/check-role-table.mjs
+	node scripts/check-prompt-playbooks.mjs
 	node scripts/schema-lint.mjs
+	node scripts/check-preset-configs.mjs
 	node scripts/context-budget.mjs
 	node scripts/harness-identity-guard.mjs --check
 
 # The other half of the gate. The checks above READ the tree - paths, packaging, documentation,
 # schema bytes, session headers - and none of them executes it. This target runs the files that
-# do: every plugin test file through `node --test`, then every proof script, one process each,
-# in a fixed order, stopping at the first failure with exit 1. `make test ONLY=taskboard` runs a
-# subset. It is a separate target on purpose: `verify` stays the cheap reader that needs no
+# do: every plugin test file through `node --test`, then every acceptance test under `tests/`,
+# then every proof script, one process each, in a fixed order, stopping at the first failure with
+# exit 1. The acceptance group is its own kind because its author is a different seat from the
+# implementer; a missing or empty `tests/` is a refusal, not a skip. `make test ONLY=taskboard`
+# runs a subset. It is a separate target on purpose: `verify` stays the cheap reader that needs no
 # session store and no browser.
 test:
 	@$(NODE) scripts/test-all.mjs $(if $(strip $(ONLY)),--only "$(strip $(ONLY))",)
@@ -157,6 +165,19 @@ test:
 # Artifacts land under docs/cases/runs/ (gitignored).
 cases:
 	@$(NODE) plugins/test-cases/bin/cases.mjs suite $(if $(TAG),--tag $(TAG),) $(ARGS)
+
+# A pull is the one operation that can bring another machine's ledger into this checkout: git stops
+# on an add/add row conflict and on state/events.jsonl. The resolver reads both sides from git,
+# renumbers what collided, regenerates the projections and prints every collision; a conflict
+# outside state/ is left to the human. Never pick a side with git checkout --ours/--theirs.
+pull:
+	@git pull --no-rebase || { \
+	  if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then \
+	    echo "pull stopped: merging the project state from git"; \
+	    $(NODE) scripts/state-merge.mjs; \
+	  else \
+	    echo "pull failed before a merge started; nothing to merge"; exit 1; \
+	  fi; }
 
 # The session corpus: one pass over every stored session log (~2 min for ~1,000 logs), producing a
 # single JSON the questions can be answered from in seconds instead of re-reading ~1 GB of zstd on

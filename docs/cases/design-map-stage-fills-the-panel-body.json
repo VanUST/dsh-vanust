@@ -1,0 +1,446 @@
+{
+  "schemaVersion": 1,
+  "id": "design-map-stage-fills-the-panel-body",
+  "title": "design-map-stage-fills-the-panel-body",
+  "requirement": "AC-1 / FR1 / REQ-251: in Design map mode the stage fills the panel body (no 620px cap, no page scroll) and grows with the window; at 1440x900 the stage is at least 500px tall. This case checks the panel CSS contract that produces that layout; the 1440x900 pixel height is the implementer's browser proof (reports/designmap-instruments/proof.out), not re-measured here.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/panel-surface.mjs",
+  "runCommand": "node tests/designmap-instruments/panel-surface.mjs --case AC-1",
+  "steps": [
+    "Read the panel client source of the tree under test (current tree, or the pre-fix worktree when cwd is that copy).",
+    "Extract the .ps-main-map, .ps-mapstage and .ps-main-map .ps-mapstage rules and the map-mode branch.",
+    "Assert padding 0, overflow hidden, flex column, height 100%, flex 1, border 0, no min(64vh) anywhere, and the editor mounted in the stage."
+  ],
+  "expected": "The map body rule (.ps-main-map) drops the reading padding and page scroll and is a flex column; the stage rule (.ps-mapstage) has height 100%, no min(64vh)/620px cap and no border; .ps-main-map .ps-mapstage is the flex child; the map section carries ps-main-map only in map mode and mounts the page editor inside the stage.",
+  "tags": [
+    "designmap",
+    "AC-1",
+    "panel"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "1737725cb3ced49c082a2f65437240366b52967b75671b0825e12d06a17e6218"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "criterionId": "AC-1",
+  "reqId": "REQ-251",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "959aae1549ce1ca8e23ff6c588c604eb39b0361b793ccf3f5dcc387ad6ae5945",
+  "failsWhen": "A fixed 620 px / 64vh stage height or page scroll returns, the stage stops flexing to the panel body, or map mode stops carrying the map class.",
+  "trigger": "A human opens Project state -> Map (Design map mode) at a 1440x900 window; the panel composes the map section and stage for that mode.",
+  "oracle": "TASK-333 criterion AC-1 and FR1 (REQ-251), taken from the owner's requirement text; not from the panel stylesheet.",
+  "realism": "The owner's complaint recorded in TASK-333 and REQ-251: the Excalidraw page rendered as a 620 px strip with page scroll inside the panel.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 8,
+  "createdAt": "2026-11-27T09:47:03.146Z",
+  "updatedAt": "2026-11-27T10:10:02.978Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:47:32.995Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:50:05.833Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:53:09.738Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:53:55.754Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T09:53:55.754Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "design-map-stage-fills-the-panel-body",
+        "requirement": "AC-1 / FR1 / REQ-251: in Design map mode the stage fills the panel body (no 620px cap, no page scroll) and grows with the window; at 1440x900 the stage is at least 500px tall. This case checks the panel CSS contract that produces that layout; the 1440x900 pixel height is the implementer's browser proof (reports/designmap-instruments/proof.out), not re-measured here.",
+        "expected": "The map body rule (.ps-main-map) drops the reading padding and page scroll and is a flex column; the stage rule (.ps-mapstage) has height 100%, no min(64vh)/620px cap and no border; .ps-main-map .ps-mapstage is the flex child; the map section carries ps-main-map only in map mode and mounts the page editor inside the stage.",
+        "steps": [
+          "Read the panel client source of the tree under test (current tree, or the pre-fix worktree when cwd is that copy).",
+          "Extract the .ps-main-map, .ps-mapstage and .ps-main-map .ps-mapstage rules and the map-mode branch.",
+          "Assert padding 0, overflow hidden, flex column, height 100%, flex 1, border 0, no min(64vh) anywhere, and the editor mounted in the stage."
+        ],
+        "automated": true,
+        "testPath": "tests/designmap-instruments/panel-surface.mjs",
+        "runCommand": "node tests/designmap-instruments/panel-surface.mjs --case AC-1",
+        "status": "verified",
+        "checks": [
+          {
+            "name": "failures",
+            "metric": "failures",
+            "op": "<=",
+            "threshold": 0
+          }
+        ],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-27T10:09:44.577Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-27T10:10:02.978Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyssh68-lurpz-1",
+      "at": "2026-11-27T09:47:32.990Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 172,
+      "commandSha256": "3473a3508a589e1d01f37ab7ad5d1b98a286c71eaa59d6969949fc7b901ac067",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyssh68-lurpz-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyssh68-lurpz-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyssh68-lurpz-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwysvqy0-9diyp-1",
+      "at": "2026-11-27T09:50:05.827Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 146,
+      "commandSha256": "3473a3508a589e1d01f37ab7ad5d1b98a286c71eaa59d6969949fc7b901ac067",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwysvqy0-9diyp-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwysvqy0-9diyp-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwysvqy0-9diyp-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyszp2l-4rhko-1",
+      "at": "2026-11-27T09:53:09.733Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 123,
+      "commandSha256": "3473a3508a589e1d01f37ab7ad5d1b98a286c71eaa59d6969949fc7b901ac067",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyszp2l-4rhko-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyszp2l-4rhko-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyszp2l-4rhko-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 9
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 9,
+          "threshold": 0,
+          "pass": false,
+          "reason": "9 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0npe-59phy-1",
+      "at": "2026-11-27T09:53:55.746Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 169,
+      "commandSha256": "3473a3508a589e1d01f37ab7ad5d1b98a286c71eaa59d6969949fc7b901ac067",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyt0npe-59phy-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyt0npe-59phy-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwyt0npe-59phy-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwytl0nv-l2v2c-1",
+      "at": "2026-11-27T10:09:44.570Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 151,
+      "commandSha256": "3473a3508a589e1d01f37ab7ad5d1b98a286c71eaa59d6969949fc7b901ac067",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "24609a25a5c4ea5c4dff8257b3c459236b108887",
+      "dirty": false,
+      "stdout": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwytl0nv-l2v2c-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwytl0nv-l2v2c-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwytl0nv-l2v2c-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 9
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 9,
+          "threshold": 0,
+          "pass": false,
+          "reason": "9 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwytle7z-j5as8-1",
+      "at": "2026-11-27T10:10:02.972Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 111,
+      "commandSha256": "3473a3508a589e1d01f37ab7ad5d1b98a286c71eaa59d6969949fc7b901ac067",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwytle7z-j5as8-1/stdout.log",
+      "stderr": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwytle7z-j5as8-1/stderr.log",
+      "summary": "docs/cases/runs/design-map-stage-fills-the-panel-body/mwytle7z-j5as8-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T10:10:02.978Z",
+    "command": "node tests/designmap-instruments/panel-surface.mjs --case AC-1",
+    "exitCode": 0,
+    "runId": "mwytle7z-j5as8-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-27T10:09:44.577Z",
+    "runId": "mwytl0nv-l2v2c-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/panel-surface.mjs --case AC-1",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "24609a25a5c4ea5c4dff8257b3c459236b108887",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

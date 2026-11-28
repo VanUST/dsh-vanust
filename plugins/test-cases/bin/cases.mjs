@@ -11,7 +11,18 @@
  *               [--red --control <name>] [--json]
  *   cases suite [--tag <t>] [--kind <k>] [--status <s>] [--runs 1..5] [--timeout <ms>] [--json]
  *   cases gate  (--task <taskId> | --id <case>) [--implementer <preset>] [--json]
+ *   cases audit [--json]
+ *   cases deprecate --id <case> --reason <text> [--json]
  *   Common: --workspace <dir> (default: cwd), --dir <library> (default: docs/cases).
+ *
+ *   `deprecate` is the retirement path outside the tool runtime: it takes the case id and a
+ *   required reason, moves the case to deprecated with the reason in its history, and keeps its
+ *   steps. It refuses an unknown id (CASE_NOT_FOUND), a missing reason (INVALID_CASE) and an
+ *   already-retired case (CASE_CLOSED) by name, exit 2, exactly as `case_deprecate` does.
+ *   And it mirrors the retirement into the workspace register through the SAME `mirrorCase` the
+ *   host tool calls (opening the state core as scripts/state-merge.mjs does), so the TEST row and
+ *   the snapshot figure follow from the shell too; a workspace without a reachable `state/`
+ *   ledger still retires the case and prints `board: not updated (...)`.
  *
  *   `gate` reads the SAME acceptance rule as the host `case_gate` and the taskboard's close
  *   (lib/acceptance.mjs). Independence is judged against the preset that did the work, so a
@@ -20,7 +31,8 @@
  *
  * OUTPUTS
  *   Human text or JSON on stdout. Exit 0 = the case/suite/gate is green; 1 = ran but not green;
- *   2 = a refusal (bad id, not automated, no red control, a write failure).
+ *   2 = a refusal (bad id, not automated, no red control, a write failure). `audit` is the
+ *   read-only listing of the queue: it writes nothing and exits 0 even when every group is full.
  *
  * KEYWORDS
  *   case runner CLI, make cases, suite report, task gate, measured evidence
@@ -30,7 +42,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { KNOWN_PRESETS, REASONS, gateRows } from '../lib/acceptance.mjs'
 import { testHashState } from '../lib/schema.mjs'
-import { readCase, readCases, writeCase, libraryDir, Refusal } from '../lib/store.mjs'
+import { Refusal, deprecateCase, libraryDir, readCase, readCases, writeCase } from '../lib/store.mjs'
 import { runAttempts, recordRun, spawnExec } from '../lib/runner.mjs'
 
 function usage() {
@@ -40,6 +52,8 @@ function usage() {
   node plugins/test-cases/bin/cases.mjs run   --id <case> --red --control <name> [--json]
   node plugins/test-cases/bin/cases.mjs suite [--tag t] [--kind k] [--status s] [--runs 1..5] [--json]
   node plugins/test-cases/bin/cases.mjs gate  (--task <taskId> | --id <case>) [--implementer <preset>] [--board <path>] [--json]
+  node plugins/test-cases/bin/cases.mjs audit [--json]
+  node plugins/test-cases/bin/cases.mjs deprecate --id <case> --reason <text> [--json]
 
 Common: --workspace <dir> (default cwd), --dir <library> (default docs/cases).`
 }
@@ -290,6 +304,82 @@ function commandGate() {
   process.exit(gate.ok ? 0 : 1)
 }
 
+/**
+ * Retire one case from a shell: the CLI twin of `case_deprecate`, through the same store path.
+ *
+ * The compare-and-set the host verb enforces is not asked for here: one shell reads the case and
+ * retires it, and an already-retired case is still refused by name (CASE_CLOSED), so a repeated
+ * command cannot bump the revision twice.
+ */
+/**
+ * Where the state core sits relative to this CLI, in both layouts it ships in: the installed
+ * profile keeps it beside the test-cases package (`@cc/dsh-project-state`), the kit keeps it in
+ * `plugins/project-state`. A missing sibling is reported, never thrown: the CLI also runs in a
+ * workspace that has no ledger and no project-state plugin.
+ */
+const STATE_CORE_CANDIDATES = ['../../dsh-project-state/lib/core.mjs', '../../project-state/lib/core.mjs']
+function stateCoreUrl() {
+  for (const relative of STATE_CORE_CANDIDATES) {
+    const url = new URL(relative, import.meta.url)
+    if (existsSync(url)) return url
+  }
+  return null
+}
+
+/**
+ * Mirror one retirement into the workspace register, exactly as the host tool's `mirror` hook does.
+ *
+ * The CLI has no plugin context, so it opens the SAME state core the merge script opens
+ * (`scripts/state-merge.mjs` imports `createStateService` from the project-state plugin) and calls
+ * the SAME `mirrorCase` the tool calls: one mirror implementation, no copy here. A workspace without
+ * a `state/` ledger has no register to update, and a core that throws is a failed board update, not
+ * a failed retirement: the case is already written and the answer says which half happened.
+ */
+async function mirrorRetirement(workspace, record) {
+  if (!existsSync(join(workspace, 'state'))) return { updated: false, code: 'no_state', message: `no state/ ledger in ${workspace}` }
+  const coreUrl = stateCoreUrl()
+  if (coreUrl === null) return { updated: false, code: 'no_core', message: 'the project-state plugin is not next to this CLI' }
+  try {
+    const { createStateService } = await import(coreUrl.href)
+    const { mirrorCase } = await import('../mirror.mjs')
+    const core = createStateService({ cwd: workspace })
+    const result = await mirrorCase(core, { cwd: workspace, record })
+    if (result?.ok === false) return { updated: false, code: result.code ?? 'mirror_failed', message: result.message ?? 'the mirror refused the row' }
+    const state = typeof core.open === 'function' ? core.open(workspace) : core
+    if (typeof state.regenerateViews === 'function') await state.regenerateViews()
+    return { updated: true, action: result?.action ?? 'updated', ...(result?.testId === undefined ? {} : { testId: result.testId }) }
+  } catch (error) {
+    return { updated: false, code: 'mirror_failed', message: String(error?.message ?? error) }
+  }
+}
+
+function boardLine(board) {
+  if (board.updated !== true) return `board: not updated (${board.code}: ${board.message})`
+  return `board: ${board.testId ?? 'TEST row'} ${board.action === 'created' ? 'created' : 'updated'} (deprecated)`
+}
+
+async function commandDeprecate() {
+  const id = typeof options.id === 'string' ? options.id : ''
+  if (id === '') fail('usage', 'deprecate needs --id <case> and --reason <text>')
+  const reason = typeof options.reason === 'string' ? options.reason : ''
+  let record
+  try {
+    ;({ record } = deprecateCase(dir, id, { reason }))
+  } catch (error) {
+    fail(error instanceof Refusal ? error.code : 'refused', String(error?.message ?? error))
+  }
+  // The retirement is DONE at this point; the board update is the second half and cannot undo it.
+  const board = await mirrorRetirement(workspace, record)
+  if (json) say({ ok: true, id: record.id, status: record.status, reason: record.deprecateReason, revision: record.revision, board })
+  else {
+    say(`case: ${record.id}`)
+    say(`status: ${record.status} (the record, its steps and its history stay)`)
+    say(`reason: ${record.deprecateReason}`)
+    say(`revision: ${record.revision}`)
+    say(boardLine(board))
+  }
+}
+
 function commandList() {
   const rows = readCases(dir)
   const filter = {
@@ -308,9 +398,106 @@ function commandList() {
   for (const row of cases) say(`  ${row.record.status.padEnd(11)} ${row.record.automated === true ? 'auto' : 'doc '} ${provenance(row.record).padEnd(8)} ${row.record.id}`)
 }
 
+/**
+ * The audit queue: which records cannot prove behaviour, and why.
+ *
+ * WHY THE GROUPS OVERLAP. They answer four independent questions about one record, and a record
+ * can fail several: a documented-only case has no driver at all, while an automated case can have
+ * a driver nobody has measured. Merging them into one bucket would let the fullest reason hide
+ * the others, so every group lists its own ids.
+ *
+ * WHY NOTHING IS WRITTEN. The records belong to their authors and a non-author edit is refused
+ * (AUTHOR_ONLY), so this is the read half of the library: it names the queue, leaves every file
+ * untouched, and leaves the repair to the author or a human.
+ *
+ * WHY A RECORD WITH NO RUN IS NOT "exit-code-only". "Its only judgement is an exit code" is a
+ * statement about a run that happened: with no run at all there is no judgement to suppress, and
+ * the record is reported by `unmeasured` instead.
+ */
+function auditGroups(rows, workspace = process.cwd()) {
+  const groups = { documented: [], unmeasured: [], 'exit-code-only': [], 'legacy-v1': [], 'missing-surface': [] }
+  const errors = []
+  for (const row of rows) {
+    if (row.record === undefined) { errors.push({ id: row.id, code: row.error, message: row.message }); continue }
+    const record = row.record
+    const runs = Array.isArray(record.runs) ? record.runs : []
+    if (record.automated === false) {
+      const reason = typeof record.reason === 'string' && record.reason !== '' ? record.reason : 'no reason recorded'
+      groups.documented.push({ id: record.id, reason })
+    }
+    const verified = record.lastVerified
+    if (verified === null || verified === undefined) groups.unmeasured.push({ id: record.id, reason: 'no runner evidence: lastVerified is absent' })
+    else if (verified.source !== 'runner') groups.unmeasured.push({ id: record.id, reason: `no runner evidence: lastVerified came from "${verified.source}"` })
+    if (record.automated === true && runs.length > 0 && runs.every((run) => run.summaryError !== null && run.summaryError !== undefined)) {
+      const causes = [...new Set(runs.map((run) => run.summaryError))]
+      groups['exit-code-only'].push({ id: record.id, reason: `all ${runs.length} run(s) carried no summary: ${causes.join('; ')}` })
+    }
+    if (record.schemaVersion === 1) groups['legacy-v1'].push({ id: record.id, reason: 'schemaVersion 1' })
+    // The surface sweep: the declared files are gone, so the case asserts behaviour that is no
+    // longer in the tree. The paths are listed, not guessed from the title.
+    const missing = missingSurface(record, workspace)
+    if (missing.length > 0) {
+      const state = record.status === 'deprecated' || record.status === 'superseded' ? ` (${record.status})` : ''
+      groups['missing-surface'].push({ id: record.id, reason: `missing surface: ${missing.length} declared path${missing.length === 1 ? '' : 's'} gone${state}`, missing })
+    }
+  }
+  for (const list of Object.values(groups)) list.sort((left, right) => left.id.localeCompare(right.id))
+  return { groups, errors }
+}
+
+/** One line per record: an author's reason can be a paragraph, and a queue is read by scanning. */
+function oneLine(text, max = 110) {
+  const flat = String(text).replace(/\s+/g, ' ').trim()
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`
+}
+
+/**
+ * The declared surface a case can no longer reach: a `surfaceFiles` entry or its `testPath`
+ * that is gone from this workspace. Read-only by construction; the paths are what a human needs
+ * to decide between a rewrite and a retirement.
+ */
+function missingSurface(record, workspace) {
+  const missing = []
+  const declared = Array.isArray(record.surfaceFiles) ? record.surfaceFiles : []
+  for (const entry of declared) {
+    const path = typeof entry === 'string' ? entry : entry?.path
+    if (typeof path !== 'string' || path.trim() === '') continue
+    if (!existsSync(join(workspace, path))) missing.push(path)
+  }
+  if (typeof record.testPath === 'string' && record.testPath !== '' && !existsSync(join(workspace, record.testPath))) missing.push(record.testPath)
+  return [...new Set(missing)]
+}
+
+function commandAudit() {
+  const rows = readCases(dir)
+  const { groups, errors } = auditGroups(rows, workspace)
+  const total = rows.filter((row) => row.record !== undefined).length
+  const result = {
+    ok: true,
+    library: dir,
+    total,
+    groups: Object.fromEntries(Object.entries(groups).map(([name, list]) => [name, { count: list.length, cases: list }])),
+    errors,
+  }
+  if (json) { say(result); return }
+  say(`cases: ${total} in ${dir} (audit; nothing written, --json carries the full reasons)`)
+  for (const [name, entry] of Object.entries(result.groups)) {
+    say(`${name}: ${entry.count}`)
+    for (const item of entry.cases) {
+      say(`  ${item.id}  (${oneLine(item.reason)})`)
+      // The missing paths are what a human decides on, so they are printed in full rather than
+      // collapsed into the one-line reason.
+      for (const path of Array.isArray(item.missing) ? item.missing : []) say(`    missing  ${path}`)
+    }
+  }
+  for (const error of errors) say(`  ERROR  ${error.id}  (${error.code}: ${error.message})`)
+}
+
 const command = options._[0]
 try {
   if (command === 'list') commandList()
+  else if (command === 'audit') commandAudit()
+  else if (command === 'deprecate') await commandDeprecate()
   else if (command === 'run') await commandRun()
   else if (command === 'suite') await commandSuite()
   else if (command === 'gate') commandGate()

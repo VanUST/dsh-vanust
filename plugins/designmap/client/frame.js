@@ -9,6 +9,8 @@
  * way the viewer addressed it before; a relative `plugins/...` would resolve against the
  * document and break under a path prefix.
  */
+import { patchUnloadRegistration } from './bundle-patch.js'
+
 const PKG = '@cc/dsh-designmap'
 export const FRAME_FILE = 'client.frame.js'
 export const FRAME_SOURCE = 'design-map-frame'
@@ -28,33 +30,25 @@ export async function loadFrameText(fetchImpl = globalThis.fetch) {
 /**
  * The iframe document: a bare root the frame bundle mounts into, plus the chrome rules.
  *
- * In read-only the editing chrome (toolbar, menu, hints) is hidden: the map is a document.
- * In edit mode the chrome is the human's editing UI (colour, shapes, text, pen), and what
- * they draw is persisted as a separate annotation layer — never as scene geometry.
+ * THE PAGE IS ALWAYS AN EDITOR. There is no read mode any more: the panel mounts an editable
+ * canvas, a drag is saved on the same debounce as a typed label, and the file cannot change
+ * only when the host refuses the write. What is hidden is the editor's own entry points the
+ * panel replaces: the hamburger menu (its actions are the panel's), the help icon and the
+ * hint viewer. The drawing toolbar, undo/redo and zoom stay: they are the editor the page is.
  */
-export function frameDocument(script, look = { surface: '#ffffff' }, { editing = false } = {}) {
-  const safe = script.replaceAll('</script', '<\\/script')
+export function frameDocument(script, look = { surface: '#ffffff' }) {
+  // The bundle's beforeunload registration is stripped here, after a marker check
+  // (bundle-patch.js): a re-vendored bundle refuses by name instead of silently printing the
+  // unload violation once per frame build.
+  const safe = patchUnloadRegistration(script).replaceAll('</script', '<\\/script')
   const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? '')) ? look.surface : '#ffffff'
-  // Read-only hides the whole editing chrome: the map is a document. Edit mode keeps the
-  // drawing tools (the annotation layer) and hides the editor's own entry points: the panel
-  // owns undo, fit, zoom and the document identity, so a hamburger menu, a Library link, a
-  // Help "?" and a second undo/redo pair only add unlabelled icons — the "unclear glyphs"
-  // the owner reported. The frame CSS is fixed when the document is built, which is why the
-  // panel rebuilds the frame when the mode changes.
   const editorChrome = [
     '.HintViewer',
     '.dropdown-menu-button',
-    '.layer-ui__wrapper__top-right',
     '.help-icon',
-    '.zoom-button',
-    'button[aria-label="Undo"]',
-    'button[aria-label="Redo"]',
   ].join(',')
-  const chrome = editing
-    ? `${editorChrome}{display:none!important}`
-    : `.App-toolbar,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button,.help-icon,.zoom-button,.HintViewer{display:none!important}`
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
-${chrome}
+${editorChrome}{display:none!important}
 </style></head><body><div id="root"></div><script>${safe}</script></body></html>`
 }

@@ -111,9 +111,9 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
  * for AUDIT is told to choose REVIEWER or CRITIC, and a board that still holds the label keeps
  * it as history (scripts/taskboard-migrate.mjs splits the rows it can still prove).
  */
-export const PRESET_IDS = ['architect', 'ux', 'presenter', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'tester', 'docs']
+export const PRESET_IDS = ['architect', 'ux', 'presenter', 'backend', 'devops', 'research', 'gatherer', 'reviewer', 'critic', 'tester', 'docs']
 
-/** Role spellings that denote one of the ten child compositions. Keys are normalizedRole() output. */
+/** Role spellings that denote one of the eleven child compositions. Keys are normalizedRole() output. */
 export const ROLE_PRESETS = {
   // The system designer on the expensive route. `architect` is a role NAME; the profession the
   // owner calls "системный дизайнер" is this preset. `designer` stays UX/UI: an interface
@@ -139,6 +139,19 @@ export const ROLE_PRESETS = {
   backenddev: 'backend',
   server: 'backend',
   api: 'backend',
+  // DEVOPS owns the running deployment: start/stop, the dev/prod version, rollback and
+  // cleanup. The spellings are what a person writes for that job; `engineer` and `ops`
+  // alone stay unclaimed because they name no tool set without a deployment.
+  devops: 'devops',
+  devop: 'devops',
+  deployment: 'devops',
+  deploy: 'devops',
+  runtime: 'devops',
+  release: 'devops',
+  rollout: 'devops',
+  ops: 'devops',
+  operations: 'devops',
+  sre: 'devops',
   research: 'research',
   researcher: 'research',
   researchfirst: 'research',
@@ -163,7 +176,7 @@ export const ROLE_PRESETS = {
   docssteward: 'docs',
 }
 
-/** The preset a role name denotes, or undefined when it denotes none of the nine. */
+/** The preset a role name denotes, or undefined when it denotes none of the eleven. */
 export function presetForRole(role) {
   return ROLE_PRESETS[normalizeRole(role)]
 }
@@ -431,7 +444,17 @@ export const ROOT_COMMON_POLICY = `## Working policy (deployment)
 
 **Report once, when the work is done.** A human who walked away reads the last message, not the seven before it, so an intermediate summary is tokens and attention spent twice. While a turn is still running, the taskboard note and the tool output are the record; write the report when the work is finished. A goal that continues on its own does not get a report per round either - one, at the end.
 
-**Batch the work; the task is the unit of acceptance.** One task covers a batch of steps or several requirements: pass \`reqIds\` and \`steps\` to \`task_create\` and the board shows \`done/total\`. A micro-edit inside an open task updates THAT task — no new task, no new \`reqId\`. Run the full gate ONCE at the boundary of the task (or of a closed batch), not after every edit: a green run per keystroke buys nothing and costs the turn. A one-line change or a question is not delegated: make it inline and keep the speed.`
+**Batch the work; the task is the unit of acceptance.** One task covers a batch of steps or several requirements: pass \`reqIds\` and \`steps\` to \`task_create\` and the board shows \`done/total\`. A micro-edit inside an open task updates THAT task — no new task, no new \`reqId\`. Several tasks of one kind form a batch: they keep their own acceptance and evidence, and the full gate runs ONCE at the boundary of the batch, not after every edit: a green run per keystroke buys nothing and costs the turn. A one-line change or a question is not delegated: make it inline and keep the speed.`
+
+/**
+ * The work-in-flight ceiling for one chat's board.
+ *
+ * One chat can read ten open rows in a glance; beyond that the queue is the work, and
+ * every new executor makes it longer instead of shorter. The ceiling is the owner's: while
+ * MORE than this many tasks are unclosed, only the checkers (TESTER, CRITIC) may be
+ * delegated. Done and cancelled rows are not work in flight and do not count.
+ */
+export const BOARD_WIP_LIMIT = 10
 
 /** The orchestrator-specific part: roles, delegation and the task ledger claim. */
 export const ROOT_POLICY = `## Orchestration policy (deployment)
@@ -441,6 +464,8 @@ You are the workspace orchestrator. **Work flows through the taskboard.**
 **Use the project's words, never a term you invented.** Every message the human reads - a report, an answer, a task note, a commit message - uses the vocabulary in \`docs/TERMINOLOGY.md\` (or the project's own terms, when it has them) and the human's own words for the human's concepts. Do not coin a name, abbreviation, compound or metaphor for a concept, and do not rename a concept the human already named. Internal identifiers - paths, function names, tool ids, statuses, codes - are evidence, not subjects: state the plain fact first, then cite the identifier in parentheses. If the glossary lacks a term you need, describe the thing in one plain sentence, or add the term to the glossary in the same task (definition plus the human-facing wording) before you use it. Read the report back once before sending it and replace every noun a reader who has not seen the code would not understand; a report that needs a decoder is not a report.
 
 **No ad hoc policy.** A bug or a feature request is a question about the design, not an invitation to patch the symptom. Before you write, name what the current shape assumes and where the symptom actually comes from: a wrong owner, a value derived in two places, a state machine missing a case, a contract the caller never agreed to. If the honest answer is that the approach is wrong, say so in one line and revise the approach - an ad hoc fix that hides the symptom is the most expensive change there is, because the next bug lands in the same place. When a local patch really is correct, state the one assumption that makes it correct. Fix the cause once, where it lives.
+
+**Development rules — in the prompt because a rule that lives only in a skill is not in force.** (a) **A rule lives in ONE place.** Two copies of a rule - a default and the document that states it, a validator and its message, two config keys that must move together - drift silently, and the copy nobody reads wins. Fix the cause once in the owner and make the other copy read it; if the duplication is deliberate (a proof that copies the policy by design), say why in a comment. (b) **A tool that exists is not a behaviour that changed.** A registered tool, an added config row, a declared default: none is the behaviour it promises until the caller path, the activation and the effect are observed. A required field that is missing fails silently - a preset whose required \`tool-todo\` config was absent mounted nothing and simply vanished from the roster - so validate against the module's own schema or observe the result. (c) **Prove by running, not by reading.** Defects of the "rule in two places / tool without behaviour" class are found by running the product, not by reading the diff. End acceptance with a command and its output (or one browser observation), never with "the code says so", and name what you did not run. (d) **The smallest complete change.** Reuse what exists; never add a dependency for a few lines; deletion beats addition; fix the root cause once in the shared code; keep every caller, fixture and validation the change touches. Never cut validation at a trust boundary, error handling that prevents data loss, security or accessibility. (e) **Say what you skipped.** One or two lines at the end: what you did not check and the risk it carries. The \`ponytail\` skill is the long form; the rules above are the part every step pays for, which is why they live here and not behind a skill load. (f) **A rule in the kit is not a rule in force.** A persona, a policy, a preset row or a plugin reaches no agent until the machine is converged and the server restarted: the prompt a session reads is composed from the INSTALLED build at boot, so a rule can sit in the source for hours while every session works to the previous text (measured 2026-11-27: the rules had shipped in the source for hours while the machine still ran a build from before them, and a day of work went by without them). \`node scripts/kit-update.mjs --check --json\` is the one owner of that answer - run it before you rely on a policy, a persona or a fix, and quote it; convergence is: stop the server, \`--apply\`, start it, then \`--check\` reporting no drift. You have no shell, so hand that run to the role that owns the deployment. Know whether what you verified is the source or the running build, and say which one.
 
 **Understand the current architecture before you design.** A design is a claim about a system you have not finished reading: which component owns the behaviour, how the data flows, which invariant must survive, which callers depend on it, where a change would land. Use what you already have - the design map, the decision records, the tasks and the code in front of you - and be able to name the mechanism responsible before you open a task. When you cannot (the mechanism is unclear, the map is stale, the area is bigger than what you have read), delegate ONE \`CONTEXT\` brief instead of reading it yourself: name the exact question and the area, and ask for the entry point and call path, the owners and the data flow, the invariants, the landing point of the change and what could not be determined, each claim with \`file:line\`. The report is the input you design from. The read/grep/shell calls that produced it stay in the child's context: do not replay them to "check" - either trust the citations or send one focused follow-up. Spend your own context on the decision, not on reconnaissance.
 
@@ -452,15 +477,21 @@ That ledger is not bookkeeping for delegation: it is the record that outlives th
 
 **Delegation is one way to run a task, never the trigger for one.** \`delegate_task\` creates the task and starts a child for it; a task you execute yourself has the same lifecycle and the same record. Create the task first, then choose: do it inline, or delegate it.
 
+**The board has a work-in-flight ceiling.** While this chat's board holds more than ${BOARD_WIP_LIMIT} unclosed tasks — done and cancelled do not count — \`delegate_task\` refuses a NEW task for an executor with \`board_limit\` and allows only the two checkers, TESTER and CRITIC. An attach to an already open task with taskId is allowed — the ceiling is on new work, not on finishing what is open. The ceiling is about verification debt, not throughput: each change must be proved working before the next one starts (minimal viable change), and the refusal shows separately how many rows are waiting for acceptance (status review). Close or cancel settled work before adding more.
+
 **Stopping work.** \`task_cancel\`, \`task_pause\` and \`task_close\` interrupt every linked child before they change the task, and \`task_stop\` force-stops one task's children (or one \`sessionId\`) without changing the task status. A refused interrupt leaves the task where it was and names the child. The owner can stop the same children from the Tasks panel: a subagent belongs to both the orchestrator and the human, and both have the authority.
+
+**Parallel work must not interrupt a running agent.** A file, a contract, a seat and the RUNNING DEPLOYMENT are the four things that serialise work, and an order that ignores one of them is not parallel, it is destructive. The deployment is one lane: DEVOPS owns it, one live deployment task per chat is the rule (\`delegate_task\` refuses a second with \`devops_lane_busy\` and names the open one), and everything that touches no file, contract, seat or runtime may run at once. Before you delegate a restart, a version switch or a cleanup, read the board for tasks whose \`runningChildSessionIds\` is not empty: those children die with the runtime, and the version they measured stops being the version that runs. Let them settle, or stop them deliberately with \`task_stop\`, and name in the brief the stand, the port, the version it replaces and what must be left running. **Scope is the claim:** \`delegate_task\` refuses a task whose scope names a file another active task already claims - the same file, or a directory that contains it - with \`scope_overlap\`, so write the scope as paths (a file with its extension, a directory with its trailing slash) and put the prose after them; two agents on different files may run together, two on one file never do.
+
+**Order is part of the contract.** The four serialisers above prevent a CONFLICT; a dependency is different and just as binding: when one step's evidence describes the OUTPUT of another step, the second runs after the first and never beside it. Deploy, then measure the deployed build. Migrate, then read the data through the new schema. Change a contract, then update its callers. Repack, then install. A tester started while a build is still installing measures half the old application and half the new one, and both halves go green while neither is true - that is the failure this rule exists for, and it is not visible in the diff. So (a) on the board the dependent task carries \`dependsOn\` naming the task whose output it consumes, and the board refuses to start it while that dependency is open (\`dependency_open\`, which names the task it waits for) - express the chain, do not remember it; (b) the brief names the artifact the step CONSUMES: the version, commit or build, and where it runs; (c) the evidence names the artifact it MEASURED: "the tests pass" without a version is a claim about an unknown build, and a measurement taken before the deployment moved describes the previous one. Where a chain cannot be expressed as a task dependency - a human step in the middle, a measurement that only makes sense after the next turn - say in the task note which step must finish before the next may start, and treat that note as the contract. When you cannot tell whether two steps are ordered or merely compatible, they are ordered: a dependency discovered after the fact costs a rerun, a conflict discovered after the fact costs an argument about which result was true.
 
 **Bigger than one sitting** — more than one file or subsystem, research then implementation then review, more than roughly fifteen minutes, or the human asks for a project, feature, migration, audit or setup:
 
 1. If a material decision is ambiguous, load \`grilling\` and run one round (frontier only, recommendation beside each question), then wait. Do not grill a specified task.
 2. Create a goal with \`create_goal\`, and break the work into tasks: the goal is the objective, the tasks are what the panel shows and what can be delegated.
-3. Delegate the independent tasks with \`delegate_task\`. One task per child. The brief must be self-contained and name the non-scope. Never delegate final integration or the human's judgment.
+3. Create the rows once, then delegate them in batches into one seat per role: the first brief starts that role's session and every further row attaches to the SAME live session with \`taskId\` - one brief per row, sent once that seat has settled. Several tasks of one kind go to ONE agent whose role fits, and that is the default, not an optimisation: a fresh child per row pays the whole context cost again for nothing, and each row still keeps its own acceptance and evidence. Start every task that touches nothing in common with the others together; the only things that serialise work are a shared file, a shared contract, a shared seat or the shared runtime (the running server, its port, the installed version and its state), and you name which one when you order the batch. Each brief must be self-contained and name its non-scope. Never delegate final integration or the human's judgment.
 4. Use \`workflow\` for deterministic fan-out with structured results. There is no two-child cap, but each parallel child is a full agent turn: fan out as wide as the work justifies and no wider, and prefer one child doing several steps over several children doing one step each.
-5. Integrate and verify yourself: run the product, read the output, check the diff. A child's report is a claim, not evidence. In L2 the order is: criteria and constraints -> delegate TESTER to write the cases -> BACKEND implements -> TESTER measures the accepted behaviour (wrong-product red, then green) -> REVIEWER/CRITIC -> close. L0/L1 stay light: run the product and quote it; a case, a tester seat and a review are for work whose acceptance is a claim, not for a one-line edit.
+5. Integrate and verify yourself: run the product, read the output, check the diff. A child's report is a claim, not evidence. In L2 the order is: criteria and constraints -> delegate TESTER to write the cases -> BACKEND implements -> TESTER measures the accepted behaviour (wrong-product red, then green) -> REVIEWER/CRITIC -> close. L0/L1 stay light: run the product and quote it; a case, a tester seat and a review are for work whose acceptance is a claim, not for a one-line edit. That order runs ONCE for a batch: the TESTER writes the cases of every row in one sitting, the implementer seat takes the rows in order, and the review covers the batch instead of each row.
 6. Update the taskboard before you speak to the human, and report the evidence in the reply. Close the tasks and the goal.
 7. Close the loop on what the work taught. If the task produced a non-obvious procedure - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\` and, when nothing covers it, \`skill_evolve\` with the exact steps. That library is the only place the knowledge survives this chat: a solution nobody can find again gets rediscovered.
 
@@ -469,9 +500,10 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
-- **The ten roles are the tool sets**: ARCHITECT, UX/UI, PRESENTER, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, TESTER, DOCS. The orchestrator is the eleventh seat and is you. **TESTER is the independent acceptance tester**: it derives the expected result from the requirement, the criteria and the constraints (never from the implementation), writes the case and its driver under docs/cases/ or a test root, and measures the red against the previous version and the green against the change. It never edits product code and never signs off its own implementation: a defect goes back to BACKEND and the tester reruns. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside those nine needs an explicit \`preset\` argument. PRESENTER makes an idea land for a person outside the subject: an animated HTML deck, a KPI board or a diagram, built from the kit's own renderers and verified slide by slide in a browser. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
+- **The eleven roles are the tool sets**: ARCHITECT, UX/UI, PRESENTER, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, TESTER, DOCS. The orchestrator is the twelfth seat and is you. **TESTER is the independent acceptance tester**: it derives the expected result from the requirement, the criteria and the constraints (never from the implementation), writes the case and its driver under docs/cases/ or a test root, and measures the red against the previous version and the green against the change. It never edits product code and never signs off its own implementation: a defect goes back to BACKEND and the tester reruns. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. DEVOPS owns the running deployment: it starts, stops, upgrades, rolls back, rebuilds and cleans up the runtime, one live task at a time, and proves the result from OUTSIDE the process it restarted. Runtime work is its lane - do not hand a restart, a version switch or a cleanup to BACKEND or DOCS because they happen to be idle, and never run two deployment tasks in parallel. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside those eleven needs an explicit \`preset\` argument. PRESENTER makes an idea land for a person outside the subject: an animated HTML deck, a KPI board or a diagram, built from the kit's own renderers and verified slide by slide in a browser. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - **The standard is proportional: a level, not a ritual.** Every task states a verification level: proof (L0 - run the product, quote the command, output and exit code; no case, no tester, no review), case (L1 - the same plus one case when the behaviour is worth pinning), or independent (L2, or any risk trigger - contract, data, architecture, security, money, migration, concurrency - where another preset writes the case, measures a wrong-product red and covers every criterion). Pass criteria (stable ids) and constraints with the task: the child brief and the close read the same contract. Do not run the full TESTER/REVIEWER/CRITIC cycle on a proof task.
+- **A batch runs in two seats, not one child per row** - the spike is its clearest case. The implementer seat takes the batch: the rows go to the same role session, one brief per row, \`taskId\` on each. The checks batch the same way, into ONE seat for the whole batch: a TESTER session writes and measures the cases of the batch, one review covers several rows (\`delegate_review\` folds 2-8 review rows into one task), and the gate runs ONCE at the boundary of the batch. A verify cycle per row is the paperwork that turns a two-hour spike into a day. Batching never merges the record: each row keeps its own acceptance and evidence, and a failure comes back as a delta into the same seat. A single edit or a question is neither batched nor delegated.
 - **A created task must carry its basis.** When \`delegate_task\` creates the row, pass \`reqIds\` (or \`reqId\` for one) naming the requirements the work implements; for work that implements no requirement - a standalone review of existing code, for instance - pass \`chore: true\` with a \`choreReason\`. The board refuses the call without one (\`req_required\`) before a child starts, and an attach with \`taskId\` needs neither: the row already carries its basis. Never invent a requirement to get a delegation through.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
@@ -497,9 +529,10 @@ You are a delegated specialist. Do exactly the task brief you received.
 - You are not alone in this workspace: another agent may be holding the same task or a neighbouring one. A design problem you find belongs to the orchestrator, not to a local patch - report it with the evidence and the alternatives.
 - You are a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
 - Return the required output, the evidence (command, output, exit code, files) and what you could not verify. A claim without evidence is not a result.
+- **How your result is accepted.** The orchestrator owns acceptance and closes the task: your result is accepted when a run you can quote shows the product doing what the brief asked and every acceptance criterion in the brief is met by that evidence - not when the report says it is done, and not by the size of the diff; name what you could not verify.
 - Write in the project's words: the vocabulary is \`docs/TERMINOLOGY.md\` when it exists, otherwise the project's own docs and the brief's terms. Do not coin names, abbreviations or compounds; paths, tool ids and codes are evidence, not subject words. Your report is read by someone who has not seen your code.
 - **Some of the tools in your header are the HOST's, not your role's**: the MCP bridge (mcp__godot__*, mcp__playwright__*), Hindsight memory, the taskboard and the skills library are mounted at the host and inherited by every preset, so they do not widen the composition your role deliberately chose. Use them for the brief's work, and do not reach for one to do a job your role was given no tool for (a reviewer has read and bash but no write/edit).
-- **No speculative tests: observe first, then persist the case.** Prove behaviour by running the product; when the behaviour is worth keeping, record it with \`case_record\` (automated needs testPath+runCommand and red-first evidence; otherwise documented-only with a reason). Do not write a test to guess at behaviour.
+- **No speculative tests: observe first, then persist the case.** Prove behaviour by running the product; when the behaviour is worth keeping, record it with \`case_record\` (its real test file and exact run command), measure the red and then the green with \`case_run\`, and let \`case_gate\` decide: a case is acceptance evidence for a task only when a measured run exists and neither its author nor its runner is the implementer, so a case you wrote for your own work (purpose \`implementation\`) never closes it. A behaviour that cannot be automated is recorded with its steps, expected outcome and a named reason: it keeps the requirement and is not evidence. Do not write a test to guess at behaviour.
 - Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final report.
 - BEFORE you report the task done, close the loop on what the work taught. If it produced a procedure that is not obvious from the code - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\`; if nothing covers it, call \`skill_evolve\` with the exact steps, the failure it prevents and this task as the evidence. Never record trivia, one-off facts or a secret. A task that found nothing reusable simply reports that; do not invent a skill to look productive.`
 
@@ -624,6 +657,78 @@ ${typeof extra.carryForward === 'string' && extra.carryForward.trim() !== '' ? `
 ${input.timebox === undefined ? '' : `Timebox: ${input.timebox}\n`}`
   if (brief.length <= limit) return brief
   return `${brief.slice(0, limit - 160)}\n\n[Brief truncated at ${limit} characters. The task fields remain authoritative; ask the orchestrator for the missing part.]`
+}
+
+/**
+ * The PATH a scope entry claims, normalized; '' when the entry is prose rather than a claim.
+ *
+ * WHY A TOKEN AND NOT THE WHOLE STRING. `scope` is written for a human - "plugins/orchestrator:
+ * PRESET_IDS and ROLE_PRESETS gain devops" - so the claim is the leading path: a token with a
+ * slash or a dot, a directory written with its trailing slash, the prose after it ignored. An
+ * entry with neither a slash nor a dot ("read the product modules") claims nothing, so a brief
+ * written in sentences cannot collide by accident. `..` is resolved lexically and a leading
+ * `./` is dropped, so two spellings of one file compare equal.
+ *
+ * @param entry - One `scope` string.
+ * @param cwd - The task's working directory, used to relativize an absolute path under it.
+ * @returns The normalized relative path, or '' when the entry claims no path.
+ */
+export function scopeClaim(entry, cwd = '') {
+  if (typeof entry !== 'string') return ''
+  // POSIX separators only: the kit's scopes are written with '/', and the portability
+  // check forbids treating a backslash as a separator (it is a no-op on Linux and hides the
+  // assumption). An entry written with backslashes does not parse, so it claims nothing.
+  let text = entry.trim()
+  if (text === '') return ''
+  const root = typeof cwd === 'string' ? cwd.replace(/\/+$/, '') : ''
+  if (text.startsWith('/')) {
+    if (root !== '' && text.startsWith(root + '/')) text = text.slice(root.length + 1)
+    else return ''
+  }
+  const token = /^[A-Za-z0-9_.@+~-][A-Za-z0-9_.@+~/-]*\/?/.exec(text)
+  if (token === null) return ''
+  let value = token[0]
+  if (!value.includes('/') && !value.includes('.')) return ''
+  value = value.replace(/^\.\//, '').replace(/\/+$/, '')
+  const parts = []
+  for (const part of value.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') { parts.pop(); continue }
+    parts.push(part)
+  }
+  return parts.join('/')
+}
+
+/** Whether two normalized claims name one file: equal, or one is a directory containing the other. */
+export function claimsOverlap(left, right) {
+  if (left === '' || right === '') return false
+  return left === right || left.startsWith(right + '/') || right.startsWith(left + '/')
+}
+
+/**
+ * The first collision between a task's scope and the scopes already claimed by active tasks.
+ *
+ * WHY ONLY `active`. A row in `open` is a plan nobody is executing yet, and a batch is created
+ * as several open rows for one seat; a row in `review` is finished work waiting for acceptance.
+ * Only an active row is work in flight, and only work in flight can collide with another child.
+ *
+ * @param scope - The scope list this task would claim.
+ * @param holders - Active tasks, each `{ id, role, title, scope }`.
+ * @param cwd - The task's working directory.
+ * @returns `{ path, claim, task }` or undefined.
+ */
+export function scopeConflict(scope, holders, cwd = '') {
+  const mine = (Array.isArray(scope) ? scope : []).map((entry) => scopeClaim(entry, cwd)).filter((value) => value !== '')
+  if (mine.length === 0) return undefined
+  for (const holder of Array.isArray(holders) ? holders : []) {
+    const theirs = (Array.isArray(holder?.scope) ? holder.scope : []).map((entry) => scopeClaim(entry, cwd)).filter((value) => value !== '')
+    for (const path of mine) {
+      for (const claim of theirs) {
+        if (claimsOverlap(path, claim)) return { path, claim, task: holder }
+      }
+    }
+  }
+  return undefined
 }
 
 /**
@@ -779,14 +884,14 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: 'Create one task (or attach taskId), render a self-contained brief, start a child on the role preset and link its session. Roles: UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS; another role needs an explicit preset. A near-duplicate new role is refused unless forceRole. Pass provider/model only when the default route cannot do the work.',
+    description: `Create one task (or attach taskId), render a self-contained brief, start a child on the role preset and link its session. Roles: UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS; another role needs an explicit preset. DEVOPS owns the running deployment and runs one live deployment task per chat: a second is refused with devops_lane_busy. While this chat's board holds more than \${BOARD_WIP_LIMIT} unclosed tasks a NEW task is refused with board_limit and only TESTER and CRITIC may be delegated; the refusal names the unclosed total, how many rows wait for acceptance and the verification debt behind the limit. Attaching to an already open task with taskId stays allowed. A near-duplicate new role is refused unless forceRole. Pass provider/model only when the default route cannot do the work.`,
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
-      role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
-      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the nine (e.g. a migration under preset backend, or an adversarial pass over an algorithm with preset critic). PRESENTER is a role name too: use it for a deck, a board or an animated explanation instead of DUMMY. AUDIT is not accepted as a name at all - use REVIEWER or CRITIC.' },
+      role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
+      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the eleven (e.g. a migration under preset backend, or an adversarial pass over an algorithm with preset critic). PRESENTER is a role name too: use it for a deck, a board or an animated explanation instead of DUMMY. AUDIT is not accepted as a name at all - use REVIEWER or CRITIC.' },
       roleDescription: { type: 'string', description: 'Optional one-line responsibility zone for a newly created specialist.' },
       objective: { type: 'string', required: true, description: 'The outcome in one paragraph, not the activity.' },
-      scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch.' },
+      scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch. Entries are claimed as paths (a file with its extension, a directory with its trailing slash; prose after the path is ignored), and delegate_task refuses a scope that collides with an active task\'s file.' },
       nonScope: { type: 'array', items: { type: 'string' }, description: 'What the child must not touch, with the reason.' },
       acceptance: { type: 'array', items: { type: 'string' }, description: 'How you will judge the result.' },
       verification: { type: 'string', enum: ['proof', 'case', 'independent'], description: 'P2 verification level for the task the child owns. proof: the child runs the product and quotes it (L0). case: proof plus one case when the behaviour is worth pinning (L1). independent: another preset writes and runs the acceptance case against a wrong-product red, and every criterion must be covered (L2, or a risk trigger: contract, data, architecture, security, money, migration, concurrency). Default proof: the standard is proportional, not a full cycle for every task.' },
@@ -833,7 +938,7 @@ export function apply(ctx, config = {}) {
       }
       const preset = typeof args.preset === 'string' && args.preset !== '' ? args.preset : presetForRole(role)
       if (preset === undefined) {
-        throw new Error(`delegate_task: role "${role}" names none of the ten tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester, CONTEXT/GATHERER to reconnaissance), or pass preset explicitly when the role is a genuine specialty.`)
+        throw new Error(`delegate_task: role "${role}" names none of the eleven tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester, CONTEXT/GATHERER to reconnaissance), or pass preset explicitly when the role is a genuine specialty.`)
       }
       if (!PRESET_IDS.includes(preset)) {
         throw new Error(`delegate_task: "${preset}" is not one of the role presets (${PRESET_IDS.join(', ')}).`)
@@ -862,6 +967,85 @@ export function apply(ctx, config = {}) {
       // this chat's rows; the workspace history stays readable for the human and for
       // carry-forward, which is the one place it is wanted.
       const chatId = parent.id
+      // WORK IN FLIGHT HAS A CEILING. A new executor on an already-overfull board does not
+      // shorten the queue, it lengthens it; only the checkers can close work someone else
+      // built. The count is this chat's board, read through the SAME taskboard.list({ chatId })
+      // the devops lane below uses, and done/cancelled rows are not work in flight. An attach
+      // (taskId) adds no unclosed work, so it is not refused: the ceiling is on NEW work.
+      const attachTaskId = typeof args.taskId === 'string' && args.taskId !== '' ? args.taskId : ''
+      if (preset !== 'tester' && preset !== 'critic' && attachTaskId === '') {
+        let unclosed = []
+        try {
+          unclosed = taskboard.list(taskCwd, { chatId }).filter((task) => task !== null && typeof task === 'object'
+            && !['done', 'cancelled'].includes(task.status))
+        } catch {
+          unclosed = []
+        }
+        const awaitingAcceptance = unclosed.filter((task) => task.status === 'review').length
+        if (unclosed.length > BOARD_WIP_LIMIT) {
+          throw new Error(`delegate_task: board_limit - this chat's board holds ${unclosed.length} unclosed tasks, more than the limit of ${BOARD_WIP_LIMIT}, and ${awaitingAcceptance} of them are waiting for acceptance (status review). The limit is about verification debt, not throughput: each change must be proved working before the next one starts (minimal viable change), so more than ${BOARD_WIP_LIMIT} unclosed tasks is work piling up unproven, not progress. While the board is over the limit a NEW task is refused: only the checkers may be delegated a new task (TESTER, CRITIC), and attaching to an already open task with taskId is allowed. Finish, prove or close open work with task_close or task_cancel before delegating a new ${role}.`)
+        }
+      }
+      // DEVOPS OWNS THE RUNTIME LANE, AND ONE LANE HOLDS ONE LIVE TASK. The runtime is a
+      // shared resource, not a tool: a second deployment restarts or replaces what the
+      // open task is still measuring, and the restart ends that task's running child.
+      // The refusal keys on the LEDGER's own status of a task whose preset is devops,
+      // never on the brief's wording: a word list cannot tell 'restart the stand' from
+      // 'read the restart section of the docs', and a wrong refusal is worse than none.
+      // Attaching to the open task is how a follow-up brief reaches the same seat, so the
+      // attach id is excluded; a task in review is settled work awaiting acceptance and
+      // does not hold the lane.
+      if (preset === 'devops') {
+        const attachId = typeof args.taskId === 'string' && args.taskId !== '' ? args.taskId : ''
+        const live = (() => {
+          try {
+            return taskboard.list(taskCwd, { chatId }).filter((task) => task !== null && typeof task === 'object'
+              && task.preset === 'devops'
+              && task.id !== attachId
+              && ['open', 'active', 'blocked', 'paused'].includes(task.status))
+          } catch {
+            return []
+          }
+        })()
+        if (live.length > 0) {
+          const named = live.slice(0, 3).map((task) => String(task.id) + ' (' + String(task.status) + ', ' + String(task.role ?? 'DEVOPS') + '): ' + String(task.title ?? 'untitled')).join('; ')
+          throw new Error('delegate_task: devops_lane_busy - the runtime lane runs ONE live deployment task per chat, and the board still holds ' + (live.length === 1 ? 'one' : String(live.length)) + ': ' + named + '. A second deployment would restart or replace the runtime the open task is measuring and end its running child. Attach to it with taskId, or accept and close it with task_close, before delegating the next deployment. Delegations to other roles are unaffected.')
+        }
+      }
+      // SCOPE IS THE CLAIM, AND TWO LIVE TASKS CANNOT CLAIM ONE FILE. The scope list is not
+      // only a brief field: it is the file or directory the child is about to touch. A second
+      // child whose scope names the same file (or a directory that contains it) is refused
+      // BEFORE its row or its child exists, so the collision cannot be discovered by the two
+      // children overwriting each other. Only an active task holds a claim: open rows are plans,
+      // review rows are settled work, and a batch creates several open rows for one seat.
+      const activeScopeHolders = () => {
+        let rows = []
+        try {
+          rows = taskboard.list(taskCwd, { chatId })
+        } catch {
+          rows = []
+        }
+        const holders = []
+        for (const row of Array.isArray(rows) ? rows : []) {
+          if (row === null || typeof row !== 'object' || row.status !== 'active') continue
+          let full
+          try {
+            full = taskboard.get(taskCwd, row.id)
+          } catch {
+            full = undefined
+          }
+          const scope = Array.isArray(full?.scope) ? full.scope : []
+          if (scope.length === 0) continue
+          holders.push({ id: row.id, role: row.role ?? '', title: full?.title ?? row.title ?? '', scope })
+        }
+        return holders
+      }
+      const refuseScopeCollision = (scope, selfId) => {
+        const holders = activeScopeHolders().filter((holder) => holder.id !== selfId)
+        const clash = scopeConflict(scope, holders, taskCwd)
+        if (clash === undefined) return
+        throw new Error(`delegate_task: scope_overlap - task "${clash.task.id}" (${clash.task.role || 'role unknown'}) is active and already claims "${clash.claim}"; this task's scope claims "${clash.path}", and two subagents cannot work on one file. Narrow this task's scope, close "${clash.task.id}" first, or attach to it with taskId.`)
+      }
       // A fresh chat does not know the ledger, so the model invents AUDIT where BACKEND
       // already exists. Refusing before a task exists is a correction; the catalog in the
       // policy section is the choice it should have seen. forceRole is the escape hatch.
@@ -882,7 +1066,7 @@ export function apply(ctx, config = {}) {
       // Both are refused before a task row exists; forceRole is the explicit escape hatch.
       const knownPreset = typeof knownAgent?.preset === 'string' ? knownAgent.preset.trim() : ''
       if (knownAgent !== undefined && knownPreset === '' && args.forceRole !== true) {
-        throw new Error(`delegate_task: role "${knownAgent.role}" is a legacy row from before role presets - its child's tool set is unknown, so it cannot be reused. Name this work with one of the nine roles (${PRESET_IDS.join(', ')}), or pass forceRole: true with an explicit preset to re-compose it deliberately.`)
+        throw new Error(`delegate_task: role "${knownAgent.role}" is a legacy row from before role presets - its child's tool set is unknown, so it cannot be reused. Name this work with one of the eleven roles (${PRESET_IDS.join(', ')}), or pass forceRole: true with an explicit preset to re-compose it deliberately.`)
       }
       if (knownAgent !== undefined && knownPreset !== '' && knownPreset !== preset && args.forceRole !== true) {
         throw new Error(`delegate_task: role "${knownAgent.role}" is already the [${knownPreset}] role in this workspace, and a role label keeps one tool set. ${knownPreset === 'reviewer' || preset === 'reviewer' ? 'REVIEWER judges a change while CRITIC attacks a running behaviour - use the role that owns this work. ' : ''}Pass forceRole: true only to deliberately re-compose the role.`)
@@ -971,6 +1155,7 @@ export function apply(ctx, config = {}) {
         if (typeof existing.role === 'string' && existing.role !== '' && !roleMatches(existing.role, role)) {
           throw new Error(`delegate_task: task "${attachId}" already belongs to role "${existing.role}"; delegate it to that role or open a new task`)
         }
+        refuseScopeCollision(existing.scope, existing.id)
         const updated = taskboard.update(taskCwd, {
           id: existing.id,
           expectedRevision: existing.revision,
@@ -992,11 +1177,16 @@ export function apply(ctx, config = {}) {
         // left untouched).
         if (updated?.ok !== true) {
           const code = typeof updated?.code === 'string' && updated.code !== '' ? updated.code : 'taskboard_refused'
+          // THE BOARD'S OWN REASON IS THE ANSWER. A refusal that names no row - dependency_open
+          // names the task the new one waits for - is handed to the root as the board wrote it,
+          // so the next step (wait for that task, or close it) is visible without a second read.
+          const reason = typeof updated?.message === 'string' && updated.message !== '' ? ` ${updated.message}` : ''
           noteRefusal(taskboard, taskCwd, existing.id, code)
-          return { ok: false, code, message: `delegate_task: the taskboard refused to attach task "${attachId}" (${code}); no child was started. The task was left untouched or blocked with that code.` }
+          return { ok: false, code, message: `delegate_task: the taskboard refused to attach task "${attachId}" (${code}); no child was started. The task was left untouched or blocked with that code.${reason}` }
         }
         task = updated.task
       } else {
+        refuseScopeCollision(args.scope, '')
         task = taskboard.create(taskCwd, {
           title: args.title,
           role,
@@ -1216,8 +1406,9 @@ export function apply(ctx, config = {}) {
           // The child exists but the ledger would not record it. Stop it: a child working for
           // a task that does not know it exists is the orphan this whole path is about.
           try { ctx.subagents.interrupt?.(childId, { kind: 'ancestor', agent: parent }) } catch { /* a child that cannot be stopped is reported, not hidden */ }
+          const reason = typeof linked?.message === 'string' && linked.message !== '' ? ` ${linked.message}` : ''
           noteRefusal(taskboard, taskCwd, task.id, code)
-          return { ok: false, code, message: `delegate_task: the taskboard refused to link child "${childId}" to task "${task.id}" (${code}); the child was interrupted and no work was started.` }
+          return { ok: false, code, message: `delegate_task: the taskboard refused to link child "${childId}" to task "${task.id}" (${code}); the child was interrupted and no work was started.${reason}` }
         }
         return {
           taskId: task.id,

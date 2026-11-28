@@ -1,0 +1,344 @@
+{
+  "schemaVersion": 1,
+  "id": "map-lint-findings-carry-ids-measure-and-repair",
+  "title": "map-lint-findings-carry-ids-measure-and-repair",
+  "requirement": "AC-4 / FR2 / REQ-252: map_lint returns findings with element ids, a measured value and a repair op; map_read carries geometry and a readability verdict; a crowded page is never refused.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "tests/designmap-instruments/map-instruments.mjs",
+  "runCommand": "node tests/designmap-instruments/map-instruments.mjs --case AC-4",
+  "steps": [
+    "Create a page and add two overlapping boxes, an unlabelled box and a too-narrow labelled box through map_edit.",
+    "Call map_lint and map_read on the crowded page and check the finding shape (ids, measure, repair) and the verdict.",
+    "Write to the crowded page again; apply the proposed node.move repair and re-run map_lint."
+  ],
+  "expected": "On a crowded page (two overlapping boxes, an unlabelled box, a box too narrow for its label), map_lint answers ok with at least two findings; every finding names element ids that exist, carries a numeric measure and a concrete repair op; map_read returns one geometry row per box with x/y/width/height and a score/verdict; a further node.add still succeeds; applying the node.move repair removes the overlap it named.",
+  "tags": [
+    "designmap",
+    "AC-4",
+    "lint"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/src/outline.mjs",
+      "sha256": "e6d22ee935ea5209ce704da11e2ead75ac1f61dc20cc9475c620b2ec67013c4a"
+    },
+    {
+      "path": "plugins/designmap/src/ops.mjs",
+      "sha256": "6d7cc1402fdbba467a89bb6f24f5e56e83a86d620228947dce01efcedc7da348"
+    },
+    {
+      "path": "plugins/designmap/src/page-tools.mjs",
+      "sha256": "7a06b1087211948341a38eabf206af59ae8a91e5ca7e7c9191ea3ab436e19196"
+    }
+  ],
+  "linkedTaskId": "task-mwyr7f5u-b180jl",
+  "criterionId": "AC-4",
+  "reqId": "REQ-252",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+  "purpose": "acceptance",
+  "testHash": "1da99e5eadd0d5dbdb05ea0959787131636ff8579f2042f91012d64dc16597af",
+  "failsWhen": "map_lint is missing, returns findings without ids/measure/repair, refuses a crowded page, map_read lacks geometry or a verdict, or the proposed repair does not clear the overlap.",
+  "trigger": "An agent reads a crowded page with map_read, then calls map_lint to learn the concrete repairs before drawing.",
+  "oracle": "TASK-333 criterion AC-4 and FR2 (REQ-252): measured findings with ids and repairs, geometry plus verdict, crowded pages never refused.",
+  "realism": "The owner's requirement that the readability check names element ids and concrete repairs instead of refusing a page (TASK-333 objective, REQ-252); the implementer's panel-findings.png shows the same report in the panel.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-27T10:10:00.000Z",
+  "checks": [
+    {
+      "name": "failures",
+      "metric": "failures",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "revision": 6,
+  "createdAt": "2026-11-27T09:47:12.768Z",
+  "updatedAt": "2026-11-27T09:54:03.986Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T09:47:39.776Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T09:50:13.320Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-27T09:50:13.320Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "map-lint-findings-carry-ids-measure-and-repair",
+        "requirement": "AC-4 / FR2 / REQ-252: map_lint returns findings with element ids, a measured value and a repair op; map_read carries geometry and a readability verdict; a crowded page is never refused.",
+        "expected": "On a crowded page (two overlapping boxes, an unlabelled box, a box too narrow for its label), map_lint answers ok with at least two findings; every finding names element ids that exist, carries a numeric measure and a concrete repair op; map_read returns one geometry row per box with x/y/width/height and a score/verdict; a further node.add still succeeds; applying the node.move repair removes the overlap it named.",
+        "steps": [
+          "Create a page and add two overlapping boxes, an unlabelled box and a too-narrow labelled box through map_edit.",
+          "Call map_lint and map_read on the crowded page and check the finding shape (ids, measure, repair) and the verdict.",
+          "Write to the crowded page again; apply the proposed node.move repair and re-run map_lint."
+        ],
+        "automated": true,
+        "testPath": "tests/designmap-instruments/map-instruments.mjs",
+        "runCommand": "node tests/designmap-instruments/map-instruments.mjs --case AC-4",
+        "status": "failing",
+        "checks": [
+          {
+            "name": "failures",
+            "metric": "failures",
+            "op": "<=",
+            "threshold": 0
+          }
+        ],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-27T09:53:19.378Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-27T09:54:03.986Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwysslld-hgfgn-1",
+      "at": "2026-11-27T09:47:39.775Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 225,
+      "commandSha256": "4045e093941e7b697599da79f5326b5f306a25e4b6761169602f6fbdacf29a86",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwysslld-hgfgn-1/stdout.log",
+      "stderr": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwysslld-hgfgn-1/stderr.log",
+      "summary": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwysslld-hgfgn-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"failures\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwysvw2w-uciqh-1",
+      "at": "2026-11-27T09:50:13.314Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 255,
+      "commandSha256": "4045e093941e7b697599da79f5326b5f306a25e4b6761169602f6fbdacf29a86",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwysvw2w-uciqh-1/stdout.log",
+      "stderr": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwysvw2w-uciqh-1/stderr.log",
+      "summary": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwysvw2w-uciqh-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyszwhh-o4lfa-1",
+      "at": "2026-11-27T09:53:19.372Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 159,
+      "commandSha256": "4045e093941e7b697599da79f5326b5f306a25e4b6761169602f6fbdacf29a86",
+      "cwd": "/tmp/dsh-prefix-nogit",
+      "cwdRelative": "../../../tmp/dsh-prefix-nogit",
+      "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+      "dirty": false,
+      "stdout": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwyszwhh-o4lfa-1/stdout.log",
+      "stderr": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwyszwhh-o4lfa-1/stderr.log",
+      "summary": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwyszwhh-o4lfa-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 1
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 1,
+          "threshold": 0,
+          "pass": false,
+          "reason": "1 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyt0u3p-mb4c4-1",
+      "at": "2026-11-27T09:54:03.981Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+        "taskId": "task-mwyr7f5u-b180jl"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 203,
+      "commandSha256": "4045e093941e7b697599da79f5326b5f306a25e4b6761169602f6fbdacf29a86",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7090829f745a122fa409d70ac4645d496fc5a476",
+      "dirty": true,
+      "stdout": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwyt0u3p-mb4c4-1/stdout.log",
+      "stderr": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwyt0u3p-mb4c4-1/stderr.log",
+      "summary": "docs/cases/runs/map-lint-findings-carry-ids-measure-and-repair/mwyt0u3p-mb4c4-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failures",
+          "metric": "failures",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-27T09:54:03.986Z",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-4",
+    "exitCode": 0,
+    "runId": "mwyt0u3p-mb4c4-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-27T09:53:19.378Z",
+    "runId": "mwyszwhh-o4lfa-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node tests/designmap-instruments/map-instruments.mjs --case AC-4",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "/tmp/dsh-prefix-nogit",
+    "head": "dcc70078d969df60cc805f7a0762cde0ad69bc89",
+    "dirty": false,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
+      "taskId": "task-mwyr7f5u-b180jl"
+    }
+  }
+}

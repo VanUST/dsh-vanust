@@ -1,6 +1,0 @@
-schemaVersion: 1
-views:
-  - id: v.context
-    title: Broken model
-    level: context
-    direction: LR

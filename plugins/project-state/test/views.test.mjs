@@ -4,7 +4,8 @@ Behavior: regenerateViews() writes digest.md (hard-capped), board.md, traceabili
   mermaid map per REQ, snapshot.md and a machine-readable index.json with the REQ ↔ TASK ↔
   TEST ↔ evidence links; a second run on unchanged state is byte-identical; verify() reports a
   hand-edited projection as view_modified and regeneration repairs it; the index carries every
-  REQ's tasks and tests and every TEST's reqId and evidenceRefs.
+  REQ's tasks and tests and every TEST's reqId and evidenceRefs; the snapshot carries the count of
+  agents the ledger records as working.
 Fails when: two regenerations differ, a manual edit goes unnoticed, the index drops a link, or
   the digest grows past its byte cap.
 Production path: plugins/project-state/lib/core.mjs (regenerateViews, verify) with
@@ -104,6 +105,47 @@ test('index.json is the full link contract: REQ tasks/tests, TEST reqId and evid
   assert.equal(index.counts.test, 1)
 })
 
+/*
+PROOF: the snapshot names the agents the ledger records as working
+Behavior: snapshot.md carries "- active agents: N", counted from the sessions on the task rows:
+  a session whose recorded status is active or running counts once, a sleeping or paused session
+  does not count, and one session id on two rows is one agent. It is the ledger's record, not a
+  live probe: regenerating with the sessions settled reads zero.
+Fails when: the snapshot drops the line, counts a settled session, or counts one session twice.
+*/
+test('snapshot.md counts the working sessions the ledger records', async () => {
+  const { cwd, state } = await workspace()
+  const req = await state.create('req', { title: 'Agents', criteria: ['the snapshot names them'] })
+  const first = await state.create('task', {
+    title: 'A task with a working session',
+    reqId: req.id,
+    sessions: [
+      { sessionId: 'sess-working', label: 'BACKEND', status: 'active' },
+      { sessionId: 'sess-sleeping', label: 'TESTER', status: 'sleeping' },
+      { sessionId: 'sess-paused', label: 'REVIEWER', status: 'paused' },
+    ],
+  })
+  const second = await state.create('task', {
+    title: 'A second task, one session and one repeat',
+    reqId: req.id,
+    sessions: [
+      { sessionId: 'sess-running', label: 'ARCHITECT', status: 'running' },
+      { sessionId: 'sess-working', label: 'BACKEND', status: 'active' },
+    ],
+  })
+  await state.regenerateViews()
+  const snapshot = await readFile(join(cwd, 'state', 'views', 'snapshot.md'), 'utf8')
+  assert.match(snapshot, /^- active agents: 2$/m, 'active + running count once each; sleeping and paused do not count')
+
+  const settledFirst = await state.update(first.id, { expectedRevision: 1, sessions: [{ sessionId: 'sess-working', status: 'sleeping' }] })
+  const settledSecond = await state.update(second.id, { expectedRevision: 1, sessions: [] })
+  assert.equal(settledFirst.ok, true, JSON.stringify(settledFirst))
+  assert.equal(settledSecond.ok, true, JSON.stringify(settledSecond))
+  await state.regenerateViews()
+  const settled = await readFile(join(cwd, 'state', 'views', 'snapshot.md'), 'utf8')
+  assert.match(settled, /^- active agents: 0$/m, 'settled sessions are not working agents')
+})
+
 test('digest stays inside its byte cap and truncates deterministically', async () => {
   const { cwd, state } = await workspace()
   for (let index = 0; index < 60; index += 1) {
@@ -127,3 +169,38 @@ test('digest stays inside its byte cap and truncates deterministically', async (
   const again = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')
   assert.equal(again, digest)
 })
+
+/*
+PROOF: a retired TEST row stays in the register and stops counting as live work
+Behavior: a TEST row whose case was retired (status deprecated) is kept with its reqId and shown in
+  the traceability table as terminal; the snapshot's TEST figure counts only live rows and names the
+  retired ones beside it ("- TEST: 1 (1 retired)"), the digest carries the same figure, and index.json
+  reports counts.test as live plus counts.testRetired. A register with no retired row prints the figure
+  it always printed, and the panel's index count agrees with the snapshot.
+Fails when: the figure counts a retired row, the retired row disappears from the register, or the
+  index count and the snapshot disagree.
+*/
+test('a retired TEST row stays in the register and stops counting as live work', async () => {
+  const { cwd, state } = await workspace()
+  const req = await state.create('req', { title: 'Retired cases', criteria: ['the figure counts live rows'] })
+  const live = await state.create('test', { title: 'A live case', reqId: req.id, status: 'unverified' })
+  const retired = await state.create('test', { title: 'A retired case', reqId: req.id, status: 'deprecated' })
+  assert.equal(retired.ok, true)
+  assert.equal(live.ok, true)
+  const regenerated = await state.regenerateViews()
+  assert.equal(regenerated.ok, true)
+  const snapshot = await readFile(join(cwd, 'state', 'views', 'snapshot.md'), 'utf8')
+  assert.match(snapshot, /^- TEST: 1 \(1 retired\)$/m)
+  const digest = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')
+  assert.match(digest, /TEST 1 \(1 retired\)/)
+  const index = JSON.parse(await readFile(join(cwd, 'state', 'views', 'index.json'), 'utf8'))
+  assert.equal(index.counts.test, 1)
+  assert.equal(index.counts.testRetired, 1)
+  const traceability = await readFile(join(cwd, 'state', 'views', 'traceability.md'), 'utf8')
+  assert.match(traceability, new RegExp(`\\| ${retired.id} \\| ${req.id} \\| deprecated \\|`))
+  const kept = await state.get(retired.id)
+  assert.equal(kept.ok, true)
+  assert.equal(kept.frontmatter.status, 'deprecated')
+  assert.equal(kept.frontmatter.reqId, req.id)
+})
+

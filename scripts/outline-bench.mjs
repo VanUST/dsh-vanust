@@ -33,7 +33,7 @@ const DEFAULT_FILES = [
   'plugins/project-state/lib/core.mjs',
   'plugins/orchestrator/orchestrator.mjs',
   'plugins/analysis/analysis.mjs',
-  'plugins/designmap/src/tools.mjs',
+  'plugins/designmap/src/pages.mjs',
   'plugins/tool-families/tool-families.mjs',
   'plugins/outline/outline.mjs',
   'scripts/provision-tools.mjs',

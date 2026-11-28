@@ -2,38 +2,32 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 196 · TASK 303 · TEST 86 · event 1667
+REQ 280 · TASK 414 · TEST 104 · event 2904
 
 ## Gaps
 
-- REQ without TASK: 195 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 302
-- TEST without reqId: 51
+- REQ without TASK: 278 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
+- TASK without reqId: 412
+- TEST without reqId: 52
 
-## Open requirements (4)
+## Open requirements (14)
 
 - REQ-111 proposed: Инструмент начинает вход в OpenAI (ChatGPT Plus/Pro) и отдаёт владельцу ссылку и код подтверждения.
 - REQ-112 proposed: После подтверждения запись llm-pi-ai/openai-codex лежит в хранилище харнесса и маршрут openai-codex 
 - REQ-113 proposed: Вход можно отменить и повторить, не оставив зависший поток.
 - REQ-114 proposed: Секрет не печатается, а отказы названы.
+- REQ-225 proposed: Владелец видит, что закрытая задача опирается на измеренное поведение продукта через его публичную п
+- REQ-226 proposed: Автоматический кейс приёмки объявляет публичную поверхность продукта, к которой обращается.
+- REQ-227 proposed: Драйвер записывает свои обращения к объявленной поверхности, и прогон без них не подтверждает кейс.
+- REQ-228 proposed: Кейс объявляет тип дефекта, который умеет ловить, и структурный тип не закрывает задачу приёмки.
+- REQ-229 proposed: Кейс не записывается без исполненной пробы того же драйвера, а правка драйвера после пробы аннулируе
+- REQ-230 proposed: Прогон хранит пошаговый результат, поэтому упорядоченный набор операций судится по шагам, а провал н
+- REQ-233 proposed: Кейс доступности измеряет панель продукта, а не рукописную фикстуру, либо помечается кейсом исполнит
+- REQ-234 proposed: Существующие записи schemaVersion 1 остаются закрывающими, пока очередь аудита не пуста; строгий реж
+- REQ-235 proposed: Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.
+- REQ-236 proposed: Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Mak
 
-## Open work (17)
+## Open work (7)
 
-- TASK-233 open: OpenAI Codex: вход по подписке через инструмент харнесса
-- TASK-237 open: Stop the state feed from writing unidentified messages, and repair the sessions it corrupted
-- TASK-243 open: Остаток окна Codex и цена модели — в сессии
 - TASK-273 open: Codex sign-in tool: codex_signin_start/status/cancel
-- TASK-303 open: Pull the updated kit and verify it locally
-- TASK-272 active: Коммит и push правки библиотеки кейсов
-- TASK-240 review: Ограничить контекст на входе: проекция выдачи и task_list
-- TASK-241 review: Абсолютный бюджет контекста ~500K вместо доли окна
-- TASK-242 review: Allow-список ролей не действует на инструменты кита
-- TASK-261 review: Проекция: полный текст снова читается агентом
-- TASK-263 review: Проверки: отказ на пустом входе, негативный контроль, make test
-- TASK-264 review: Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows
-- TASK-265 review: Сведение: make verify, make test, тарболы, кейс компакции, живой профиль
-- TASK-267 review: Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL
-- TASK-274 review: Hindsight starts with dsh web; harness pin is enforced
-- TASK-288 review: P1 fix: повторная атака на область записи и wrong-product red
-- TASK-289 review: P1 fix 2: целевое ревью W1 head/test и B1 junction
-
+[truncated: the digest budget is 3072 bytes; read index.json or state/req/]

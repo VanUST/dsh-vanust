@@ -6,7 +6,7 @@ was asked to do the work, and it is installed to `$DSH_HOME/DEPLOYMENT.md` by th
 installers. The commands here are the ones that are checked: `scripts/check-documentation.mjs`
 fails if a script this document names is missing, if a plugin it describes is not mounted,
 if the harness pin below disagrees with the installers, if any other place the harness version
-is written — `README.md`, `USERGUIDE.md` — quotes a different one, or if the clone URL
+is written — `README.md`, `docs/GUIDE.md` — quotes a different one, or if the clone URL
 disagrees with `README.md`.
 
 `$DSH_HOME` is `~/.npm/dsh` on Linux/macOS and `%USERPROFILE%\.npm\dsh` on Windows,
@@ -23,8 +23,7 @@ The upstream harness plus 29 plugins, all pinned and installed from one kit repo
 | `@cc/dsh-tail-pruner` | holds a session under a token budget by pruning the **newest** over-sized tool results first, so the point where a provider's prefix cache breaks stays at the tail. The harness's own pruner runs only after the context crossed the compaction threshold and rewrites every result over 8192 characters from the **oldest**, which re-bills almost the whole context: measured 2026-11-20 over three days (22 938 steps, 5.56 B tokens of prompt, 99.13% cached), 53 prune passes paid 12.2 M of the 48.2 M fresh tokens. Budget = context window x `budgetRatio` (0.45, under the 0.5 compaction threshold of a 1M window), `protectResults: 3` keeps the newest inputs intact, per-route overrides via `routes`. Writes the same durable pair the harness writes (`compaction/prune` + a `tool/result` replacement citing the shadowed node), so replay stays exact; the harness pruner stays mounted as the safety net |
 | `@cc/dsh-diagrams` | one tool, `diagram`, that renders a JSON diagram spec into a standalone HTML file whose SVG is inline: flow and state (flowcharts, algorithm illustrations), layered architecture, and sequence diagrams. The agent describes nodes and relationships and the plugin computes the geometry — layered ranking with cycle breaking, edge routing with detours, and label placement — in a dependency-free engine. The Sidebar document preview displays it, so the file the user prints is the file the agent wrote |
 | `@cc/dsh-presentation` | two tools over one style system: `presentation` renders a JSON deck spec into a standalone HTML deck and `dashboard` renders a JSON board spec into a KPI board. The document carries its CSS, charts and player inline — no `src=`, no `@import`, no `url(` — so the sandboxed preview, the browser and the PDF printer show the same thing. Five themes are one token layer; motion is CSS plus `requestAnimationFrame` (150–320 ms ease-out, fragments on advance, count-up numbers, drawn chart lines); a deck prints one slide per page and the board prints as one page. The survey of the libraries it does NOT vendor (`openmotion` is a Next.js runtime, `motion` would add ~190 KB per deck, `reveal.js`/`slidev`/`mermaid` are heavier than the renderers the kit already has) is `docs/PRESENTATION-TOOLCHAIN.md`, measured 2026-11-20 |
-| `@cc/dsh-designmap` | **M4 redesign, replaces `@cc/dsh-design-map`** (whose loader row the kit patch now disables with `disabled: true`; its source, tarball and inventory row stay for rollback). Semantic `designmap/model.yaml` + `designmap/views.yaml` → zod-strict validation → ELK layered layout → overlay merge + GC → lint → `designmap/out/<viewId>.scene.json` + `index.json`. Seven `designmap_*` tools (status/scan/apply/render/lint/open/export) gated to the **orchestrator** preset by default; the read-only panel reads through `workspaceFiles` and writes only through `/designmap op:'overlay'`, which the host guards with a strict allow-list and lands in `designmap/overlays.json`. SVG export is canonical; PNG is optional and needs an external converter (`rsvg-convert`/ImageMagick) or refuses with `png_converter_missing`. Package packed by `scripts/pack-plugin.mjs --dir plugins/designmap`; the host half ships pre-bundled (`dist/`, with the pinned `elkjs`/`yaml`/`zod` inlined and no runtime `dependencies`), so installing the tarball needs no npm registry and a `dsh web` boot stays offline — with real dependencies the boot spent 1m22s in pnpm retries and could leave the profile with no plugin set. Installed and active in the live web profile (0.1.4) |
-| `@cc/dsh-design-map` (0.2.0, retired) | one Excalidraw scene, `design.excalidraw` at the project root, that the **orchestrator** and the human both edit. The orchestrator gets `design_map` (read/write/upsert/remove over labelled boxes and arrows; missing positions are laid out for it) and the human opens **Design map** in the sidebar. The tool is registered per agent on `agent/created` and ONLY for the `orchestrator` preset: a specialist child has no `design_map`, and an unknown preset gets none either (an ownership boundary fails closed). The `/design-map` command is not gated - it is the human's panel path. The panel embeds the real MIT Excalidraw editor in an iframe `srcdoc` built from a vendored 3.4 MB frame (no CDN), reads the scene through `workspaceFiles` and saves through the `/design-map` command; every save is stamped with `rev`, `updatedAt` and `updatedBy` at the scene root, and a read returns `ageMs`/`stale` so the orchestrator knows when the map must be refreshed. One document, one revision counter, no second store |
+| `@cc/dsh-designmap` | **M4 redesign, replaces `@cc/dsh-design-map`** (retired and deleted in 1f811c3 on 2026-11-16). A page is one Excalidraw scene, `designmap/pages/<slug>.excalidraw`; the page is the whole document - there is no model, view, overlay, annotation or manifest file behind it. Five host tools gated to the **orchestrator** and **architect** presets: `map_list`, `map_read`, `map_lint`, `map_edit`, `map_render`. `map_edit` draws a whole scheme with the `diagram` op and `map_lint` names every readability defect with a repair; a headless Excalidraw run renders a page to a clean PNG/SVG. The human edits the same page in **Project state → Map**, an editor that fills the panel and goes full screen, and every button calls the host operation the agent tool calls. Package packed by `scripts/pack-plugin.mjs --dir plugins/designmap`; the host half ships pre-bundled (`dist/`, with the pinned `elkjs`/`yaml`/`zod` inlined and no runtime `dependencies`), so installing the tarball needs no npm registry and a `dsh web` boot stays offline — with real dependencies the boot spent 1m22s in pnpm retries and could leave the profile with no plugin set. Mounted in the live web profile |
 | `@cc/dsh-test-cases` | the observed test-case library in `docs/cases/`, which now EXECUTES: twelve host tools (`case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_gate`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_remove`, `case_drift`) over one schema-validated JSON file per case. `case_run` invokes the STORED `runCommand` through `ctx.shell` when the host mounts it (sandbox, caps, timeout) and records the measurement: exit code, duration, `commandSha256`, `head`/`dirty`, the driver's `CASE_SUMMARY` metrics/hashes/artifacts under `docs/cases/runs/`, and the case's declared `checks` (`{metric, op, threshold}`; a missing metric FAILS; `baseline: true` is a ratchet seeded only from a passing run; `runs` keeps median/p95 and records a mixed outcome as `flaky`). A green run with no recorded red is a measurement, not a verification: the measured red is `case_run {mode:'red'}` with a driver negative control (`CASE_NEGATIVE_CONTROL` must exit non-zero), while `case_verify` is the manual report stamped `source:manual`. `case_suite` runs a filtered set and writes a report; `case_gate` and the `cases` service expose the verdict, and the taskboard refuses `task_close` with `cases_not_green` when a linked automated case is not verified. Compare-and-set on `revision` with `history`; `case_drift` rehashes recorded surface files and degrades a missing test, but only `verified`/`failing`/`flaky` can go `stale`. The surface is per preset: the `orchestrator` gets intake plus `case_gate`; `backend`, which owns the case, also gets `case_update` and `case_verify`; `reviewer` gets `case_verify` but never `case_update`; `critic` reads and runs only; `ux`, `research` and `docs` cite cases; a preset not listed - and a session with no preset - gets all twelve. CLI: `node plugins/test-cases/bin/cases.mjs`, `make cases` |
 | `@cc/dsh-analysis` | analysis before decomposition. One repo-tracked `docs/analysis/<initiative>.json` per initiative, written with compare-and-set `expectedRev` and temp-file + rename, carrying the business outcome **separate** from the requested solution, the process, BR/FR/NFR with acceptance, architecture and data ownership, contract impact, invariants, decisions, open questions, the design-map revision and a requirement → process → component → task → evidence trace. Four root-only tools (`analysis_read`, `analysis_upsert`, `analysis_check`, `analysis_impact`); the checker looks past JSON shape (missing acceptance, component/data ownership, contract impact, unresolved trace, proven-without-evidence, deferred-without-reason, design drift, a hand-edited fingerprint) and `analysis_impact` marks a mid-work change stale. `delegate_task` reads the service through `ctx.get('analysis')` rather than `inject`, so an absent row keeps legacy delegation: L0 passes without a record, L1/L2 are refused `analysis_required` without a ready one and `analysis_stale` after an affected change or a moved design map. A read-only preset (`RESEARCH`/`REVIEWER`/`CRITIC`) and a `taskId` attach with explicit `legacyAttach:true` are exempt (the role label never exempts a write-capable preset); a monotonic completion guard refuses `task_close` for the last outstanding task of a still-planned requirement or a proven task without evidence, fails closed on an unreadable record, and refuses `update_goal action:"complete"` while a linked `goalId`/`goalHistory` record is incomplete; batches are atomic; adding/removing a requirement, a process/architecture edit, a bare `designRef` bump or a hand edit (until `acceptHandEdit`) reopens or refuses the record. The trace lives only in the record; the taskboard schema and the design-map layout are unchanged |
 | `@cc/dsh-project-rules` | one workspace file, `.dsh/rules.md` (gitignored), rendered as the single prompt section `project:rules` at order 12 on every agent and subagent. The **Rules** panel edits it - **the human only**: a `tools/pre-execute` guard refuses an agent's `write`/`edit` of the resolved path and a `bash`/`pwsh` command naming it, both with the code `rules_human_only`, while the panel's command path is untouched. Guardrail, not jail: a shell command can spell a path the string match cannot follow, so the boundary is enforced by the guard where it can be and by review where it cannot. Typing is local React state, Save writes the file atomically through `/project-rules`, and the save deliberately does not touch the in-memory section. Each agent re-reads the file only at its own `turn/start` and **keeps the previous string when the bytes are unchanged**; an empty file renders no section. That is what makes the editor cache-safe: a dirty draft, a keystroke or a save mid-turn cannot change the system prompt of the turn already in flight, and an untouched file cannot churn the prefix between turns |
@@ -47,6 +46,7 @@ The upstream harness plus 29 plugins, all pinned and installed from one kit repo
 | `scripts/outline-bench.mjs`, `scripts/outline-audit.mjs` | bench and journal audit for the outline saving: full read vs outline vs outline+symbol body on real kit sources (`--find` runs the find-one-function negative control), and per-session `outline` calls and `read` bytes with/without an outline. Not part of `make verify` (they read the machine and journals). |
 | `make design-audit` | runs the pinned `impeccable` UI detector (npm `impeccable@4.9.2` launcher, engine `@impeccable/cli-linux-x64@0.1.25`, sha256 `f48aca43…` into `~/.impeccable/bin/impeccable`) over the kit UI sources (`plugins/designmap/client/*`, `plugins/project-state-panel/client.js`) and prints one JSON document. Separate from `make verify`: verify stays offline. The DSH skill is installed from the pinned commit `d41d986…` into `$DSH_HOME/skills/impeccable` (SKILL.md, reference/ 46 files, scripts/). |
 | `scripts/schema-lint.mjs` | FR5 gate in `make verify`: statically measures the description bytes of every tool (43 tools over the kit plugins), sums them per preset from the tool-families allow rows, WARN above 600 B per description and RED above 1200 (preset sums WARN 45 000 / RED 90 000); RED exits 1. It caught `analysis_upsert` at 2885 B before the diet. |
+| `scripts/check-preset-configs.mjs` | gate in `make verify`: parses the profile, resolves every preset plugin module from the installed harness (or the kit inventory for `@cc` packages) and validates each row's `config` against the module's own schemastery `Config` without booting. A required field missing refuses the row (`$.allowParallelInProgress missing required value`) instead of letting the preset mount nothing silently; a module without a schema is reported unverifiable, not failed. Measured 2026-11-27: 147 rows validated, 1 unverifiable (`command-goal`), 0 refused; the same check on a profile with the devops `tool-todo` config removed refuses it. |
 | `scripts/waiver-proof.mjs` | FR8 proof (not a gate): every lifecycle refusal (`req_required`, `steps_incomplete`, `test_req_required`, `evidence_required`) is observed refusing, refusing `waiver_required` on a malformed waiver, and passing with `{reason, by:'human'}` plus its journal line; `decision_superseded` refuses a decision without a successor and a reason. 17 checks. |
 | `@cc/dsh-delegation-brief` | root-only tools that render a delegation brief from the register and validate the return. `delegation_brief` returns deterministic bytes and `briefHash` over the accepted REQ (criteria verbatim with stable `REQ-…-Cnn` ids, related decisions, mandatory TESTs with commands, non-scope, return format); `delegation_return` rerenders and refuses `brief_stale` when the criteria changed and `return_unmapped` when a criterion is unknown/duplicated/omitted. Refusals: `cold_start_required` (no core or no `state/views/index.json`), `feature_required` (REQ missing or not accepted), `criteria_missing`. Registers a short static prompt section for the root preset only. Tests: `node --test plugins/delegation-brief/test/*.test.mjs`. |
 | `@cc/dsh-taskboard` | the workspace task ledger and the Tasks panel. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope, acceptance, status, owner, results and a timeline; `task_create`/`task_get`/`task_list`/`task_update` (CAS)/`task_note`/`task_link` share one Host service with the `/taskboard` command. The client half reads through `workspaceFiles`, writes through `commands`, registers `main` key `tasks`, the `sidebar.panellist` entry and the `subagent-catalog` header cell. It replaces the subagent catalog; `@deepseek-ai/dsh-client-ui-subagent` is disabled in the profile so the header has one cell, and child sessions open from the task detail. Pause/Resume, **Stop child**, Close and Remove are lifecycle actions: pause/cancel/close interrupt linked children through `ctx.subagents` (the hook passes the runtime's tagged `{kind:'ancestor',agent}` or `{kind:'user',parentSessionId}` authority, so the orchestrator and the owner both can stop a child; a refused interrupt fails closed), `task_stop` force-stops a task's children or one session without changing the status, close marks done (with an optional result in the same call) and interrupts, remove deletes the ledger row and leaves children running. Each workspace keeps persistent `agents[]` roles (one child per role), and each linked child records the role plus active/sleeping/paused state for the panel roster. **A chat has its own board**: every task records `chatId`, the root session of the lineage that created it, so a delegated child's task lands on the parent chat's board; reads default to the caller's chat and `task_list` scope `workspace` (or the panel's All chats toggle) reads the whole history. A chatless row (written before `chatId`) is visible only in the workspace scope and writable only by the human; an agent write from another chat is refused with `other_chat` |
@@ -59,7 +59,9 @@ The harness owns the request pipeline and the user interface, but this kit now a
 a role roster and a deployment policy on top of it. `@deepseek-ai/dsh-agent-preset` declarations
 give each role its persona and its tool list; `@cc/dsh-orchestrator` registers a root policy
 section and a child specialist section on `agent/created`; `@cc/dsh-skills` registers twenty
-runtime skills; `@cc/dsh-flash-guard` refuses a delegated child's disallowed model route. The
+runtime skills; `@cc/dsh-flash-guard` refuses a delegated child's disallowed model route. **The orchestrator's root policy carries the development rules, not a skill.** Owner, 2026-11-27: nine defects of the "rule lives in two places" or "the tool exists, the behaviour does not change" class were found in one day by running the product, and none by reading the diff. The `## Orchestration policy` section states the rules where every step pays for them: **a rule lives in ONE owner** (a second copy drifts, and the copy nobody reads wins); **a registered tool, config row or default is not a behaviour** until the caller path, the activation and the effect are observed (the missing required `tool-todo` config mounted no preset at all, and the roster simply lost it); **prove by running**, with the command and its output, and name what was not run; take **the smallest complete change** and never cut validation at a trust boundary, error handling, security or accessibility; and **say what you skipped** at the end. The `ponytail` skill stays as the long form, but a rule that must be in force in every session cannot depend on someone loading a skill.
+
+The
 earlier "no plugin contributes prompt text" stance is retired deliberately. A repository's
 `AGENTS.md`/`CLAUDE.md` still reaches the model through the upstream loader; the deployment
 policy is additional and scoped (root or child), not a replacement for the harness persona. The
@@ -76,11 +78,13 @@ request, which is why the budget stays bounded and the mode is `normal`, not `al
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Eleven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Twelve `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
 `preset-orchestrator`, `preset-architect`, `preset-ux`, `preset-presenter`, `preset-backend`,
-`preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-tester`, `preset-critic`,
-`preset-docs`. A preset is the persona AND the tool list, so
+`preset-devops`, `preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-tester`,
+`preset-critic`, `preset-docs`. **The reasoning default is High, and that is a policy, not a model quirk (owner, 2026-11-27).** `@deepseek-ai/dsh-agent-default-model` names `deepseek-official/deepseek-flash` at `reasoningEffort: high` for a fresh session that picks no model, and `@cc/dsh-role-model` pins every working preset to its own route at High: the architect stays on `openai-codex/gpt-6.2-sol` at High with a `deepseek-flash` fallback at High, and backend, devops, docs, ux, presenter, research, gatherer, reviewer, critic and tester name `deepseek-flash` at High. The delegated child is started with `reasoningEffort: 'high'` in its `agentOptions` as well, so a child cannot inherit a different budget from its parent. A model the human picks in the composer still wins (`model/selection` recorded since the plugin loaded), and the installed `agent-default-model` row is machine-owned: `kit-update --keep-model-config` never rewrites it, so a machine that wants a different provider/model/effort edits that row itself.
+
+A preset is the persona AND the tool list, so
 the isolation is
 registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
 `edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
@@ -95,15 +99,16 @@ have the full shell and filesystem.
 **`architect` is the system designer on the expensive route, and it exists to be small.** The
 owner opens a chat on it, or the orchestrator delegates one design question; every step is paid at
 `openai-codex/gpt-6.2-sol`, so the preset is the decision surface only: `read`, `glob`, `grep`,
-`outline`, `designmap_apply` / `designmap_lint` / `designmap_status`, `delegate_task`,
-`task_note` and the three Hindsight read tools. It has no shell, no `write`/`edit`, no web tools,
-no case tools and **no `skill-filesystem`/`tool-skill`** — `tool-skill` emits the skill catalog
+`outline`, `web_fetch` / `web_search`, `map_list` / `map_read` / `map_lint` / `map_edit` /
+`map_render`,
+`delegate_task`, `task_note` and the three Hindsight read tools. It has no shell, no
+`write`/`edit`, no case tools and **no `skill-filesystem`/`tool-skill`** — `tool-skill` emits the skill catalog
 only together with its own tool, so dropping the tool drops the catalog, which measured 30 304 B
 of the 34 188 B of reminders in a session before this change. Context arrives one of two ways:
 as a ROOT the role delegates a `GATHERER` (`delegate_task` is registered on root agents only), and
 as a CHILD it reads the brief the orchestrator wrote and names what is missing instead of
 surveying the tree. `@cc/dsh-role-model` gives it its route and the fallback
-(`deepseek-official/deepseek-flash` at max effort) when the subscription is out of quota, and
+(`deepseek-official/deepseek-flash` at High effort) when the subscription is out of quota, and
 `tool-families` keeps its surface at twelve tools. The role is NOT in `store.mjs` `readOnly`:
 it changes the design map, so an L1/L2 delegation to it needs the Analysis Record like any other.
 
@@ -122,6 +127,10 @@ browser, `presentation`, `dashboard` and `diagram` (the last one was extended to
 and PTC so the edit/look/fix loop stays out of the conversation. It has no `designmap_*` (it does
 not design the system) and no Godot bridge. The OutputRule: **a deck that needs an explanation in
 chat has failed, and a slide nobody looked at is not finished.**
+
+**`devops` owns the running deployment, and one live deployment task per chat is its rule.** The owner's 2026-11-27 report is the failure this role closes: runtime work was delegated as several tasks to several agents, and the agents interrupted each other, because a restart ends the children working against the runtime it restarts. The preset is the runtime lane: `bash`, the file tools (compose files, start scripts, env), background jobs (`job_output`/`job_list`/`job_kill` - a deployment is long), web for release notes and registries, and `case_get`/`case_list`/`case_run` for an acceptance case the tester wrote; it has no PTC and no `present`, because its report is a command's output. Its `tool-families` row is an allow list of twenty names with a 26-tool allowance, so the role cannot drive a browser or the Godot bridge. It is **not** in `store.mjs` `readOnly` - it writes config - so an L1/L2 delegation to it needs the Analysis Record like any other. Two rules keep the lane: the root policy names the shared runtime beside the shared file, contract and seat as a resource that serialises work and requires reading the board's running children before a restart, and `delegate_task` refuses a role whose preset is `devops` while this chat's board still holds a `devops` task in `open`/`active`/`blocked`/`paused` (`devops_lane_busy`, naming the open task; attaching to that task stays allowed). `DEVOPS`, `DEPLOYMENT`, `DEPLOY`, `RUNTIME`, `RELEASE`, `ROLLOUT` and `SRE` map to the preset.
+
+**A task's scope is a file claim, and two live tasks cannot claim one file.** `delegate_task` reads each `scope` entry as a path - the leading token with a slash or a dot, a directory written with its trailing slash, the prose after it ignored - and refuses a delegation with `scope_overlap` when an ACTIVE task in the same chat already claims the same file or a directory that contains it. The refusal happens before the second task row exists and before its child starts, and it names the holding task and the path. An `open` row is a plan (a batch creates several for one seat) and a `review` row is settled work, so neither holds a claim; an attach to the holding task is allowed. This is the deterministic half of the orchestrator's parallelism rule: the prompt states which resources serialise work, and the guard makes the file one of them instead of leaving it to a brief's wording.
 
 **`gatherer` is reconnaissance, and it exists to keep the root's context for the design.** The
 orchestrator can read and write, but "how does this actually work today?" answered by the root's
@@ -156,11 +165,12 @@ provider without `capabilities.agentPreset` is refused before a child exists, be
 would silently inherit the orchestrator composition and the brief would promise work it cannot
 do. Kit tools that only one role should see gate on the same recorded id through `agent/created`
 plus `agent.ctx.tools.register`: `papers_*` to research,
-`diagram` to the orchestrator and ux, and `design_map` to the **orchestrator
-only**. `standard` stays in the picker as the
+`diagram` to the orchestrator and ux, and the five designmap page tools
+(`map_list`/`map_read`/`map_lint`/`map_edit`/`map_render`) to the **orchestrator and
+architect**. `standard` stays in the picker as the
 hands-on escape hatch, and a session with no recorded preset keeps every capability-gated tool,
-so an unknown composition is never silently degraded - except `design_map`, which fails closed
-because it is an ownership boundary, not a capability.
+so an unknown composition is never silently degraded - except the designmap tools, which fail
+closed because they are an ownership boundary, not a capability.
 
 #### 1.0.0 Role identity is a `(name, preset)` pair
 
@@ -191,12 +201,12 @@ child's tool header looks far wider than its role:
 
 | source | rows | what a specialist sees |
 | --- | --- | --- |
-| the ten presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
+| the eleven presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
 | the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
-| kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `diagram` orchestrator+ux) |
+| kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `map_*` orchestrator+architect, `diagram` orchestrator+ux) |
 
 Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
-reviewer/critic/research 103, a legacy run-code-only role 1. The ten presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
+reviewer/critic/research 103, a legacy run-code-only role 1. The eleven presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
 this in one line**, so a specialist knows an `mcp__*` tool in its header came from the host and
 is not licence to do a job its role was given no tool for. Moving the MCP rows INTO the presets
 is technically possible (a preset is a plugin list) but each mounted MCP row starts its own
@@ -220,12 +230,12 @@ the boundary where it can:
 
 | Artefact | Agent side | Human side | Enforced by |
 |---|---|---|---|
-| `design.excalidraw` (the design map) | **orchestrator only** - `design_map` is registered per agent for `agentPreset === 'orchestrator'`; a specialist child has no such tool | **yes** - **Design map** panel via `/design-map` | registration: a tool a child never received cannot be talked into existence by a brief. `standard`/unknown presets get no tool (fail closed). **This is registration-level, not a shell jail**: a role with `bash` can still edit `design.excalidraw` directly, exactly as it can edit `.dsh/rules.md`; the gate is which tools the role was given |
+| `designmap/pages/*.excalidraw` (the design map) | **orchestrator and architect** - the five page tools (`map_list`/`map_read`/`map_lint`/`map_edit`/`map_render`) are granted to those two presets; a specialist child gets none | **yes** - **Project state → Map**, a full page editor | registration: a tool a child never received cannot be talked into existence by a brief. `standard`/unknown presets get no tool (fail closed). **This is registration-level, not a shell jail**: a role with `bash` can still edit `designmap/pages/*.excalidraw` directly, exactly as it can edit `.dsh/rules.md`; the gate is which tools the role was given |
 | `.dsh/rules.md` (project rules) | **nobody** - `write`/`edit` and `bash`/`pwsh` naming the file are refused with `rules_human_only` | **yes** - **Rules** panel via `/project-rules` | a `tools/pre-execute` guard on resolved paths and on the shell command text. A guardrail, not a jail: an obfuscated or symlinked path is outside it, and the panel command is a different registry so the human keeps the pen |
 | `.dsh/taskboard.json` (the task ledger) | any agent in its own chat, through `task_create`/`task_update`/…; another chat's row is refused `other_chat` | **yes**, for the whole board | the taskboard service (chat scoping and the lifecycle invariants) |
 | `docker`/MCP/network state | no role preset carries it; the harness's own tools decide | **yes** | the harness's tool registration |
 
-The rule the human set: **the design map is edited by the orchestrator and the human; the
+The rule the human set: **the design map is edited by the orchestrator, the architect and the human; the
 project rules are edited by the human alone.** Neither is offered to a child by any persona or
 prompt section, and a child that reaches for one gets a named refusal it can quote.
 
@@ -781,7 +791,7 @@ pack saves tokens or time. Evidence and the full tables:
 [integration.md](../reports/code-search/integration.md) (local run artifacts; `reports/` is
 gitignored, so these links exist in this checkout, not in an installed copy).
 
-**The role toolchain — ten presets, nine pinned binaries, and two roles that cannot run them.**
+**The role toolchain — eleven presets, nine pinned binaries, and two roles that cannot run them.**
 Provisioning also installs the CLIs the role personas name. Each pin is the project's own latest
 release measured on 2026-11-10; the release date, licence, last-commit date and the exact proof
 command for every row are recorded in `.dsh/research/role-toolchain-install.md`.
@@ -818,7 +828,7 @@ delegation, not a tool call, and the brief has to carry it.
 **Two upstream rows the kit now pins, and why they are in the kit.** `profile/cordis.patch.yml`
 carries `@deepseek-ai/dsh-client-ui-settings-general` (welcome notice suppressed at
 `2026-09-28.1`) and `@deepseek-ai/dsh-agent-default-model` (`deepseek-official` /
-`deepseek-flash` / `reasoningEffort: max`). Both lived only in the installed profile before
+`deepseek-flash` / `reasoningEffort: high`). Both lived only in the installed profile before
 2026-10-26, which made `kit-update --check` report profile drift forever: the managed-seed rule
 correctly refuses to overwrite a hand-edited patch, so the kit and the machine could never
 converge. They are now kit state, because the deployment's model policy already assumed them
@@ -889,6 +899,40 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
   PING each subagent you still need (`send_message`, or start a fresh one) before assuming its
   report is coming. Treat an unfinished subagent as an outstanding item, not as a silent
   failure.
+
+**A plain `dsh web` runs this sequence by itself.** The `dsh` on `PATH` is the kit's wrapper
+(`$DSH_HOME/bin/dsh`, generated from `scripts/dsh-wrapper.sh` by the installer): it asks
+`kit-update --check --json` whether the machine differs from the kit and whether a server answers
+on the profile port, then takes one of three paths — no divergence, exec immediately; divergence
+with a free port, `--apply --no-harness --no-tools --keep-model-config` and then exec; divergence
+with a live server, **refuse** with exit 1 and name `dsh web --restart`, which stops the server by
+the pid the check reported, waits for the port, converges when the kit differs, and starts. A convergence that fails
+stops the boot instead of running the previous profile (`DSH_KIT_BOOT=0` is the escape hatch), and
+every decision is appended to `$DSH_HOME/kit-boot.log`. The manual `--apply` above is for a machine
+whose wrapper is missing or disabled — not the normal update path.
+
+**A pull that touches `state/`.** `state/` is the project ledger, shared by every machine that
+clones this repository, so a pull can stop on the same row number claimed by both sides and on
+`state/events.jsonl`. Do not pick a side: `make pull` (or `node scripts/state-merge.mjs` after
+a conflicted `git pull`) reads both sides from git — `HEAD`, `MERGE_HEAD` and their merge base —
+keeps one row per identity, renumbers the row that lost its number, merges one row known under
+two numbers, unions the journal by event content, regenerates `state/views/` and prints every
+collision it resolved (the same report is in `.dsh/state-merge-report.json`). It writes nothing
+outside `state/` and exits 1 only while a conflict outside `state/` remains; `--check` prints
+the report and writes nothing. The result is idempotent: a second run over the same refs writes
+the same bytes, and `verify()`/`replay()` pass afterwards (`node scripts/state-merge-proof.mjs`
+is the two-clone proof).
+
+**A machine can route only part of the harness's traffic through a proxy.** The `dsh` wrapper
+applies a machine-owned environment file when it exists **and its port answers**:
+`${DSH_EGRESS_ENV_FILE:-$HOME/.config/dsh/egress.env}`. The file sets `HTTP_PROXY`,
+`HTTPS_PROXY`, `NO_PROXY` and `NODE_USE_ENV_PROXY=1` (Node 24's global `fetch` honours them)
+and declares its port as `# dsh-egress-port: <port>`; the wrapper probes that port for one
+second and applies nothing when it does not answer, so a stopped proxy cannot break every model
+call. This is how one machine sends only OpenAI/ChatGPT through a VPN: a selective proxy decides
+per destination, while the rest of the harness's traffic — and the whole machine — keeps its
+normal route. The file is machine state, not a kit artefact: never commit it. A running server
+keeps the environment it was started with, so a change needs a restart.
 
 `$KIT` is the clone's directory. If you do not know it, read it from
 `$DSH_HOME/.dsh-kit-state.json` (`kit`), or ask: `node <kit>/scripts/kit-update.mjs --help`.
@@ -1022,6 +1066,9 @@ live profile.
    change or a harness bump is invisible in `--dump-config` beyond the row itself.
 8. **A rule is real only where a command fails.** Before claiming something is enforced,
    name the command that exits non-zero when it is broken.
+9. **Never resolve a `state/` conflict by choosing a side.** `git checkout --ours/--theirs --
+   state/` deletes the other machine's rows and leaves the journal unable to replay; run
+   `node scripts/state-merge.mjs`, read its collision report, then commit (section 3).
 
 ## 7. First-run checks (1 minute, human-visible)
 

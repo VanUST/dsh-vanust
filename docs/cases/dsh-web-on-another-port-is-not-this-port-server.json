@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "id": "dsh-web-on-another-port-is-not-this-port-server",
+  "title": "dsh web on another port is not this port server",
+  "requirement": "kit-update --check --json must answer two questions from one /proc scan: the profile's port is busy only when a dsh web declared that port (or answers HTTP there), and the pids offered to a restart are only that port's. Any dsh web on the machine still blocks a harness replacement, and the check's own process tree is never named.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/test/kit-update-server-scope.test.mjs",
+  "runCommand": "node --test scripts/test/kit-update-server-scope.test.mjs",
+  "steps": [
+    "Start a synthetic dsh web on a free port: node <tmp>/.../lib/bin.js web --port <foreign>.",
+    "Run node scripts/kit-update.mjs --check --json --kit . --home <tmp home> --port <free port>.",
+    "Run the same check with --port <foreign>.",
+    "Start a synthetic dsh web whose command line is the check's own parent, and run the check beneath it with the same port.",
+    "Call convergeHarness from the imported module with the machine-wide scan while a dsh web lives in another home on another port, and again with an empty machine."
+  ],
+  "expected": "A foreign-port process leaves server.running false with empty pids for the other port and makes it true only for its own port; the ancestor chain is absent while a non-ancestor server on the same port stays listed; convergeHarness blocks with reason web-server-running on the machine-wide scan and lets the replacement through when nothing runs.",
+  "tags": [
+    "kit-update",
+    "server-watchdog",
+    "proc-scan"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/kit-update.mjs",
+      "sha256": "ac828a9d0db3701e7aec2fa6f51de6824a9936cf4ccb97e89d95a55f8d4dfe66"
+    },
+    {
+      "path": "scripts/test/kit-update-server-scope.test.mjs",
+      "sha256": "1a9de9a3c845e62e2a28f8debfb1af035df12880d254ef7fbc52f5be4d121237"
+    }
+  ],
+  "linkedTaskId": "task-mwyzk5oi-f5z026",
+  "criterionId": "AC-1",
+  "reqId": "AC-1",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+  "purpose": "implementation",
+  "testHash": "1a9de9a3c845e62e2a28f8debfb1af035df12880d254ef7fbc52f5be4d121237",
+  "failsWhen": "The /proc scan stops filtering by declared port (any dsh web makes the profile port look busy again), the check's own process tree is named as a server, or the harness gate starts reading the port-filtered list.",
+  "trigger": "A dsh web server started with --port on a port other than the profile's, while kit-update --check --json runs with the profile's port.",
+  "oracle": "The requirement: --port names one profile's port, so only that port's server may make it busy and only that port's pids may be stopped; the harness gate must stay machine-wide because a server of any port keeps its boot composition.",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-27T13:04:51.171Z",
+  "updatedAt": "2026-11-27T13:05:08.514Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-27T13:05:01.021Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-27T13:05:08.514Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwyzubgw-p2q1n-1",
+      "at": "2026-11-27T13:05:01.020Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+        "taskId": "task-mwyzk5oi-f5z026"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 3893,
+      "commandSha256": "1af26b2c9ec74ac9e20db81913c0c51c1a97eaba0bf4ddb0853e6f3b3a0209cf",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dsh-web-on-another-port-is-not-this-port-server/mwyzubgw-p2q1n-1/stdout.log",
+      "stderr": "docs/cases/runs/dsh-web-on-another-port-is-not-this-port-server/mwyzubgw-p2q1n-1/stderr.log",
+      "summary": "docs/cases/runs/dsh-web-on-another-port-is-not-this-port-server/mwyzubgw-p2q1n-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwyzuhvt-i2q0a-1",
+      "at": "2026-11-27T13:05:08.512Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+        "taskId": "task-mwyzk5oi-f5z026"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 3086,
+      "commandSha256": "1af26b2c9ec74ac9e20db81913c0c51c1a97eaba0bf4ddb0853e6f3b3a0209cf",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dsh-web-on-another-port-is-not-this-port-server/mwyzuhvt-i2q0a-1/stdout.log",
+      "stderr": "docs/cases/runs/dsh-web-on-another-port-is-not-this-port-server/mwyzuhvt-i2q0a-1/stderr.log",
+      "summary": "docs/cases/runs/dsh-web-on-another-port-is-not-this-port-server/mwyzuhvt-i2q0a-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-27T13:05:01.021Z",
+    "runId": "mwyzubgw-p2q1n-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test scripts/test/kit-update-server-scope.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "/home/iustimov/dsh-kit",
+    "head": "64eb5f7ebca12fc0218982290922293b868ce55a",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+      "taskId": "task-mwyzk5oi-f5z026"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-27T13:05:08.514Z",
+    "command": "node --test scripts/test/kit-update-server-scope.test.mjs",
+    "exitCode": 0,
+    "runId": "mwyzuhvt-i2q0a-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "6b8d1dce-ab95-48f3-b1f8-d4820e73bc25",
+      "taskId": "task-mwyzk5oi-f5z026"
+    },
+    "cwd": "/home/iustimov/dsh-kit",
+    "cwdRelative": "."
+  }
+}

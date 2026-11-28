@@ -61,7 +61,6 @@ const modulePath = (name, fallback) => (value(name) !== '' ? resolve(value(name)
 const analysisModulePath = modulePath('--analysis', 'plugins/analysis/analysis.mjs')
 const orchestratorModulePath = modulePath('--orchestrator', 'plugins/orchestrator/orchestrator.mjs')
 const taskboardModulePath = modulePath('--taskboard', 'plugins/taskboard/taskboard.mjs')
-const designmapModulePath = modulePath('--designmap', 'plugins/designmap/src/host.mjs')
 const dir = value('--dir') !== '' ? resolve(value('--dir')) : mkdtempSync(join(tmpdir(), 'analysis-proof-'))
 const keep = argv.includes('--keep')
 mkdirSync(dir, { recursive: true })
@@ -87,35 +86,17 @@ const writeDesign = (rev) => writeFileSync(designPath, `${JSON.stringify({
   designMap: { rev, updatedAt: '2026-11-13T00:00:00.000Z', updatedBy: 'human', title: 'proof map' },
 }, null, 2)}\n`)
 writeDesign(7)
-/** The revision of the mounted designmap plugin's manifest, which is now the default source. */
-const writeManifestRev = (rev) => {
-  mkdirSync(join(dir, 'designmap'), { recursive: true })
-  writeFileSync(join(dir, 'designmap', 'manifest.json'), `${JSON.stringify({
-    schemaVersion: 1,
-    rev,
-    commit: null,
-    generatedAt: '2026-11-17T00:00:00.000Z',
-    modelHash: `sha256:${'0'.repeat(64)}`,
-    sourceHashes: {},
-  }, null, 2)}\n`)
-}
 
 const { createService: createTaskboard } = await import(pathToFileURL(taskboardModulePath).href)
 const { apply: applyOrchestrator } = await import(pathToFileURL(orchestratorModulePath).href)
 let analysisModule
 let analysisImportError
-let createDesignmapHost
 try {
   analysisModule = await import(pathToFileURL(analysisModulePath).href)
 } catch (error) {
   analysisImportError = error instanceof Error ? error.message : String(error)
 }
 
-try {
-  ({ createHostService: createDesignmapHost } = await import(pathToFileURL(designmapModulePath).href))
-} catch {
-  createDesignmapHost = undefined
-}
 
 // The store sits next to the analysis module under proof; the legacy-fingerprint fixtures need
 // its real `fingerprintOf`, so the proof never re-implements the hashing it is testing.
@@ -177,7 +158,7 @@ function harness(options = {}) {
     subagents,
   }
   if (analysisModule !== undefined && options.analysis !== false) {
-    analysisModule.apply(ctx, options.analysisConfig ?? { dir: 'docs/analysis', designMapFile: 'design.excalidraw' })
+    analysisModule.apply(ctx, options.analysisConfig ?? { dir: 'docs/analysis' })
   }
   if (options.orchestrator !== false) applyOrchestrator(ctx, {})
   /**
@@ -398,7 +379,7 @@ try {
     schemaCheck?.readiness?.ok === true && schemaCheck?.completion?.state === 'in_progress' && schemaCheck?.completion?.counts?.planned === 2 && schemaCheck?.ok === true,
     { readiness: schemaCheck?.readiness, completion: schemaCheck?.completion, ok: schemaCheck?.ok },
   )
-  check('a captured designRef has a concrete timestamp', schemaRead?.record?.designRef?.at !== undefined && !Number.isNaN(Date.parse(schemaRead?.record?.designRef?.at ?? '')), { designRef: schemaRead?.record?.designRef })
+  check('a ready record no longer captures a designRef', schemaRead?.record?.designRef === null, { designRef: schemaRead?.record?.designRef })
   const badDesignAt = await call('analysis_upsert', {
     initiative: 'design-at-proof',
     patch: readyRecord({ status: 'ready', title: 'Design at proof', designRef: { mapRev: 7, at: 'not-a-date', source: 'design.excalidraw' } }),
@@ -419,7 +400,7 @@ try {
       read?.record?.process?.target?.[0]?.id === 'P-1',
     { businessOutcome: read?.record?.businessOutcome, requestedSolution: read?.record?.requestedSolution },
   )
-  check('a ready record records the design map revision it was written against', read?.record?.designRef?.mapRev === 7, read?.record?.designRef)
+  check('a ready record needs no design-map reference', read?.record?.designRef === null, read?.record?.designRef)
   check('a fresh ready record has no findings', read?.check?.ok === true && read?.record?.status === 'ready', { check: read?.check, status: read?.record?.status })
 
   // ── 2. analysis_check finds incompleteness, not only malformed JSON ─────────
@@ -590,16 +571,11 @@ try {
   })
   check('a fully proven/deferred initiative can be completed', finish?.ok === true && finish?.record?.status === 'completed', { code: finish?.code, findings: finish?.findings })
 
-  // ── 11. designMapRev is a reference: a newer map makes architecture work stale ─
+  // ── 11. A record's design revision is dead data, not a gate ───────────────
   const designRead = await call('analysis_read', { initiative: 'analysis-proof' })
   writeDesign(8)
-  const afterDesign = await delegate({
-    title: 'architecture change after map edit', role: 'BACKEND', objective: 'change the architecture after the map moved',
-    changeClass: 'L2', analysisId: 'analysis-proof', requirementIds: ['REQ-1'], architectureImpact: true, cwd: dir,
-  })
-  check('architecture work against a moved design map is refused analysis_stale', afterDesign?.ok === false && afterDesign?.code === 'analysis_stale', { code: afterDesign?.code, message: afterDesign?.message })
+  check('a record that named a revision reports no drift and no design block', designRead?.design === undefined && designRead?.record?.designRef === null && designRead?.stale?.code !== 'design_drift', { design: designRead?.design, designRef: designRead?.record?.designRef, stale: designRead?.stale })
   writeDesign(7)
-  check('the earlier completed record carried its design revision', designRead?.record?.designRef?.mapRev === 7, designRead?.record?.designRef)
 
   // ── 12. A hand-edited file is caught by the semantic fingerprint ───────────
   const tamperInitiative = 'tamper-proof'
@@ -696,93 +672,28 @@ try {
   const allowedClose = await a.guarded(root.tools, root.guards, 'task_close', { id: closeTask.id, resultSummary: 'done', resultEvidence: ['proof run'] }, root.agent)
   check('task_close is allowed after the traced requirement is proven', allowedClose?.ok === true && allowedClose?.task?.status === 'done', { code: allowedClose?.code, message: allowedClose?.message, status: allowedClose?.task?.status })
 
-  // ── 17. Design drift blocks architecture work, not ordinary L1 ─────────────
+  // ── 17. design-map v1 is retired: no map is read, no drift is raised ───────
+  // P3 deleted the map manifest and its reader. A record that names a revision keeps it as
+  // dead data; a drawing that changed no longer makes architecture work stale.
   const designInit = await call('analysis_upsert', { initiative: 'design-proof', patch: readyRecord({ status: 'ready', title: 'Design proof' }) })
-  check('the design-drift fixture is ready', designInit?.ok === true, { code: designInit?.code })
+  check('a ready record needs no design revision', designInit?.ok === true && designInit?.record?.designRef === null, { code: designInit?.code, designRef: designInit?.record?.designRef })
   writeDesign(8)
-  const nonArch = await delegate({
-    title: 'contained L1 after the map moved', role: 'BACKEND', objective: 'contained change',
-    changeClass: 'L1', analysisId: 'design-proof', requirementIds: ['REQ-1'], cwd: dir,
-  })
-  check('a non-architecture L1 survives a moved design map', nonArch?.ok !== false && nonArch?.childId !== undefined, { code: nonArch?.code, message: nonArch?.message })
   const arch = await delegate({
-    title: 'architecture change after the map moved', role: 'BACKEND', objective: 'change the architecture',
+    title: 'architecture change after a drawing changed', role: 'BACKEND', objective: 'change the architecture',
     changeClass: 'L2', analysisId: 'design-proof', requirementIds: ['REQ-1'], architectureImpact: true, cwd: dir,
   })
-  check('architecture work against a moved map is refused analysis_stale', arch?.ok === false && arch?.code === 'analysis_stale', { code: arch?.code, message: arch?.message })
+  check('a changed drawing no longer makes architecture work stale', arch?.childId !== undefined && arch?.code !== 'analysis_stale', { result: arch ?? null })
   writeDesign(7)
 
-  // ── 17b. The default design-map source is designmap/manifest.json ──────────
-  // The analysis used to read design.excalidraw, which the designmap plugin no longer
-  // advances. The default and the profile point at designmap/manifest.json, whose `rev`
-  // moves only on a semantic model change (the old scene is only a seed). This is the
-  // consumed half of that contract; the producer half is proved in
-  // plugins/designmap/test/manifest-rev.test.mjs.
-  writeManifestRev(30)
-  // A second composition over the same record directory, mounted exactly as the profile does
-  // it after this change: NO designMapFile, so the plugin's own default answers. The tool is
-  // then the caller, so the check below is `analysis_check`, not a service shortcut.
-  const manifestHarness = harness({ analysisConfig: { dir: 'docs/analysis' } })
-  const manifestRoot = manifestHarness.agentFor('chat-manifest')
-  const manifestInit = await manifestHarness.call(manifestRoot.tools, 'analysis_upsert', { initiative: 'manifest-drift-proof', patch: readyRecord({ status: 'ready', title: 'Manifest drift proof' }) }, manifestRoot.agent)
-  check(
-    'a ready record captures the revision from designmap/manifest.json by default',
-    manifestInit?.ok === true && manifestInit?.record?.designRef?.mapRev === 30 && manifestInit?.record?.designRef?.source === 'designmap/manifest.json',
-    { code: manifestInit?.code, designRef: manifestInit?.record?.designRef },
-  )
-  const manifestStill = await manifestHarness.call(manifestRoot.tools, 'analysis_check', { initiative: 'manifest-drift-proof' }, manifestRoot.agent)
-  check(
-    'an unchanged designmap manifest is not drift',
-    manifestStill?.ok === true && (manifestStill?.findings ?? []).every((finding) => finding.code !== 'design_drift'),
-    { codes: (manifestStill?.findings ?? []).map((finding) => finding.code) },
-  )
-  writeManifestRev(31)
-  const manifestMoved = await manifestHarness.call(manifestRoot.tools, 'analysis_check', { initiative: 'manifest-drift-proof' }, manifestRoot.agent)
-  const drift = (manifestMoved?.findings ?? []).find((finding) => finding.code === 'design_drift')
-  check(
-    'a moved designmap manifest is reported as design_drift',
-    drift !== undefined && /rev 31/.test(drift.message) && manifestMoved?.stale?.code === 'design_drift',
-    { code: drift?.code, message: drift?.message, stale: manifestMoved?.stale },
-  )
-
-  // ── 17c. Producer → consumer: a REAL designmap apply moves the analysis record ──
-  // 17b proves the consumer against a hand-written manifest. This runs the mounted plugin's
-  // own apply on a real git repository: the manifest it writes continues the retired scene's
-  // numbering (30 → 31), and the record that recorded 30 is reported as drifted.
-  {
-    const chainDir = join(dir, 'chain')
-    mkdirSync(join(chainDir, 'designmap'), { recursive: true })
-    writeFileSync(join(chainDir, 'designmap', 'model.yaml'), `schemaVersion: 1
-groups: []
-nodes:
-  - {id: svc.a, type: service, label: A, group: null, source: null}
-edges: []
-`)
-    writeFileSync(join(chainDir, 'designmap', 'views.yaml'), `schemaVersion: 1
-views:
-  - {id: v.context, title: Context, level: context, direction: LR, include: [], parent: null}
-`)
-    writeFileSync(join(chainDir, 'design.excalidraw'), `${JSON.stringify({ type: 'excalidraw', version: 2, designMap: { rev: 30 } }, null, 2)}\n`)
-    // No git repository is needed: the manifest's `commit` is null outside one, and the
-    // revision depends on the model content, not on the commit.
-    const chainService = analysisModule.createService({ dir: 'docs/analysis' }, logger)
-    const chainInit = chainService.upsert(chainDir, {
-      initiative: 'chain-drift-proof',
-      patch: readyRecord({ status: 'ready', title: 'Chain drift proof', designRef: { mapRev: 30, at: '2026-11-17T00:00:00.000Z', source: 'designmap/manifest.json' } }),
-    })
-    check('the old-revision record is ready before the model edit', chainInit?.ok === true, { code: chainInit?.code, findings: chainInit?.findings })
-    const beforeEdit = chainService.check(chainDir, { initiative: 'chain-drift-proof' })
-    check('before the model edit the map reports no drift', (beforeEdit?.findings ?? []).every((finding) => finding.code !== 'design_drift'), { codes: (beforeEdit?.findings ?? []).map((finding) => finding.code) })
-    check('the designmap plugin under proof is importable', createDesignmapHost !== undefined, designmapModulePath)
-    if (createDesignmapHost !== undefined) {
-      const host = createDesignmapHost({ designmapDir: join(chainDir, 'designmap'), repoRoot: chainDir })
-      const applied = host.apply([{ kind: 'node', action: 'upsert', value: { id: 'svc.b', type: 'service', label: 'B', group: null, source: null } }])
-      check('the real designmap apply continues the old numbering: first change is rev 31', applied?.ok === true && applied?.manifest?.rev === 31, { rev: applied?.manifest?.rev, written: applied?.written })
-      const afterEdit = chainService.check(chainDir, { initiative: 'chain-drift-proof' })
-      const chainDrift = (afterEdit?.findings ?? []).find((finding) => finding.code === 'design_drift')
-      check('analysis_check reports design_drift after the real model edit', chainDrift !== undefined && /rev 31/.test(chainDrift.message), { code: chainDrift?.code, message: chainDrift?.message })
-    }
-  }
+  // ── 17b. A design revision supplied by a record is dead data ───────────────
+  // v1 captured designRef from a manifest and reported design_drift. The field is still
+  // accepted and validated, and no check or gate consults it.
+  const retiredHarness = harness({ analysisConfig: { dir: 'docs/analysis' } })
+  const retiredRoot = retiredHarness.agentFor('chat-retired-map')
+  const retiredInit = await retiredHarness.call(retiredRoot.tools, 'analysis_upsert', { initiative: 'retired-map-proof', patch: readyRecord({ status: 'ready', title: 'Retired map proof', designRef: { mapRev: 30, at: '2026-11-17T00:00:00.000Z', source: 'retired-proof' } }) }, retiredRoot.agent)
+  check('a record that names a retired design revision still reads', retiredInit?.ok === true && retiredInit?.record?.designRef?.mapRev === 30, { code: retiredInit?.code, designRef: retiredInit?.record?.designRef })
+  const retiredCheck = await retiredHarness.call(retiredRoot.tools, 'analysis_check', { initiative: 'retired-map-proof' }, retiredRoot.agent)
+  check('no check reports design drift and no design block is returned', retiredCheck?.ok === true && (retiredCheck?.findings ?? []).every((finding) => finding.code !== 'design_drift') && retiredCheck?.design === undefined, { codes: (retiredCheck?.findings ?? []).map((finding) => finding.code), design: retiredCheck?.design })
 
   // ── 18. Adding/removing requirements and architecture edits reopen the record ─
   const changeInit = await call('analysis_upsert', { initiative: 'change-proof', patch: readyRecord({ status: 'ready', title: 'Change proof' }) })
@@ -882,15 +793,13 @@ views:
   })
   check('removing a requirement that still has a traced task is refused', traceInit?.ok === true && traceDelegation?.ok !== false && removeTraced?.ok === false && removeTraced?.code === 'requirement_has_tasks', { code: removeTraced?.code, message: removeTraced?.message })
 
-  // ── 20. A bare designRef bump cannot clear drift ───────────────────────────
+  // ── 20. A designRef bump is dead data: it does not reopen the record ───────
   const designRefInit = await call('analysis_upsert', { initiative: 'designref-proof', patch: readyRecord({ status: 'ready', title: 'DesignRef proof' }) })
-  writeDesign(8)
   const bareBump = await call('analysis_upsert', {
     initiative: 'designref-proof', expectedRev: designRefInit.rev,
-    patch: { designRef: { mapRev: 8, at: 'proof', source: 'design.excalidraw' }, status: 'ready' },
+    patch: { designRef: { mapRev: 8, at: '2026-11-17T00:00:00.000Z', source: 'retired-proof' }, status: 'ready' },
   })
-  check('a bare designRef bump is refused or reopens the record', bareBump?.ok === false || ((bareBump?.record?.pendingImpacts ?? []).length >= 1 && bareBump?.record?.status !== 'ready'), { code: bareBump?.code, status: bareBump?.record?.status, pending: bareBump?.record?.pendingImpacts?.length })
-  writeDesign(7)
+  check('a designRef bump is accepted and records no pending impact', bareBump?.ok === true && (bareBump?.record?.pendingImpacts ?? []).length === 0 && bareBump?.record?.status === 'ready', { code: bareBump?.code, status: bareBump?.record?.status, pending: bareBump?.record?.pendingImpacts?.length })
 
   // ── 21. Goal completion is gated for a linked initiative ───────────────────
   root.tools.set('update_goal', { name: 'update_goal', execute: (args) => ({ ok: true, status: args.action }) })
@@ -1419,7 +1328,7 @@ views:
   )
 
   // ── 42. The terminal record and its goal agree: completion is honest, not premature ─
-  const terminalService = analysisModule === undefined ? null : analysisModule.createService({ dir: 'docs/analysis', designMapFile: 'design.excalidraw' })
+  const terminalService = analysisModule === undefined ? null : analysisModule.createService({ dir: 'docs/analysis' })
   const terminalRead = terminalService === null ? null : terminalService.read(KIT, { initiative: 'analysis-record-schema-integrity' })
   const terminalGoal = terminalService === null ? null : terminalService.goalRefusal(KIT, canonicalStored?.goalId ?? '')
   check(

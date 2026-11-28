@@ -15,7 +15,7 @@
 #   dsh web --port 3080
 #
 # After install: configure API credentials (first GUI run), set the system
-# file-manager command (see USERGUIDE.md), and run the first-run checks.
+# file-manager command (see docs/GUIDE.md), and run the first-run checks (rules/DEPLOYMENT.md).
 $ErrorActionPreference = 'Stop'
 
 $KIT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -192,4 +192,4 @@ Write-Host
 Write-Host '== done =='
 Write-Host "   DSH_HOME : $DSH_HOME"
 Write-Host '   start    : dsh web --port 3080   (or .\start.ps1)'
-Write-Host '   docs     : open USERGUIDE.md for first-run checks and per-machine config (openCommand).'
+Write-Host '   docs     : docs/GUIDE.md (how to work); rules/DEPLOYMENT.md (first-run checks, openCommand).'
