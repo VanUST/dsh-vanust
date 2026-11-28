@@ -514,7 +514,7 @@ A question never needs this ceremony. A change never skips the task.
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
 - **The eleven roles are the tool sets**: ARCHITECT, UX/UI, PRESENTER, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, TESTER, DOCS. The orchestrator is the twelfth seat and is you. **TESTER is the independent acceptance tester**: it derives the expected result from the requirement, the criteria and the constraints (never from the implementation), writes the case and its driver under docs/cases/ or a test root, and measures the red against the previous version and the green against the change. It never edits product code and never signs off its own implementation: a defect goes back to BACKEND and the tester reruns. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. DEVOPS owns the running deployment: it starts, stops, upgrades, rolls back, rebuilds and cleans up the runtime, one live task at a time, and proves the result from OUTSIDE the process it restarted. Runtime work is its lane - do not hand a restart, a version switch or a cleanup to BACKEND or DOCS because they happen to be idle, and never run two deployment tasks in parallel. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside those eleven needs an explicit \`preset\` argument. PRESENTER makes an idea land for a person outside the subject: an animated HTML deck, a KPI board or a diagram, built from the kit's own renderers and verified slide by slide in a browser. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
-- **An architecture change is consulted before it starts (DEC-002).** \`changeClass: 'L2'\` with \`architectureImpact: true\` is refused \`architect_consult_required\` unless the Analysis Record holds an \`ARCH-\` decision in \`decisions[]\` (write it with \`analysis_upsert\`): the decision, its rationale, the alternatives it rejects, the components and invariants it keeps, the checks that prove the change, and the rollback path. One such decision per initiative covers every L2 delegation of that initiative; L0, L1 and L2 without \`architectureImpact\` are unaffected. If the change needs that decision, ask ARCHITECT for it - do not write it yourself.
+- **An architecture change is consulted before it starts (DEC-002).** \`architectureImpact: true\` is refused \`architect_consult_required\` unless the Analysis Record holds an \`ARCH-\` decision in \`decisions[]\` (write it with \`analysis_upsert\`): the decision, its rationale, the alternatives it rejects, the components and invariants it keeps, the checks that prove the change, and the rollback path. The flag decides, not the class: a delegation that omits \`changeClass\` is refused too, and so is one that declares \`changeClass: 'L1'\` with the flag. One such decision per initiative covers every delegation of that initiative that declares the flag; L0, L1 and L2 without \`architectureImpact\` are unaffected. If the change needs that decision, ask ARCHITECT for it - do not write it yourself.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - **The standard is proportional: a level, not a ritual.** Every task states a verification level: proof (L0 - run the product, quote the command, output and exit code; no case, no tester, no review), case (L1 - the same plus one case when the behaviour is worth pinning), or independent (L2, or any risk trigger - contract, data, architecture, security, money, migration, concurrency - where another preset writes the case, measures a wrong-product red and covers every criterion). Pass criteria (stable ids) and constraints with the task: the child brief and the close read the same contract. Do not run the full TESTER/REVIEWER/CRITIC cycle on a proof task.
 - **A batch runs in two seats, not one child per row** - the spike is its clearest case. The implementer seat takes the batch: the rows go to the same role session, one brief per row, \`taskId\` on each. The checks batch the same way, into ONE seat for the whole batch: a TESTER session writes and measures the cases of the batch, one review covers several rows (\`delegate_review\` folds 2-8 review rows into one task), and the gate runs ONCE at the boundary of the batch. A verify cycle per row is the paperwork that turns a two-hour spike into a day. Batching never merges the record: each row keeps its own acceptance and evidence, and a failure comes back as a delta into the same seat. A single edit or a question is neither batched nor delegated.
@@ -848,11 +848,12 @@ function noteRefusal(taskboard, cwd, id, code, extra = {}) {
  * The architect's decision in one Analysis Record, or the refusal that says what to write.
  *
  * DEC-002 says an architectural change is consulted before it starts; until now nothing checked
- * it, so an L2 delegation that declared `architectureImpact` went straight to implementation.
+ * it, so a delegation that declared `architectureImpact` went straight to implementation.
  * The consultation already has a home in the record's schema: `decisions[]` with an id starting
- * `ARCH-`. One such decision covers every L2 delegation of that initiative - the rule is one
- * per initiative, not one per task - and an existing record needs no migration: a record without
- * one simply cannot start architectural work until the architect's decision is written.
+ * `ARCH-`. One such decision covers every delegation of that initiative that declares
+ * `architectureImpact` - the rule is one per initiative, not one per task - and an existing record
+ * needs no migration: a record without one simply cannot start architectural work until the
+ * architect's decision is written. The caller decides when to ask; this function only reads.
  *
  * @param service - The analysis service (`ctx.get('analysis')`), which owns the record.
  * @param cwd - Session workspace.
@@ -877,7 +878,7 @@ export function architectConsultation(service, cwd, initiative) {
   return {
     ok: false,
     code: 'architect_consult_required',
-    message: `delegate_task: this is an L2 change with architectureImpact and the Analysis Record "${id}" holds no architect decision. Record one in its decisions[] with an id starting ARCH- (analysis_upsert): the decision itself, its rationale, the alternatives it rejects, the components and invariants it keeps, the checks that prove the change, and the rollback path. One ARCH- decision per initiative covers every L2 delegation of it; then delegate again (DEC-002).`,
+    message: `delegate_task: this change declares architectureImpact and the Analysis Record "${id}" holds no architect decision. Record one in its decisions[] with an id starting ARCH- (analysis_upsert): the decision itself, its rationale, the alternatives it rejects, the components and invariants it keeps, the checks that prove the change, and the rollback path. One ARCH- decision per initiative covers every delegation of it that declares architectureImpact; then delegate again (DEC-002).`,
   }
 }
 
@@ -1167,10 +1168,13 @@ export function apply(ctx, config = {}) {
         }
         analysisGate = gated
       }
-      // DEC-002 IS A GATE HERE, NOT A SENTENCE IN THE POLICY. An L2 change that declared
-      // architectureImpact must carry the architect's decision in the record before any task row
-      // exists: a consultation discovered mid-implementation is a redesign, not a review.
-      if (analysisGate?.analysisRequired === true && analysisGate.class === 'L2' && args.architectureImpact === true) {
+      // DEC-002 IS A GATE HERE, NOT A SENTENCE IN THE POLICY. The trigger is the DECLARED FLAG, not
+      // the derived class: an omitted changeClass makes the record's gate answer "L1", and a class
+      // test let that delegation through unconsulted. Any delegation that declares
+      // architectureImpact and has a record in scope must carry the architect's decision in it
+      // before a task row exists: a consultation discovered mid-implementation is a redesign, not
+      // a review. The record is in scope exactly when the gate above said analysisRequired.
+      if (analysisGate?.analysisRequired === true && args.architectureImpact === true) {
         const consulted = architectConsultation(analysisService, taskCwd, analysisGate.initiative)
         if (consulted.ok !== true) {
           return {

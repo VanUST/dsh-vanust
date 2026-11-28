@@ -4,7 +4,7 @@
   "title": "An L2 delegation with architectureImpact is refused until the record carries an ARCH- decision",
   "requirement": "REQ-308 (AC-1..AC-3): an L2 change that declares architectureImpact does not start without the architect's decision recorded in the Analysis Record; the refusal carries a code and says what to write; the same delegation with the decision passes; L0, L1 and L2 without architectureImpact are unaffected.",
   "kind": "regression",
-  "status": "verified",
+  "status": "superseded",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/orchestrator/test/architect-consult-gate.test.mjs",
@@ -37,9 +37,9 @@
   "purpose": "implementation",
   "testHash": "176bf4c4a792c18c4d6475b5555218168c853559224ed58ccdeb03e2d6894b15",
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-28T17:37:09.440Z",
-  "updatedAt": "2026-11-28T17:37:21.331Z",
+  "updatedAt": "2026-11-28T18:11:44.679Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -56,6 +56,14 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T18:11:44.679Z",
+      "editedBy": "agent",
+      "action": "superseded",
+      "by": "a-delegation-that-declares-architectureimpact-is-refused-unt",
+      "reason": "The same behaviour is covered by a-delegation-that-declares-architectureimpact-is-refused-unt in its current form: the flag decides, not the class. This case's title and expectation still speak about L2 only, which the rule no longer says, and the shared test file has moved past its recorded hash (TEST_CHANGED). One live case, the flag-based one."
     }
   ],
   "evidence": {},
@@ -167,5 +175,7 @@
     },
     "cwd": "C:\\dsh-kit",
     "cwdRelative": "."
-  }
+  },
+  "supersededBy": "a-delegation-that-declares-architectureimpact-is-refused-unt",
+  "supersedeReason": "The same behaviour is covered by a-delegation-that-declares-architectureimpact-is-refused-unt in its current form: the flag decides, not the class. This case's title and expectation still speak about L2 only, which the rule no longer says, and the shared test file has moved past its recorded hash (TEST_CHANGED). One live case, the flag-based one."
 }

@@ -42,6 +42,37 @@ const readIf = (path) => {
 }
 
 /**
+ * The architecture page's state as one comparable word: `absent` (no file), `empty` (the file
+ * exists and carries no text) or `text:<16 hex of the raw bytes>`. The two no-content states are
+ * named apart because they mean different things to the reader, and a hash built from the raw
+ * bytes alone would give both the same value and hide the difference.
+ */
+function tagOfPage(raw) {
+  if (raw === null) return 'absent'
+  if (raw.trim() === '') return 'empty'
+  return `text:${createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 16)}`
+}
+
+/** The architecture tag `readState` appended to a state hash (`<sha256>.<tag>`), or null. */
+function tagOfHash(hash) {
+  const text = String(hash ?? '')
+  const at = text.indexOf('.')
+  return at < 0 ? null : text.slice(at + 1)
+}
+
+/** The longest prefix of `text` whose UTF-8 length is at most `budget` bytes. */
+function prefixBytes(text, budget) {
+  if (budget <= 0) return ''
+  const buffer = Buffer.from(text, 'utf8')
+  // A byte cut through a multibyte character decodes to U+FFFD, three bytes, and can push the
+  // prefix back past the budget (Node's UTF-8 decoder replaces invalid data: buffer.html,
+  // "Buffer and character encodings"), so the cut steps back to a character boundary.
+  let prefix = buffer.subarray(0, Math.min(buffer.length, budget)).toString('utf8')
+  while (utf8(prefix) > budget) prefix = prefix.slice(0, -1)
+  return prefix
+}
+
+/**
  * The architecture text as L1 carries it: whole lines within `limit` bytes, or the kept prefix
  * followed by a marker naming the cut. A file under the cap is returned unchanged (trimmed), so
  * a small architecture page is delivered whole.
@@ -64,7 +95,10 @@ export function architectureExcerpt(raw, limit = ARCHITECTURE_LIMIT_BYTES) {
     if (utf8(candidate) > budget) break
     kept.push(line)
   }
-  if (kept.length === 0) return marker.trim()
+  // A page whose first line alone is past the budget has no line boundary to cut on. The section
+  // then keeps the fragment of that line which fits, so it carries visible text and the marker
+  // that names the cut — never the marker alone over an empty section.
+  if (kept.length === 0) return `${prefixBytes(text, budget)}${marker}`
   return `${kept.join('\n')}${marker}`
 }
 
@@ -80,14 +114,29 @@ export function readState(cwd) {
   // The architecture page is not a projection, but the orchestration must see it in L1. The RAW
   // file joins the hash, not the capped excerpt: an edit past the cap still moves the hash, so the
   // next turn gets a delta instead of missing a change L1 could not show. A missing file is a
-  // named state (`architecture: null`), not a failure: composeL1 says so in the section.
+  // named state (`architecture: null`), a file with no text is another (`architecture: ''`):
+  // composeL1 names the one it is, and the hash keeps them apart (see `tagOfPage`).
   const architectureRaw = readIf(join(cwd, ARCHITECTURE_PATH))
   const architecture = architectureRaw === null ? null : architectureExcerpt(architectureRaw)
+  const architectureTag = tagOfPage(architectureRaw)
   // The plan is part of the state: `regenerateViews` writes `state/plan.yaml` from the analysis
   // records, and an initiative that changed stage without moving a task moves only the plan. The
   // plan therefore joins the hash, so its change is a delta, not a silent edit the session misses.
-  const hash = createHash('sha256').update(`${digest}\u0000${board}\u0000${snapshot}\u0000${plan ?? ''}\u0000${architectureRaw ?? ''}`, 'utf8').digest('hex')
-  return { ok: true, digest, board, snapshot, plan, architecture, hash }
+  // The architecture tag rides at the END of the hash: the digest says the state moved, the tag
+  // says which architecture state it moved to, so a delta can carry the section itself.
+  const hash = `${createHash('sha256').update(`${digest}\u0000${board}\u0000${snapshot}\u0000${plan ?? ''}\u0000${architectureRaw ?? ''}`, 'utf8').digest('hex')}.${architectureTag}`
+  return { ok: true, digest, board, snapshot, plan, architecture, architectureTag, hash }
+}
+
+/**
+ * The body of the `## Architecture` section, shared by L1 and by the delta an architecture change
+ * produces. A page with text is delivered as it is (already cut by `architectureExcerpt`); the
+ * two states without text name the file and say which one it is.
+ */
+function architectureBody(state) {
+  if (typeof state.architecture === 'string' && state.architecture.trim() !== '') return state.architecture.trim()
+  if (state.architecture === '') return `${ARCHITECTURE_PATH} is empty: the file exists and carries no text to deliver.`
+  return `${ARCHITECTURE_PATH} is absent: this workspace has no architecture page to deliver.`
 }
 
 /** L1: header + digest + open tasks + plan + architecture + last snapshot. Composed once. */
@@ -98,12 +147,10 @@ export function composeL1(state) {
     parts.push('', '## Plan', '', state.plan.trim())
   }
   // After the plan and before the last snapshot: the architecture says what the project is, the
-  // snapshot says where it is now. An absent page keeps its section and names the path, so the
-  // reader learns the page is missing instead of assuming the state feed never carries one.
-  const architecture = typeof state.architecture === 'string' && state.architecture.trim() !== ''
-    ? state.architecture.trim()
-    : `${ARCHITECTURE_PATH} is absent: this workspace has no architecture page to deliver.`
-  parts.push('', '## Architecture', '', architecture)
+  // snapshot says where it is now. A page that is not deliverable keeps its section and names the
+  // path, so the reader learns the page is missing (or empty) instead of assuming the state feed
+  // never carries one.
+  parts.push('', '## Architecture', '', architectureBody(state))
   if (state.snapshot.trim() !== '') {
     parts.push('', '## Last snapshot', '', state.snapshot.trim())
   }
@@ -248,9 +295,15 @@ function cap(text, limit) {
 }
 
 /**
- * L2: one aggregated delta for a turn, never more than `limit` bytes.
+ * L2: one aggregated delta for a turn, never more than `limit` bytes — except the delta an
+ * architecture change produces, which appends the `## Architecture` section (itself already cut
+ * to `ARCHITECTURE_LIMIT_BYTES`) after that budget. The section is the one thing a warm session
+ * cannot get from the projections: a hash line alone says the page moved but not how.
  *
- * @param {{snapshot: string, digest: string, board: string, hash: string}} state - the state NOW.
+ * The architecture section is appended after `cap`, not inside it, so the delta budget can never
+ * cut it and leave a heading with no rows behind.
+ *
+ * @param {{snapshot: string, digest: string, board: string, hash: string, architecture?: string|null, architectureTag?: string}} state - the state NOW.
  * @param {string} previousHash - the hash the session already saw.
  */
 export function composeL2(state, previousHash) {
@@ -261,7 +314,15 @@ export function composeL2(state, previousHash) {
   if (bullets.length > 0) parts.push('', '## Open work', '', ...bullets)
   if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board, state.snapshot))
   if (parts.length <= 4) parts.push('', 'state/views changed; read state/views/digest.md for the current summary.')
-  return cap(parts.join('\n'), L2_LIMIT_BYTES)
+  const delta = cap(parts.join('\n'), L2_LIMIT_BYTES)
+  // A hash without a tag came from somewhere else than `readState` (a test fixture, an older
+  // caller): nothing says the architecture moved, so the delta stays the ordinary small one.
+  const previousTag = tagOfHash(previousHash)
+  const architectureMoved = previousTag !== null
+    && typeof state.architectureTag === 'string'
+    && state.architectureTag !== previousTag
+  if (!architectureMoved) return delta
+  return `${delta}\n\n## Architecture\n\n${architectureBody(state)}`
 }
 
 /**

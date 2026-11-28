@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "id": "dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot",
+  "title": "Доставка архитектуры: фрагмент длинной строки, пустой файл отдельно от отсутствующего, дельта при смене несёт раздел",
+  "requirement": "Оркестратор получает architecture page в первом сообщении: раздел остаётся в бюджете с маркером и путём даже когда страница состоит из одной длинной строки; «файла нет» и «файл пуст» — два названных состояния с разными хешами; правка архитектуры у тёплой сессии приходит дельтой с разделом целиком, а обычная дельта остаётся маленькой.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/state-feed/test/feed.test.mjs",
+  "runCommand": "node --test plugins/state-feed/test/feed.test.mjs",
+  "steps": [
+    "Создать рабочее пространство с state/views и docs/ARCHITECTURE.md из одной строки в 20001 байт; вызвать readState и composeL1.",
+    "Проверить: раздел не больше ARCHITECTURE_LIMIT_BYTES, перед маркером есть фрагмент строки (начало страницы), маркер называет бюджет и путь.",
+    "Прочитать состояние рабочего пространства без docs/ARCHITECTURE.md и с пустым docs/ARCHITECTURE.md; сравнить architecture и hash.",
+    "Проверить: отсутствие даёт «is absent», пустой файл — «is empty», хеши различаются.",
+    "Открыть тёплую сессию через apply: L1, затем новая задача между ходами — дельта без architecture и не больше L2_LIMIT_BYTES.",
+    "Изменить docs/ARCHITECTURE.md и запросить следующий ход: дельта содержит раздел «## Architecture» с правкой; страница сверх бюджета приходит срезанной по бюджету с маркером пути."
+  ],
+  "expected": "Секция архитектуры из одной длинной строки = 12288 байт: фрагмент страницы плюс маркер «the section budget is 12288 bytes … read docs/ARCHITECTURE.md for the rest». Отсутствие файла: architecture null, «docs/ARCHITECTURE.md is absent»; пустой файл: architecture «», «docs/ARCHITECTURE.md is empty», другой hash. Дельта при смене архитектуры несёт раздел целиком (срез по ARCHITECTURE_LIMIT_BYTES с маркером пути); обычная дельта без раздела и не больше 1200 байт.",
+  "tags": [
+    "state-feed",
+    "L1",
+    "L2",
+    "architecture"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/state-feed/lib/feed.mjs",
+      "sha256": "2dc6878cf33662b63ee3e309487af24d1e3d990b5b9eb7a050596ba6feb2b655"
+    }
+  ],
+  "linkedTaskId": "task-mx0q3wks-3bd37r",
+  "reqId": "REQ-311",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "b58470ba-efb2-4525-a52a-f7f7323abd2f",
+  "purpose": "implementation",
+  "testHash": "1125061397ddd14c4d0ed04c786f93f59dcf8dcf61b53819b9d347a77b691e6d",
+  "negativeControl": "architecture-delivery",
+  "revision": 4,
+  "createdAt": "2026-11-28T18:11:40.729Z",
+  "updatedAt": "2026-11-28T18:13:02.693Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T18:12:05.346Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"architecture-delivery\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T18:12:08.258Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T18:13:02.693Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0q95x6-770ws-1",
+      "at": "2026-11-28T18:12:05.345Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "b58470ba-efb2-4525-a52a-f7f7323abd2f",
+        "taskId": "task-mx0q3wks-3bd37r"
+      },
+      "control": "architecture-delivery",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 501,
+      "commandSha256": "f390e209c8cabe83838b7087949c884ce3cd1ded666376df78c0671378054a63",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\arch-prev-worktree",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/arch-prev-worktree",
+      "head": "f024216c39805ae75482dce13025a165027a292a",
+      "dirty": false,
+      "stdout": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0q95x6-770ws-1/stdout.log",
+      "stderr": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0q95x6-770ws-1/stderr.log",
+      "summary": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0q95x6-770ws-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0q9863-mxtn8-1",
+      "at": "2026-11-28T18:12:08.257Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "b58470ba-efb2-4525-a52a-f7f7323abd2f",
+        "taskId": "task-mx0q3wks-3bd37r"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 486,
+      "commandSha256": "f390e209c8cabe83838b7087949c884ce3cd1ded666376df78c0671378054a63",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "7b86a55312590ea1bb7571dbcf8822b115f36c3d",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0q9863-mxtn8-1/stdout.log",
+      "stderr": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0q9863-mxtn8-1/stderr.log",
+      "summary": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0q9863-mxtn8-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0qae4k-14h0k-1",
+      "at": "2026-11-28T18:13:02.692Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "b58470ba-efb2-4525-a52a-f7f7323abd2f",
+        "taskId": "task-mx0q3wks-3bd37r"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 506,
+      "commandSha256": "f390e209c8cabe83838b7087949c884ce3cd1ded666376df78c0671378054a63",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "7b86a55312590ea1bb7571dbcf8822b115f36c3d",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0qae4k-14h0k-1/stdout.log",
+      "stderr": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0qae4k-14h0k-1/stderr.log",
+      "summary": "docs/cases/runs/dostavka-arkhitektury-fragment-dlinnoy-stroki-pustoy-fayl-ot/mx0qae4k-14h0k-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T18:12:05.346Z",
+    "runId": "mx0q95x6-770ws-1",
+    "exitCode": 1,
+    "control": "architecture-delivery",
+    "command": "node --test plugins/state-feed/test/feed.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\arch-prev-worktree",
+    "head": "f024216c39805ae75482dce13025a165027a292a",
+    "dirty": false,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "b58470ba-efb2-4525-a52a-f7f7323abd2f",
+      "taskId": "task-mx0q3wks-3bd37r"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T18:13:02.693Z",
+    "command": "node --test plugins/state-feed/test/feed.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0qae4k-14h0k-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "b58470ba-efb2-4525-a52a-f7f7323abd2f",
+      "taskId": "task-mx0q3wks-3bd37r"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

@@ -8,21 +8,22 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
 
-## active (2)
+## active (3)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-500 | Разблокировать и закоммитить батч | — | — | yes |
+| TASK-507 | Кейс ворот: перепривязать и подтвердить прогоном | — | — | yes |
+| TASK-508 | Батч после критики: ворота, доставка, профиль | — | — | yes |
 
 ## review (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
-| TASK-499 | Батч: архитектура в контексте, панель, расхождение | — | — | yes |
+| TASK-501 | Критика воркфлоу: бюрократия, краевые случаи, блокеры | — | — | yes |
 
-## done (401)
+## done (408)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -427,6 +428,13 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-496 | Предел раздела архитектуры: 12 288 байт | — | — | yes |
 | TASK-497 | Расхождение архитектуры: итог и примеры вместо 80 строк | — | — | yes |
 | TASK-498 | Архитектура: инструменты кита в §2 | — | — | yes |
+| TASK-499 | Батч: архитектура в контексте, панель, расхождение | — | — | yes |
+| TASK-500 | Разблокировать и закоммитить батч | — | — | yes |
+| TASK-502 | Ворота консультации: по флагу, а не по классу | — | — | yes |
+| TASK-503 | Доставка архитектуры: длинная строка, пустой файл, дельта | — | — | yes |
+| TASK-504 | Первая архитектурная консультация: решения ARCH- для двух инициатив | — | — | yes |
+| TASK-505 | Роль ARCHITECT: право записать решение и файл | — | — | yes |
+| TASK-506 | Кейсы ворот: свести два следа к одному живому | — | — | yes |
 
 ## blocked (1)
 

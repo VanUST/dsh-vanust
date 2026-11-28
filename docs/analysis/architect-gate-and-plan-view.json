@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "architect-gate-and-plan-view",
-  "rev": 5,
+  "rev": 7,
   "status": "ready",
   "createdAt": "2026-11-28T17:34:13.930Z",
-  "updatedAt": "2026-11-28T17:38:07.990Z",
+  "updatedAt": "2026-11-28T18:09:58.164Z",
   "updatedBy": "agent",
   "title": "Архитектурные ворота и план в интерфейсе",
   "requestedSolution": "Ворота на L2 с architectureImpact по записи консультации архитектора; вкладка плана в панели состояния.",
@@ -114,7 +114,17 @@
       "scope": "delegation"
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "ARCH-1",
+      "decision": "Оркестратор требует одно решение архитектора в записи анализа инициативы до создания задачи L2 с architectureImpact (C-GATE, I-ARCH-CONSULT). Вкладка Plan независимо читает сгенерированный план при первом открытии, без опроса (C-PANEL, D-PLAN).",
+      "rationale": "Запись анализа связывает консультацию с инициативой, а панель не хранит второй план. Проверка: без решения — отказ без создания задачи, с решением — допуск; L0, L1 и L2 без флага не меняются. Вкладка читает план один раз. Откат: убрать вкладку независимо от ворот; при отзыве консультации удалить решение, чтобы снова остановить L2 с флагом.",
+      "alternatives": [
+        "Оставить консультацию только в политике — это не останавливает делегирование.",
+        "Хранить решение по каждой задаче или отдельную копию плана в панели — это дублирует данные."
+      ]
+    }
+  ],
   "openQuestions": [],
   "sizing": {
     "class": "L1",
@@ -175,7 +185,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "6ddbc4057cdfb4e9e482970f24115bf552787fed923c4504619202af23e16ea2",
+  "fingerprint": "f759080dfc4d8bdc5f5b9a45466dcc3583fb9168d3f3ac16756ea1f9d6233e41",
   "history": [
     {
       "revision": 1,
@@ -216,6 +226,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: R1 changed, R2 changed; impacts: 2"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T18:09:55.075Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T18:09:58.164Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
     }
   ]
 }

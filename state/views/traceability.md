@@ -299,10 +299,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-305 | rejected | — | — | — | no |
 | REQ-306 | rejected | — | TEST-121, TEST-122 | — | no |
 | REQ-307 | rejected | — | — | — | no |
-| REQ-308 | done | — | TEST-124 | — | no |
+| REQ-308 | done | — | TEST-124, TEST-126, TEST-127 | — | no |
 | REQ-309 | rejected | — | TEST-123 | — | no |
 | REQ-310 | rejected | TASK-492 | — | — | no |
-| REQ-311 | done | TASK-493 | TEST-125 | — | no |
+| REQ-311 | done | TASK-493 | TEST-125, TEST-128 | — | no |
 
 ## Tests
 
@@ -433,3 +433,6 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-123 | REQ-309 | unverified | — |
 | TEST-124 | REQ-308 | verified | — |
 | TEST-125 | REQ-311 | verified | — |
+| TEST-126 | REQ-308 | failing | — |
+| TEST-127 | REQ-308 | verified | — |
+| TEST-128 | REQ-311 | verified | — |

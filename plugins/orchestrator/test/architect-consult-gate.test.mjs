@@ -1,14 +1,15 @@
 /*
-PROOF: an L2 delegation that declares architectureImpact does not start without the architect's
-  decision in the Analysis Record
+PROOF: a delegation that declares architectureImpact does not start without the architect's
+  decision in the Analysis Record - the flag decides, not the derived class
 Behavior: delegate_task refuses with `architect_consult_required` and a message naming what to
   record (an ARCH- entry in decisions[], with components, invariants, checks and rollback) when
-  changeClass is L2, architectureImpact is true and the record holds no such decision; the same
-  delegation passes when the decision is there; L0, L1 and L2 without architectureImpact keep
-  their previous behaviour; the root policy states the rule before any refusal.
-Fails when: the gate lets an unconsulted architectural change through, the refusal loses the
-  code or the message that says what to write, a legal delegation is blocked, or the policy
-  says nothing about the rule.
+  architectureImpact is true and the record holds no such decision, whether changeClass is L2, L1
+  or omitted (the record's gate answers "L1" for an omitted class); the same delegation passes
+  when the decision is there; L0, L1 and L2 without architectureImpact keep their previous
+  behaviour; the root policy states the rule before any refusal.
+Fails when: the gate lets an unconsulted architectural change through - including one that omits
+  changeClass or declares L1 - the refusal loses the code or the message that says what to write,
+  a legal delegation is blocked, or the policy says nothing about the rule.
 Production path: plugins/orchestrator/orchestrator.mjs - architectConsultation and the check in
   the delegate_task execute body after the analysis gate; the root policy bullet (DEC-002).
 Control: CASE_NEGATIVE_CONTROL=expect-pre-fix asserts the pre-fix source has no such gate.
@@ -56,7 +57,8 @@ function harness({ decisions = [] } = {}) {
   const analysis = {
     gate: (cwd, input) => {
       if (input.changeClass === 'L0') return { ok: true, class: 'L0', analysisRequired: false }
-      const klass = input.changeClass
+      // The real gate answers "L1" when changeClass is omitted (plugins/analysis/store.mjs, effective).
+      const klass = input.changeClass ?? 'L1'
       if (klass !== 'L1' && klass !== 'L2') return { ok: false, code: 'analysis_required', message: 'changeClass must be L0, L1 or L2' }
       if (String(input.initiative ?? '') === '') return { ok: false, code: 'analysis_required', message: `an ${klass} delegation needs analysisId` }
       return {
@@ -160,9 +162,29 @@ test('L0, L1 and L2 without architectureImpact are unaffected', async () => {
 
   const l2plain = harness({ decisions: [] })
   assert.notEqual((await l2plain.delegate(base({ changeClass: 'L2' })))?.ok, false, 'L2 without architectureImpact needs no architect decision')
+})
+
+test('the flag decides, not the class: an omitted or low changeClass with architectureImpact is refused', async () => {
+  // The critic's finding: the gate used to test the DERIVED class, so a delegation with the flag
+  // and no changeClass got the record's "L1" answer and walked past the consultation.
+  const unclassified = harness({ decisions: [] })
+  const noClass = await unclassified.delegate(base({ architectureImpact: true }))
+  assert.equal(noClass?.ok, false, 'a flagged delegation without changeClass was not refused')
+  assert.equal(noClass?.code, 'architect_consult_required')
+  assert.equal(unclassified.calls.create.length, 0, 'no task row is written for a refused delegation')
+  assert.equal(unclassified.calls.startActivation.length, 0, 'no child is started for a refused delegation')
 
   const impactL1 = harness({ decisions: [] })
-  assert.notEqual((await impactL1.delegate(base({ changeClass: 'L1', architectureImpact: true })))?.ok, false, 'L1 with architectureImpact is not gated')
+  const l1 = await impactL1.delegate(base({ changeClass: 'L1', architectureImpact: true }))
+  assert.equal(l1?.ok, false, 'a flagged L1 delegation was not refused')
+  assert.equal(l1?.code, 'architect_consult_required')
+
+  // The same flag with the decision recorded passes, whatever the class says.
+  const consulted = harness({ decisions: [{ id: 'ARCH-7', decision: 'keep the seam', rationale: 'measured' }] })
+  const passed = await consulted.delegate(base({ architectureImpact: true }))
+  assert.notEqual(passed?.ok, false, JSON.stringify(passed))
+  assert.equal(consulted.calls.create.length, 1)
+  assert.equal(consulted.calls.startActivation.length, 1)
 })
 
 test('the root policy states the rule before any refusal', () => {
@@ -170,25 +192,27 @@ test('the root policy states the rule before any refusal', () => {
   assert.match(SOURCE, /An architecture change is consulted before it starts/)
 })
 
-test('the real Analysis Record of this workspace refuses until an ARCH- decision exists', async () => {
+test('a real Analysis Record read by the real store refuses without an ARCH- decision and passes with one', async () => {
   const { createService } = await import(pathToFileURL(join(process.cwd(), 'plugins', 'analysis', 'store.mjs')).href)
-  const service = createService({}, { warn() {} })
   const cwd = process.cwd()
   const initiative = 'architect-gate-and-plan-view'
-  const gated = service.gate(cwd, { changeClass: 'L2', initiative, requirementIds: ['R1'], architectureImpact: true, role: 'BACKEND', preset: 'backend' })
-  assert.equal(gated.ok, true, `the real record must be ready for this case: ${JSON.stringify(gated)}`)
-  const refused = architectConsultation(service, cwd, initiative)
-  assert.equal(refused.ok, false)
-  assert.equal(refused.code, 'architect_consult_required')
-
-  // The pass case runs on a COPY of the record with one ARCH- decision, so the workspace record
-  // is never edited by a test.
+  assert.equal(createService({}, { warn() {} }).gate(cwd, { changeClass: 'L2', initiative, requirementIds: ['R1'], architectureImpact: true, role: 'BACKEND', preset: 'backend' }).ok, true, 'the real record must be ready for this case')
+  // Both halves run on COPIES of the workspace record: the first without any ARCH- decision, the
+  // second with one. The workspace record is never edited by a test, and a legitimate ARCH- entry
+  // written by the orchestrator does not turn this test red.
   const scratch = mkdtempSync(join(tmpdir(), 'architect-gate-'))
   try {
     mkdirSync(join(scratch, 'docs', 'analysis'), { recursive: true })
     const record = JSON.parse(readFileSync(join(cwd, 'docs', 'analysis', `${initiative}.json`), 'utf8'))
+    const path = join(scratch, 'docs', 'analysis', `${initiative}.json`)
+    record.decisions = [{ id: 'D-1', decision: 'a local choice', rationale: 'cheap' }]
+    writeFileSync(path, JSON.stringify(record, null, 2))
+    const refused = architectConsultation(createService({}, { warn() {} }), scratch, initiative)
+    assert.equal(refused.ok, false)
+    assert.equal(refused.code, 'architect_consult_required')
+
     record.decisions = [{ id: 'ARCH-1', decision: 'the gate reads the record it already gates', rationale: 'one place, no new field', alternatives: ['a second config file'] }]
-    writeFileSync(join(scratch, 'docs', 'analysis', `${initiative}.json`), JSON.stringify(record, null, 2))
+    writeFileSync(path, JSON.stringify(record, null, 2))
     const passed = architectConsultation(createService({}, { warn() {} }), scratch, initiative)
     assert.deepEqual(passed, { ok: true, decisionId: 'ARCH-1' })
   } finally {

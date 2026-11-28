@@ -4,11 +4,18 @@ One host row that puts the project state into the CONVERSATION, not into the sys
 
 - **L1** — at `agent/created` of a ROOT session whose workspace has `state/views/digest.md`, one
   user message: `digest.md`, then the open tasks, then `state/plan.yaml` (when present), then
-  `snapshot.md`. It is composed once and never edited or repeated.
-- **L2** — at a turn boundary (`agent/pre-step`, `step === 1`): if the sha256 of
-  `digest.md + board.md + snapshot.md` differs from the hash the session last received, one
-  aggregated delta (≤ 1200 bytes) with the counts, the open-work bullets and the open tasks. A
-  second change inside the same turn is not injected; the next turn picks the newest hash up.
+  `docs/ARCHITECTURE.md` in a section capped at 12288 bytes (a whole-line fragment plus a marker
+  naming the file when it does not fit), then `snapshot.md`. It is composed once and never edited
+  or repeated.
+- **L2** — at a turn boundary (`agent/pre-step`, `step === 1`): if the state hash differs from the
+  hash the session last received, one aggregated delta (≤ 1200 bytes) with the counts, the
+  open-work bullets and the open tasks. The hash covers `digest.md + board.md + snapshot.md +
+  plan.yaml + the raw architecture file` and carries an architecture tag (`…<sha256>.absent`,
+  `…<sha256>.empty` or the page's own tag), so an empty page and a missing one are different
+  states. When the architecture changed, that one delta also carries the `## Architecture` section
+  whole (up to the 12288-byte cap), because a warm session must see the new page, not just a new
+  hash. A second change inside the same turn is not injected; the next turn picks the newest hash
+  up.
 - **Open tasks** — both messages carry one counter line with the three figures the owner named:
   `unclosed` (every task not done and not cancelled, blocked included), `active` (status
   `active`) and `agents` (the sessions the ledger records as still working, from the snapshot's

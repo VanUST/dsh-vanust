@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "id": "the-architecture-consultation-gate-fires-on-architectureimpa",
+  "title": "The architecture consultation gate fires on architectureImpact, not on the derived change class",
+  "requirement": "REQ-308, corrected reading: delegate_task refuses a delegation that declares architectureImpact until the Analysis Record holds an ARCH- decision in decisions[], whatever changeClass it names - L2, L1, or none; a delegation without the flag is unaffected whatever its class. A change class must not be the trigger, because the record answers \"L1\" when the class is omitted.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/orchestrator/test/architect-consult-gate.test.mjs",
+  "runCommand": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+  "steps": [
+    "Mount the orchestrator with a fake board and an analysis service whose gate answers \"L1\" for an omitted changeClass, as plugins/analysis/store.mjs does (effective = klass ?? \"L1\").",
+    "delegate_task with changeClass L2, architectureImpact true and decisions[] with no ARCH- entry: refused, no task row, no child.",
+    "delegate_task with architectureImpact true and no changeClass: refused with the same code.",
+    "delegate_task with changeClass L1 and architectureImpact true: refused with the same code.",
+    "delegate_task with the flag and decisions[] carrying {id:\"ARCH-1\"}: one task row, one child.",
+    "delegate_task for L0, L1 and L2 without the flag: still pass.",
+    "Read the workspace Analysis Record through the real store on two copies: one without an ARCH- decision (refused) and one with it (passed)."
+  ],
+  "expected": "delegate_task returns {ok:false, code:\"architect_consult_required\"} with a message naming decisions[] and ARCH-, writing no task row and starting no child, for changeClass L2 with the flag, for the flag with no changeClass and for changeClass L1 with the flag; the same flagged delegation passes once decisions[] carries an ARCH- entry; L0, L1 and L2 without the flag pass unchanged; the real Analysis Record read by the real store refuses without an ARCH- decision and passes with one.",
+  "tags": [
+    "orchestrator",
+    "delegate_task",
+    "DEC-002",
+    "architect",
+    "gate",
+    "architectureImpact"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "e2b0f90eb75d164519319d222321560f8e24a04b52824cc3fcdffe4916c9b45b"
+    }
+  ],
+  "linkedTaskId": "task-mx0q3wee-jbpzdv",
+  "reqId": "REQ-308",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "e4e13ac1-8225-4dfa-b344-857844b44af7",
+  "purpose": "implementation",
+  "testHash": "b5a62d977915de87e8eec2a0ff711a3ca8f56c550b13803a8cb3a7989629424b",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-28T18:10:55.825Z",
+  "updatedAt": "2026-11-28T18:11:00.233Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T18:10:59.078Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T18:11:00.233Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0q7r13-fsv3m-1",
+      "at": "2026-11-28T18:10:59.077Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "e4e13ac1-8225-4dfa-b344-857844b44af7",
+        "taskId": "task-mx0q3wee-jbpzdv"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 172,
+      "commandSha256": "0312d7378eba2f54c5557e5eb1d95ec4f4517e11009c7676dd0c4659c3ee88db",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "7b86a55312590ea1bb7571dbcf8822b115f36c3d",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-architecture-consultation-gate-fires-on-architectureimpa/mx0q7r13-fsv3m-1/stdout.log",
+      "stderr": "docs/cases/runs/the-architecture-consultation-gate-fires-on-architectureimpa/mx0q7r13-fsv3m-1/stderr.log",
+      "summary": "docs/cases/runs/the-architecture-consultation-gate-fires-on-architectureimpa/mx0q7r13-fsv3m-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0q7rxd-ih2be-1",
+      "at": "2026-11-28T18:11:00.232Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "e4e13ac1-8225-4dfa-b344-857844b44af7",
+        "taskId": "task-mx0q3wee-jbpzdv"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 165,
+      "commandSha256": "0312d7378eba2f54c5557e5eb1d95ec4f4517e11009c7676dd0c4659c3ee88db",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "7b86a55312590ea1bb7571dbcf8822b115f36c3d",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-architecture-consultation-gate-fires-on-architectureimpa/mx0q7rxd-ih2be-1/stdout.log",
+      "stderr": "docs/cases/runs/the-architecture-consultation-gate-fires-on-architectureimpa/mx0q7rxd-ih2be-1/stderr.log",
+      "summary": "docs/cases/runs/the-architecture-consultation-gate-fires-on-architectureimpa/mx0q7rxd-ih2be-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T18:10:59.078Z",
+    "runId": "mx0q7r13-fsv3m-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "C:\\dsh-kit",
+    "head": "7b86a55312590ea1bb7571dbcf8822b115f36c3d",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "e4e13ac1-8225-4dfa-b344-857844b44af7",
+      "taskId": "task-mx0q3wee-jbpzdv"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T18:11:00.233Z",
+    "command": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0q7rxd-ih2be-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "e4e13ac1-8225-4dfa-b344-857844b44af7",
+      "taskId": "task-mx0q3wee-jbpzdv"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

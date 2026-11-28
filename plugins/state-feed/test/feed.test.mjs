@@ -220,6 +220,88 @@ test('the architecture page is part of the state hash, including past the cap', 
   assert.notEqual(tail.hash, capped.hash, 'an edit past the cap left the state hash where it was')
 })
 
+/*
+PROOF: a one-line page still delivers a fragment, an empty page is not a missing one, and an
+  architecture edit reaches a warm session as the section itself
+Behavior: a docs/ARCHITECTURE.md whose first line alone is past ARCHITECTURE_LIMIT_BYTES keeps the
+  fragment of that line which fits, followed by the marker naming the budget and the path — the
+  section carries visible text, not the marker alone. A missing page is `architecture: null` and
+  says "is absent"; an empty file is `architecture: ''`, says "is empty" and hashes differently.
+  When the architecture changes for a session that already saw L1, the next delta carries the
+  "## Architecture" section whole (cut on the section budget when the page is past it), while a
+  delta caused by anything else stays within L2_LIMIT_BYTES and carries no architecture section.
+Fails when: a one-line page yields a marker with no content, an empty page keeps the missing
+  page's hash and wording, an architecture edit arrives as a hash line with no section, or every
+  delta carries the section.
+Production path: plugins/state-feed/lib/feed.mjs (architectureExcerpt, readState, composeL1,
+  composeL2), delivered by index.mjs as L1 and as the pre-step delta.
+*/
+test('a one-line architecture page keeps the fragment that fits, then the marker naming the path', async () => {
+  const { cwd } = await workspace()
+  const page = '# Architecture probe ' + 'x'.repeat(20001 - 21)
+  assert.equal(Buffer.byteLength(page, 'utf8'), 20001)
+  await writeFile(join(cwd, ARCHITECTURE_PATH), page)
+  const state = readState(cwd)
+  const section = state.architecture
+  assert.ok(Buffer.byteLength(section, 'utf8') <= ARCHITECTURE_LIMIT_BYTES, 'the section is ' + Buffer.byteLength(section, 'utf8') + ' bytes; the budget is ' + ARCHITECTURE_LIMIT_BYTES)
+  const markerAt = section.indexOf('[architecture truncated:')
+  assert.ok(markerAt > 0, 'the section is the marker alone: no fragment of the page survived the cut')
+  const fragment = section.slice(0, markerAt).replace(/\n$/, '')
+  assert.ok(fragment.length > 1000, 'the kept fragment is ' + fragment.length + ' characters')
+  assert.ok(page.startsWith(fragment), 'the kept fragment is not the start of the page')
+  assert.ok(section.includes('the section budget is ' + ARCHITECTURE_LIMIT_BYTES + ' bytes'))
+  assert.ok(section.includes('read ' + ARCHITECTURE_PATH + ' for the rest'), 'the cut does not name the file to read')
+  assert.ok(composeL1(state).includes(fragment), 'L1 does not carry the fragment')
+  if (NEGATIVE_CONTROL !== undefined) assert.equal(section.includes('x'), false, 'negative control "' + NEGATIVE_CONTROL + '": the section must not carry page text')
+})
+
+test('an absent architecture page and an empty one are two named states with two hashes', async () => {
+  const absentCwd = (await workspace({ architecture: false })).cwd
+  const emptyCwd = (await workspace()).cwd
+  await writeFile(join(emptyCwd, ARCHITECTURE_PATH), '')
+  const absent = readState(absentCwd)
+  const empty = readState(emptyCwd)
+  assert.equal(absent.architecture, null, 'a missing page is not the null state')
+  assert.equal(empty.architecture, '', 'an empty page is not the empty string')
+  assert.notEqual(empty.hash, absent.hash, 'an empty page hashes like a missing one')
+  const lineFor = (state) => composeL1(state).split('\n').find((line) => line.includes(ARCHITECTURE_PATH))
+  assert.match(lineFor(absent), /is absent/, 'the missing page is not named absent')
+  assert.match(lineFor(empty), /is empty/, 'the empty page is not named empty')
+  if (NEGATIVE_CONTROL !== undefined) assert.equal(empty.hash, absent.hash, 'negative control "' + NEGATIVE_CONTROL + '": the two states must share one hash')
+})
+
+test('an architecture edit reaches a warm session as the section; a normal delta stays small', async () => {
+  const { cwd, state: service, req } = await workspace()
+  const env = host()
+  apply(env.ctx)
+  const { agent, injected } = agentOf(cwd)
+  await created(env, agent)
+  assert.equal(injected.length, 1)
+  // A change that is not the architecture: a new task. The delta stays a small delta.
+  await service.create('task', { title: 'Second task', reqId: req.id })
+  await service.regenerateViews()
+  const normal = (await preStep(env, agent, 2, 1, [])).messages[0].content[0].text
+  assert.ok(Buffer.byteLength(normal, 'utf8') <= L2_LIMIT_BYTES, 'the ordinary delta is ' + Buffer.byteLength(normal, 'utf8') + ' bytes')
+  assert.equal(normal.includes('## Architecture'), false, 'an unchanged architecture travelled in the delta')
+  // The architecture changes: the delta carries the section, whole.
+  const edit = '- a new invariant: the delta carries the section'
+  await writeFile(join(cwd, ARCHITECTURE_PATH), ARCH_PROBE + '\n' + edit + '\n')
+  const delta = (await preStep(env, agent, 3, 1, [])).messages[0].content[0].text
+  assert.ok(delta.startsWith(L2_HEADER))
+  assert.ok(delta.includes('## Architecture'), 'the architecture delta carries no section')
+  assert.ok(delta.includes(edit), 'the architecture delta does not carry the edited text')
+  assert.ok(Buffer.byteLength(delta, 'utf8') <= L2_LIMIT_BYTES + ARCHITECTURE_LIMIT_BYTES + 64, 'the architecture delta is past the section budget')
+  // A page past the section budget: the delta still carries the section, cut and named.
+  const lines = ['# Architecture probe', '']
+  for (let index = 0; index < 400; index += 1) lines.push('- invariant ' + index + ': ' + 'x'.repeat(40))
+  await writeFile(join(cwd, ARCHITECTURE_PATH), lines.join('\n'))
+  const bigDelta = (await preStep(env, agent, 4, 1, [])).messages[0].content[0].text
+  assert.ok(bigDelta.includes('## Architecture'), 'a page past the budget dropped the section from the delta')
+  assert.ok(bigDelta.includes('read ' + ARCHITECTURE_PATH + ' for the rest'), 'the cut delta section does not name the path')
+  assert.ok(Buffer.byteLength(bigDelta, 'utf8') <= L2_LIMIT_BYTES + ARCHITECTURE_LIMIT_BYTES + 64)
+  if (NEGATIVE_CONTROL !== undefined) assert.equal(delta.includes('## Architecture'), false, 'negative control "' + NEGATIVE_CONTROL + '": the delta must not carry the section')
+})
+
 test('no state/views/digest.md means no injection at all', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'state-feed-empty-'))
   const env = host()
