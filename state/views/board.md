@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (4)
+## open (5)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -10,6 +10,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
+| TASK-303 | Pull the updated kit and verify it locally | — | 1/5 | yes |
 
 ## active (1)
 
@@ -17,7 +18,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
 
-## review (9)
+## review (11)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -30,8 +31,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
 | TASK-274 | Hindsight starts with dsh web; harness pin is enforced | — | 4/4 | yes |
+| TASK-288 | P1 fix: повторная атака на область записи и wrong-product red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-289 | P1 fix 2: целевое ревью W1 head/test и B1 junction | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 
-## done (178)
+## done (203)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -213,8 +216,33 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
 | TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
 | TASK-271 | Библиотека кейсов: правка и наблюдение доступны, каталог в доказательстве, запрет прибитых команд | REQ-179, REQ-180, REQ-181, REQ-182, REQ-183 | — | no |
+| TASK-275 | Запись анализа независимой проверки и карта дизайна | REQ-184, REQ-185, REQ-186, REQ-187, REQ-188, REQ-189, REQ-190, REQ-191, REQ-192, REQ-193 | 4/4 | no |
+| TASK-276 | P0: происхождение доказательства и условие приёмки без самопроверки | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | 8/8 | no |
+| TASK-277 | P0: независимое ревью происхождения доказательства | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
+| TASK-278 | P0: атака на условие приёмки — найти обход самопроверки | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
+| TASK-279 | P0 fix: независимое ревью второго круга | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
+| TASK-280 | P0 fix: вторая атака на условие приёмки | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
+| TASK-281 | P0 fix 2: третье независимое ревью B2/R2 | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
+| TASK-282 | P0 fix 2: третья атака на task↔case link | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
+| TASK-283 | P0 final: целевое ревью S8/S7/LOW | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
+| TASK-284 | P1: пресет TESTER, запись только в кейсы/тесты, реалистичный red | REQ-189, REQ-190, REQ-191, REQ-194 | 9/11 | no |
+| TASK-285 | P1: независимое ревью пресета TESTER и реалистичного red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-286 | P1: атака на запись TESTER и wrong-product red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-287 | P1 fix: целевое ревью B1/W1/H2 | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-290 | P1 fix 2: атака на W1 head/test и B1 junction | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-291 | P1 fix 3: целевое ревью D1/D2/D3 | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-293 | P2: task contract, verification level, критерии и покрытие только для independent | REQ-184, REQ-192 | — | no |
+| TASK-294 | P1 pilot: живой TESTER на временном профиле с ключом харнесса | REQ-191 | — | no |
+| TASK-295 | P2.1: пакетное ревью — один REVIEWER на несколько задач | REQ-195 | — | no |
+| TASK-296 | Ревью P2 + пакетного ревью одним REVIEWER | — | — | yes |
+| TASK-297 | Ревью фикса пакетного ревью (task_update reviewResults) | — | — | yes |
+| TASK-298 | Закрыть остаточные риски P0/P1/P2 и пакетного ревью | REQ-196 | — | no |
+| TASK-299 | Ревью закрытия остаточных рисков (7 пунктов) | — | — | yes |
+| TASK-300 | Ревью 2: четыре непроверенных пункта risk closure | — | — | yes |
+| TASK-301 | Ревью 3: D5/D4/low после фикса | — | — | yes |
+| TASK-302 | Push: P0/P1/P2 + risk closure to origin | — | — | yes |
 
-## cancelled (82)
+## cancelled (83)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -300,3 +328,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-128 | Исправить Analysis Record schema integrity | — | — | no |
 | TASK-203 | V1.2: состав пресетов под бюджеты полного заголовка | — | — | no |
 | TASK-206 | FR2: бюджеты контекста — ждёт решения о PTC-пресетах | — | — | no |
+| TASK-292 | P1 pilot: TESTER на временном DSH-профиле (другой порт) | REQ-191 | — | no |

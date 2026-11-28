@@ -6,6 +6,11 @@ nodes:
     label: Web client (browser)
     group: null
     source: null
+  - id: db.cases
+    type: datastore
+    label: Case records and run artifacts
+    group: null
+    source: null
   - id: db.model
     type: datastore
     label: designmap model
@@ -31,6 +36,11 @@ nodes:
     label: presentation + dashboard tools
     group: null
     source: plugins/presentation/index.js
+  - id: plug.proof-guard
+    type: service
+    label: Write-scope guard
+    group: null
+    source: plugins/proof-guard/proof-guard.mjs
   - id: plug.role-model
     type: service
     label: Role model route
@@ -46,6 +56,11 @@ nodes:
     label: Taskboard
     group: null
     source: plugins/taskboard/index.js
+  - id: plug.test-cases
+    type: service
+    label: Case library and task-close gate
+    group: null
+    source: plugins/test-cases/test-cases.mjs
   - id: svc.host
     type: service
     label: DSH host process
@@ -77,6 +92,11 @@ edges:
     to: svc.orchestrator
     kind: sync
     label: tool calls
+  - id: e.host.proofguard
+    from: svc.host
+    to: plug.proof-guard
+    kind: sync
+    label: tools/pre-execute
   - id: e.orch.analysis
     from: svc.orchestrator
     to: plug.analysis
@@ -102,6 +122,21 @@ edges:
     to: plug.taskboard
     kind: sync
     label: task_* tools
+  - id: e.orch.testcases
+    from: svc.orchestrator
+    to: plug.test-cases
+    kind: sync
+    label: case_* tools
+  - id: e.taskboard.testcases
+    from: plug.taskboard
+    to: plug.test-cases
+    kind: sync
+    label: task_close gate
+  - id: e.testcases.data
+    from: plug.test-cases
+    to: db.cases
+    kind: data
+    label: case JSON + runs
   - id: e.web.host
     from: cli.web
     to: svc.host
