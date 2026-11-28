@@ -1,6 +1,6 @@
 # @cc/dsh-project-state-panel — the Project state panel
 
-One panel with four modes over one selection, plus an **Edit** tab in every entity drawer. It is a
+One panel with five modes over one selection, plus an **Edit** tab in every entity drawer. It is a
 LENS over files the state core already writes; it owns neither a store nor a gate, and it writes
 no file itself. The owner's TWO writes go through commands: a task status goes to the taskboard
 (`/taskboard owner-status`, because the board owns that row), and any field of a REQ, TASK or TEST
@@ -13,6 +13,39 @@ the field as the owner's own). Nothing else in the panel writes.
 | Board | `index.json` `tasks[]` (first paint), `state/task/*.md` on a card | where the work is, which requirement each task belongs to, which tests link it, which subagents run now |
 | Design map | `designmap/pages/*.excalidraw` through the `/designmap` command | the system map as an always-editable Excalidraw page: the editor fills the panel body, has a Full screen control, a readability Check and a Tidy/Render pair; every write is the designmap command, never the panel |
 | Tests & trace | `index.json` `tests[]` + `reqs[]` | each test's requirement and evidence, and the REQ × TASK/TEST/DECISION matrix with its gaps |
+| Plan | `state/views/plan.md`, read once when the tab opens | what the long-term plan still has open: initiatives with work left, the decisions in force, the journal's open tasks |
+
+## The Plan mode
+
+The Plan tab shows the generated plan, `state/views/plan.md`, which the state core writes with
+`regenerateViews()` from `docs/analysis/*.json` and the journal. Nothing in the panel edits it:
+a plan change means a change to an analysis record or to the board, and the view follows.
+
+**One read, when the tab opens.** Opening Plan reads the file once; switching tabs and coming back
+reuses the parsed result, and only **Reload** re-reads it. The file is parsed into three lists and
+nothing else is fetched:
+
+| block | what it draws | where the number comes from |
+|---|---|---|
+| Initiatives with work left | one row per initiative: title, id, stage, confirmed of total requirements | the view's initiative table, filtered to rows with an unfinished requirement or an open task; the heading carries the count the panel drew |
+| Decisions | the decisions in force, newest first: id, title, initiative, status | the view's `## Решения` table |
+| Open tasks | the journal's open tasks: id, title, status | the bullets under the view's open-task headings |
+
+The panel does not repeat the view's header counts. `plan.md` states two different facts in its
+header - initiatives with traced open tasks, and the journal's open tasks - and a pane that prints
+one of them beside a list of the other reads as broken; the headings of the blocks the panel drew
+carry the numbers it actually shows.
+
+**Empty states.**
+
+- No `state/views/plan.md` in the workspace: *"No generated plan in this workspace"* names the
+  path and the command that writes it (`regenerateViews()` from `docs/analysis/*.json` and the
+  journal), with a **Read it again** button. The same state is shown when there is no conversation
+  to read the file from.
+- The file exists and holds nothing: *"The plan is empty: no initiative has work left, no decision
+  is recorded and no task is open."*
+- The read fails (permission, transport): the alert carries the code (`plan_unreadable` or the
+  gateway's own) and its message, and **Read it again** retries.
 
 ## Decisions are not a second register
 

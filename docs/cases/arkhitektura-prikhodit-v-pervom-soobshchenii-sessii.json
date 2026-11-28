@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "id": "arkhitektura-prikhodit-v-pervom-soobshchenii-sessii",
+  "title": "Архитектура приходит в первом сообщении сессии",
+  "requirement": "Оркестратор в первом сообщении сессии получает docs/ARCHITECTURE.md отдельным разделом после плана; раздел ограничен по размеру с явным маркером, содержимое входит в хеш состояния, отсутствие файла названо, а не приводит к падению.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/state-feed/test/feed.test.mjs",
+  "runCommand": "node --test plugins/state-feed/test/feed.test.mjs",
+  "steps": [
+    "Создать рабочее пространство с state/views и docs/ARCHITECTURE.md под бюджетом.",
+    "Вызвать readState и composeL1 (и plugin apply) и проверить место раздела.",
+    "Записать файл больше 12288 байт и прочитать снова: раздел в бюджете, маркер называет путь.",
+    "Изменить файл за пределами среза и сравнить хеши состояния.",
+    "Удалить docs/ARCHITECTURE.md и прочитать снова: названное состояние, не исключение."
+  ],
+  "expected": "L1 содержит \"## Architecture\" между \"## Plan\" и \"## Last snapshot\"; раздел не больше 12288 байт и при превышении оканчивается маркером с путём; правка файла меняет хеш состояния даже за пределами среза; отсутствие файла даёт \"docs/ARCHITECTURE.md is absent\", а не исключение.",
+  "tags": [
+    "state-feed",
+    "L1",
+    "architecture"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/state-feed/lib/feed.mjs",
+      "sha256": "122322a2df5d2b59f2643e77807f644dcde0535502c30e0acc6ad307597959f6"
+    }
+  ],
+  "linkedTaskId": "task-mx0p4pml-88ougo",
+  "reqId": "REQ-311",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "e6ba994c-4252-499e-bc9b-384ad55b0a37",
+  "purpose": "implementation",
+  "testHash": "28f1403ad3807d84ea23a679a8e4c7e881aa2d19dbc8e03d1acf7cb575a7b9d0",
+  "negativeControl": "architecture-section",
+  "revision": 3,
+  "createdAt": "2026-11-28T17:44:31.706Z",
+  "updatedAt": "2026-11-28T17:44:37.889Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T17:44:35.027Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"architecture-section\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T17:44:37.889Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0p9sku-ij9mc-1",
+      "at": "2026-11-28T17:44:35.025Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "e6ba994c-4252-499e-bc9b-384ad55b0a37",
+        "taskId": "task-mx0p4pml-88ougo"
+      },
+      "control": "architecture-section",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 419,
+      "commandSha256": "f390e209c8cabe83838b7087949c884ce3cd1ded666376df78c0671378054a63",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "aa7d65f86e4113e6250b132b459263e9f0e46094",
+      "dirty": true,
+      "stdout": "docs/cases/runs/arkhitektura-prikhodit-v-pervom-soobshchenii-sessii/mx0p9sku-ij9mc-1/stdout.log",
+      "stderr": "docs/cases/runs/arkhitektura-prikhodit-v-pervom-soobshchenii-sessii/mx0p9sku-ij9mc-1/stderr.log",
+      "summary": "docs/cases/runs/arkhitektura-prikhodit-v-pervom-soobshchenii-sessii/mx0p9sku-ij9mc-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0p9ut9-u6uep-1",
+      "at": "2026-11-28T17:44:37.888Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "e6ba994c-4252-499e-bc9b-384ad55b0a37",
+        "taskId": "task-mx0p4pml-88ougo"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 386,
+      "commandSha256": "f390e209c8cabe83838b7087949c884ce3cd1ded666376df78c0671378054a63",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "aa7d65f86e4113e6250b132b459263e9f0e46094",
+      "dirty": true,
+      "stdout": "docs/cases/runs/arkhitektura-prikhodit-v-pervom-soobshchenii-sessii/mx0p9ut9-u6uep-1/stdout.log",
+      "stderr": "docs/cases/runs/arkhitektura-prikhodit-v-pervom-soobshchenii-sessii/mx0p9ut9-u6uep-1/stderr.log",
+      "summary": "docs/cases/runs/arkhitektura-prikhodit-v-pervom-soobshchenii-sessii/mx0p9ut9-u6uep-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T17:44:35.027Z",
+    "runId": "mx0p9sku-ij9mc-1",
+    "exitCode": 1,
+    "control": "architecture-section",
+    "command": "node --test plugins/state-feed/test/feed.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "C:\\dsh-kit",
+    "head": "aa7d65f86e4113e6250b132b459263e9f0e46094",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "e6ba994c-4252-499e-bc9b-384ad55b0a37",
+      "taskId": "task-mx0p4pml-88ougo"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T17:44:37.889Z",
+    "command": "node --test plugins/state-feed/test/feed.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0p9ut9-u6uep-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "e6ba994c-4252-499e-bc9b-384ad55b0a37",
+      "taskId": "task-mx0p4pml-88ougo"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

@@ -41,6 +41,10 @@ window.__ModuleLoader__.load({
     const STATE_CHANGED_EVENT = 'dsh:project-state-changed'
     const INDEX_PATH = 'state/views/index.json'
     const ANALYSIS_DIR = 'docs/analysis'
+    // THE LONG-TERM PLAN IS READ FROM ITS GENERATED VIEW, NOT FROM state/plan.yaml: the yaml is a
+    // summary that lists ten initiatives and points at this file for the rest ("+20 more ..."),
+    // so the full view is the only one that answers "what is the plan" in one read.
+    const PLAN_VIEW_PATH = 'state/views/plan.md'
     const KIND_DIR = { req: 'req', task: 'task', test: 'test', decision: 'decision' }
     const KIND_LABEL = { req: 'REQ', task: 'TASK', test: 'TEST', decision: 'DEC', evidence: 'EVIDENCE', node: 'NODE' }
     const KIND_NAME = { req: 'Requirement', task: 'Task', test: 'Test', decision: 'Decision', evidence: 'Evidence', node: 'Map node' }
@@ -692,6 +696,14 @@ window.__ModuleLoader__.load({
 .ps-table th:nth-child(3), .ps-table td:nth-child(3) { width: 16%; }
 .ps-table th:nth-child(4), .ps-table td:nth-child(4) { width: 22%; }
 .ps-tablewrap { overflow-x: auto; max-width: 100%; }
+.ps-planh { margin: 2px 0 6px; font-size: 16px; line-height: 1.3; }
+.ps-plansec { margin: 16px 0 0; }
+.ps-plansec h3 { margin: 0 0 6px; }
+.ps-planlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ps-planlist li { border-bottom: 1px solid var(--ps-line); padding-bottom: 6px; }
+.ps-planinit th:nth-child(1), .ps-planinit td:nth-child(1) { width: 58%; }
+.ps-planinit th:nth-child(2), .ps-planinit td:nth-child(2) { width: 14%; }
+.ps-planinit th:nth-child(3), .ps-planinit td:nth-child(3) { width: 28%; }
 /* The list must FIT the panel: fixed px widths for the narrow columns, the rest to Task. */
 .ps-table.ps-tasklist { min-width: 690px; }
 .ps-table.ps-tasklist th:nth-child(1), .ps-table.ps-tasklist td:nth-child(1) { width: 84px; }
@@ -1669,6 +1681,141 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'ps-mapstage', 'data-designmap-page-editor': 'true' }, h(PageEditor, { host }))
     }
 
+    /**
+     * The generated plan view (state/views/plan.md), read once per panel session.
+     *
+     * The view is written by regenerateViews() from docs/analysis/*.json and the journal; the
+     * panel parses its tables and its bullet list and renders them. Nothing here writes, polls or
+     * re-reads on a tab switch: the parsed object lives in the panel, so opening Plan again costs
+     * no request (REQ-309).
+     */
+    function parsePlanView(text) {
+      const lines = String(text ?? '').replace(/\r\n/g, '\n').split('\n')
+      const cells = (line) => line.split('|').slice(1, -1).map((cell) => cell.trim())
+      const meta = /Инициатив:\s*(\d+);\s*с открытыми задачами:\s*(\d+);\s*с несделанными требованиями:\s*(\d+)/.exec(String(text ?? ''))
+      const initiatives = []
+      const decisions = []
+      const openTasks = []
+      let section = null
+      for (const line of lines) {
+        const heading = /^##\s+(.*)$/.exec(line)
+        if (heading !== null) {
+          section = heading[1].startsWith('Решения') ? 'decisions' : (heading[1].startsWith('Открытые задачи') ? 'tasks' : null)
+          continue
+        }
+        if (section === 'decisions' && line.startsWith('|')) {
+          const row = cells(line)
+          if (row.length < 4 || row[0] === 'Решение' || /^-+$/.test(row[0])) continue
+          decisions.push({ id: row[0], status: row[1], initiative: row[2], title: row[3] })
+          continue
+        }
+        if (section === 'tasks') {
+          const bullet = /^-\s+(\S+)\s+\(([^)]+)\):\s*(.*)$/.exec(line.trim())
+          if (bullet !== null) openTasks.push({ id: bullet[1], status: bullet[2], title: bullet[3] })
+          continue
+        }
+        if (section !== null || !line.startsWith('|')) continue
+        // The initiative table is the one before the first "## " heading.
+        const row = cells(line)
+        if (row.length < 5 || row[0] === 'Инициатива' || /^-+$/.test(row[0])) continue
+        const dash = row[0].indexOf(' — ')
+        const confirmed = /^(\d+)\s+из\s+(\d+)$/.exec(row[2])
+        initiatives.push({
+          id: dash < 0 ? row[0] : row[0].slice(0, dash),
+          title: dash < 0 ? row[0] : row[0].slice(dash + 3),
+          stage: row[1],
+          confirmed: confirmed === null ? null : Number(confirmed[1]),
+          requirements: confirmed === null ? null : Number(confirmed[2]),
+          remaining: row[3],
+          openTasks: row[4] === '—' ? 0 : row[4],
+        })
+      }
+      // UNFINISHED WORK ONLY, and the newest decision first (DEC-004 before DEC-001).
+      const withWork = initiatives.filter((row) => row.remaining !== '—' || row.openTasks !== 0)
+      decisions.sort((left, right) => right.id.localeCompare(left.id))
+      return {
+        totals: meta === null ? null : { initiatives: Number(meta[1]), withOpenTasks: Number(meta[2]), withWork: Number(meta[3]) },
+        initiatives: withWork,
+        decisions,
+        openTasks,
+      }
+    }
+
+    function PlanMode({ plan, reload }) {
+      if (plan.phase === 'loading' || plan.phase === 'idle') {
+        return h('div', null, h('p', { className: 'ps-kicker' }, 'Plan'), h('p', { className: 'ps-loading' }, 'Reading state/views/plan.md…'))
+      }
+      if (plan.phase === 'error') {
+        return h('div', null,
+          h('p', { className: 'ps-kicker' }, 'Plan'),
+          h(Alert, { code: plan.code }, plan.message),
+          h('button', { type: 'button', className: 'ps-btn small', onClick: reload }, 'Read it again'),
+        )
+      }
+      if (plan.phase === 'empty') {
+        return h('div', null,
+          h('p', { className: 'ps-kicker' }, 'Plan'),
+          h(Empty, { title: 'No generated plan in this workspace' },
+            h('p', null, 'Expected ', h('code', null, PLAN_VIEW_PATH), '. The state core writes it with ', h('code', null, 'regenerateViews()'), ' from docs/analysis/*.json and the journal; the panel never creates it.'),
+            h('button', { type: 'button', className: 'ps-btn small', onClick: reload }, 'Read it again'),
+          ),
+        )
+      }
+      const view = plan.view
+      const nothing = view.initiatives.length === 0 && view.decisions.length === 0 && view.openTasks.length === 0
+      return h('div', null,
+        h('p', { className: 'ps-kicker' }, 'Plan'),
+        h('h2', { className: 'ps-planh' }, 'Long-term plan'),
+        h('p', { className: 'ps-meta' },
+          view.totals === null
+            ? PLAN_VIEW_PATH
+            // The header's "with open tasks" count is NOT printed: the view's own header says 0 while
+            // the file lists six open tasks below, and a pane that repeats a number it contradicts
+            // reads as broken. The section headings carry the counts the panel actually drew.
+            : `${view.totals.initiatives} initiative${view.totals.initiatives === 1 ? '' : 's'}, ${view.totals.withWork} with requirements left. Read from ${PLAN_VIEW_PATH}.`),
+        nothing
+          ? h('p', { className: 'ps-empty' }, 'The plan is empty: no initiative has work left, no decision is recorded and no task is open.')
+          : null,
+        view.initiatives.length === 0
+          ? null
+          : h('section', { className: 'ps-plansec' },
+              h('h3', null, `Initiatives with work left (${view.initiatives.length})`),
+              h('div', { className: 'ps-tablewrap' },
+                h('table', { className: 'ps-table ps-planinit' },
+                  h('thead', null, h('tr', null,
+                    h('th', { scope: 'col' }, 'Initiative'),
+                    h('th', { scope: 'col' }, 'Stage'),
+                    h('th', { scope: 'col' }, 'Confirmed'),
+                  )),
+                  h('tbody', null, view.initiatives.map((row) => h('tr', { key: row.id },
+                    h('td', null, h('b', null, row.title), h('div', { className: 'ps-meta' }, h('code', null, row.id))),
+                    h('td', null, h('span', { className: 'ps-meta' }, row.stage)),
+                    h('td', null, row.confirmed === null ? h('span', { className: 'none' }, '—') : `${row.confirmed} of ${row.requirements}`),
+                  ))),
+                ),
+              ),
+            ),
+        view.decisions.length === 0
+          ? null
+          : h('section', { className: 'ps-plansec' },
+              h('h3', null, `Decisions (${view.decisions.length})`),
+              h('ul', { className: 'ps-planlist' }, view.decisions.map((row) => h('li', { key: row.id },
+                h('code', null, row.id), ' ', h('b', null, row.title),
+                h('span', { className: 'ps-meta' }, ` · ${row.initiative} · ${row.status}`),
+              ))),
+            ),
+        view.openTasks.length === 0
+          ? null
+          : h('section', { className: 'ps-plansec' },
+              h('h3', null, `Open tasks (${view.openTasks.length})`),
+              h('ul', { className: 'ps-planlist' }, view.openTasks.map((row) => h('li', { key: row.id },
+                h('code', null, row.id), ' ', h('b', null, row.title),
+                h('span', { className: 'ps-meta' }, ` · ${row.status}`),
+              ))),
+            ),
+      )
+    }
+
     /* ---------- evidence block + drawer ---------- */
 
     function EvidenceBlock({ text }) {
@@ -2268,6 +2415,9 @@ window.__ModuleLoader__.load({
       // VIEW ONLY, like the view and the sort: the owner asked to be able to hide chore tasks;
       // the default keeps the board exactly as before.
       const [hideChores, setHideChores] = useState(false)
+      // The parsed plan view lives in the panel, not in the tab: opening Plan a second time in the
+      // same session must not read the file again (REQ-309).
+      const [plan, setPlan] = useState({ phase: 'idle' })
       const returnFocus = useRef(null)
       // Elapsed labels are computed at render; a minute tick keeps them honest without a poll.
       const [, setClockTick] = useState(0)
@@ -2321,6 +2471,37 @@ window.__ModuleLoader__.load({
         )
         return () => controller.abort()
       }, [remote, sessionId, reloadToken])
+
+      // Reload re-reads the plan as well, and only then: every other paint keeps the parsed one.
+      useEffect(() => {
+        setPlan({ phase: 'idle' })
+      }, [reloadToken])
+
+      // ONE READ FOR THE PLAN. It runs when the Plan tab is first opened (and after Reload), never
+      // on a tab switch: a ready plan stays in the panel.
+      useEffect(() => {
+        if (mode !== 'plan' || plan.phase !== 'idle') return undefined
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          setPlan({ phase: 'empty' })
+          return undefined
+        }
+        const controller = new AbortController()
+        setPlan({ phase: 'loading' })
+        readText(remote, sessionId, PLAN_VIEW_PATH, controller.signal).then(
+          (read) => {
+            if (controller.signal.aborted) return
+            if (read.ok !== true) {
+              setPlan(read.missing === true ? { phase: 'empty' } : { phase: 'error', code: read.code ?? 'plan_unreadable', message: read.message ?? 'state/views/plan.md could not be read' })
+              return
+            }
+            setPlan({ phase: 'ready', view: parsePlanView(read.text) })
+          },
+          (error) => {
+            if (!controller.signal.aborted) setPlan({ phase: 'error', code: 'plan_unreadable', message: errorText(error) })
+          },
+        )
+        return () => controller.abort()
+      }, [mode, plan.phase, reloadToken, remote, sessionId])
 
       // v2 P2: the Design map mode no longer asks designmap for a rendered scene; the page
       // editor loads designmap/pages itself through the same command transport.
@@ -2552,7 +2733,7 @@ window.__ModuleLoader__.load({
       const onModeKeyDown = (event) => {
         // The mode list is a VERTICAL tablist in the Night desk shell; keep the horizontal
         // arrows working for muscle memory, but Up/Down is the pattern the orientation promises.
-        const order = ['req', 'board', 'map', 'trace']
+        const order = ['req', 'board', 'map', 'trace', 'plan']
         const index = order.indexOf(mode)
         const delta = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 0
         if (delta !== 0) {
@@ -2585,7 +2766,7 @@ window.__ModuleLoader__.load({
       const filteredTasks = index === null || filter === null ? null : index.tasks.filter((task) => requirementIdsOf(task, data.entities?.get?.(task.id)?.frontmatter).includes(filter)).length
       const filteredTests = index === null || filter === null ? null : index.tests.filter((test) => test.reqId === filter).length
 
-      const MODE_COLOR = { req: TYPE_COLOR.req, board: TYPE_COLOR.task, map: TYPE_COLOR.node, trace: TYPE_COLOR.test }
+      const MODE_COLOR = { req: TYPE_COLOR.req, board: TYPE_COLOR.task, map: TYPE_COLOR.node, trace: TYPE_COLOR.test, plan: TYPE_COLOR.evidence }
       const modeButton = (id, label) => h('button', {
         id: `ps-tab-${id}`,
         type: 'button',
@@ -2666,6 +2847,7 @@ window.__ModuleLoader__.load({
               modeButton('board', 'Board'),
               modeButton('map', 'Design map'),
               modeButton('trace', 'Tests & trace'),
+              modeButton('plan', 'Plan'),
             ),
             h('div', { className: 'ps-navsec' },
               h('p', { className: 'ps-kicker' }, 'Requirement filter'),
@@ -2684,7 +2866,18 @@ window.__ModuleLoader__.load({
               h('p', { style: { marginTop: 6 } }, 'Lens over state/views; you can change a task status here (recorded in the journal).'),
             ),
           ),
-          h('section', { className: mode === 'map' ? 'ps-main ps-main-map' : 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
+          h('section', {
+            className: mode === 'map' ? 'ps-main ps-main-map' : 'ps-main',
+            id: 'ps-panel',
+            role: 'tabpanel',
+            'aria-labelledby': `ps-tab-${mode}`,
+            // THE PLAN TAB HOLDS NO CONTROL, AND THIS SECTION IS THE SCROLLER. A scrollable
+            // region with nothing focusable cannot be scrolled from the keyboard; the plan (a
+            // table, two lists, no buttons) is exactly that, so the panel itself takes the tab
+            // stop there and answers the arrow keys (axe: scrollable-region-focusable). The other
+            // tabs keep their own controls as the stop.
+            tabIndex: mode === 'plan' ? 0 : undefined,
+          },
             statusNotice === null
               ? null
               : h('div', { className: `ps-notice ${statusNotice.tone}` },
@@ -2698,7 +2891,9 @@ window.__ModuleLoader__.load({
                 ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort, sessionsById, onChangeStatus: changeStatus, statusBusy, hideChores, onHideChores: setHideChores })
                 : mode === 'map'
                   ? h(MapMode, { remote, sessionId })
-                  : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
+                  : mode === 'plan'
+                    ? h(PlanMode, { plan, reload: () => setReloadToken((value) => value + 1) })
+                    : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
           ),
           // THE COLUMN EXISTS EVEN WHEN IT IS CLOSED. The header's right-column toggle names it
           // with aria-controls; an IDREF to an element that is absent while the drawer is closed is

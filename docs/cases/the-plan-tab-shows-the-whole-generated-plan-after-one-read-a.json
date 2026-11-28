@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "id": "the-plan-tab-shows-the-whole-generated-plan-after-one-read-a",
+  "title": "The Plan tab shows the whole generated plan after one read and names an empty plan",
+  "requirement": "Opening the Plan tab in the Project state panel must cost exactly one read of the generated plan view (state/views/plan.md) and no command, must not re-read on a tab switch, must list the initiatives with work left with their stage and confirmed-of-total count, the decisions newest first with their initiative and the open tasks, and must name both an empty plan and a missing plan view in words instead of drawing a blank pane.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "agent",
+  "automated": true,
+  "testPath": ".tmp/panel-plan/run.mjs",
+  "runCommand": "node .tmp/panel-plan/run.mjs",
+  "steps": [
+    "Run node .tmp/panel-plan/run.mjs: it mounts the production plugins/project-state-panel/client.js over the workspace's own state/views/plan.md and state/views/index.json and counts every read and command.",
+    "Click the Plan tab and record the reads, the commands and the elements built.",
+    "Switch to Requirements and back to Plan; record the reads again.",
+    "Compare the rendered rows with the numbers counted from state/views/plan.md itself (initiatives with work left, decisions, open tasks).",
+    "Walk the tablist with ArrowDown from Requirements and check the Plan tab is reached and selected.",
+    "Scan the plan view with the pinned axe-core, then load the two variants where state/views/plan.md is missing and where it lists nothing."
+  ],
+  "expected": "planReads = 1 (state/views/plan.md), planCommands = 0, reopening the tab reads 0 files; 30 initiative rows, 4 decision rows (DEC-004 first), 6 open task rows, matching the file; ArrowDown walks board, map, trace, plan and selects Plan; axe reports 0 violations; the missing view says 'No generated plan in this workspace' and an empty plan says 'The plan is empty: …'.",
+  "tags": [
+    "panel",
+    "plan",
+    "a11y",
+    "requests"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "d2eed14443d76778dcde2ac1cfb5adb5738bb8eaebebea129b7ce30f31cdec43"
+    },
+    {
+      "path": ".tmp/panel-plan/run.mjs",
+      "sha256": "0f55b655461b922a85dfca33e86edd83bfe5fdd8dfcc6c4b332aae71899c3431"
+    },
+    {
+      "path": "state/views/plan.md",
+      "sha256": "e5e40aabe3daaec575c83f11c9cbe17e050449c07222047921eb9557e4a8bcd0"
+    }
+  ],
+  "linkedTaskId": "task-mx0ownei-0u6fo1",
+  "reqId": "REQ-309",
+  "authorRole": "ux",
+  "authorPreset": "ux",
+  "authorSessionId": "7f24c213-e87a-495b-b738-78c72c201fe1",
+  "purpose": "implementation",
+  "testHash": "0f55b655461b922a85dfca33e86edd83bfe5fdd8dfcc6c4b332aae71899c3431",
+  "failsWhen": "The tab reads the yaml summary or a second file, sends a command, re-reads the plan on a tab switch, draws a blank pane when the view is missing or empty, drops out of the tablist's arrow order, or reintroduces the axe scrollable-region-focusable violation by making the plan pane scroll without anything focusable.",
+  "trigger": "The owner opens Plan from the panel's mode list over the workspace's own generated plan view, then switches tabs and comes back; later opens the same panel in a workspace whose plan view is absent or empty.",
+  "oracle": "The generated view itself: its header line 'Инициатив: 56; … с несделанными требованиями: 30' and its tables are what the pane must reproduce; the one-read rule is REQ-309; the empty state is the panel's own convention of naming what is missing instead of drawing nothing.",
+  "realism": "The workspace's real state/views/plan.md (12 KB, 30 initiatives with work left, 4 decisions, 6 open tasks) and its real 484-task index, rendered by the production bundle in Chrome; axe-core 4.14.0.",
+  "checks": [
+    {
+      "name": "planReads",
+      "metric": "planReads",
+      "op": "==",
+      "threshold": 1,
+      "unit": "files"
+    },
+    {
+      "name": "planCommands",
+      "metric": "planCommands",
+      "op": "==",
+      "threshold": 0,
+      "unit": "commands"
+    },
+    {
+      "name": "reopenReads",
+      "metric": "reopenReads",
+      "op": "==",
+      "threshold": 0,
+      "unit": "files"
+    },
+    {
+      "name": "axeViolations",
+      "metric": "axeViolations",
+      "op": "==",
+      "threshold": 0,
+      "unit": "violations"
+    },
+    {
+      "name": "missingEmptyNamed",
+      "metric": "missingEmptyNamed",
+      "op": "==",
+      "threshold": 1,
+      "unit": "state"
+    },
+    {
+      "name": "emptyNamed",
+      "metric": "emptyNamed",
+      "op": "==",
+      "threshold": 1,
+      "unit": "state"
+    }
+  ],
+  "revision": 1,
+  "createdAt": "2026-11-28T17:37:06.836Z",
+  "updatedAt": "2026-11-28T17:37:06.836Z",
+  "createdBy": "ux",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

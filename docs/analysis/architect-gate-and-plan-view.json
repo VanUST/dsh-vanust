@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "id": "architect-gate-and-plan-view",
+  "rev": 5,
+  "status": "ready",
+  "createdAt": "2026-11-28T17:34:13.930Z",
+  "updatedAt": "2026-11-28T17:38:07.990Z",
+  "updatedBy": "agent",
+  "title": "Архитектурные ворота и план в интерфейсе",
+  "requestedSolution": "Ворота на L2 с architectureImpact по записи консультации архитектора; вкладка плана в панели состояния.",
+  "businessOutcome": {
+    "problem": "Правило DEC-002 требует консультации ARCHITECT при смене контракта, владельца данных, появлении компонента или внешней зависимости, но ничто его не проверяет: L2-делегирование проходит без консультации. План существует только как файл и в интерфейсе не виден.",
+    "outcome": "Изменение, задевающее архитектуру, не начинается без записанного решения архитектора; владелец видит долгосрочный план в интерфейсе, а не только в файле.",
+    "successMetrics": [
+      "L2 с architectureImpact без записи консультации — отказ с понятным кодом и указанием, что записать.",
+      "Законный L2 с консультацией проходит.",
+      "В панели есть вкладка плана: инициативы с незавершённой работой, решения, ближайшие задачи; одно чтение при открытии."
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Архитектурное изменение",
+        "actors": [
+          "оркестратор"
+        ],
+        "steps": [
+          "Оркестратор объявляет architectureImpact.",
+          "Никто не спрашивает архитектора.",
+          "Изменение идёт в реализацию."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Архитектурное изменение",
+        "actors": [
+          "оркестратор",
+          "ARCHITECT",
+          "владелец"
+        ],
+        "steps": [
+          "Оркестратор объявляет architectureImpact.",
+          "Ворота требуют решения архитектора в записи.",
+          "Без решения — отказ; с решением — реализация; план виден в панели."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "R1",
+      "kind": "FR",
+      "text": "Изменение, задевающее архитектуру, не начинается без записанного решения архитектора в записи анализа.",
+      "acceptance": [
+        "AC-1: L2-делегирование с architectureImpact без записи консультации архитектора отказывает с кодом и сообщением, которое говорит, что записать.",
+        "AC-2: То же делегирование с записанной консультацией проходит.",
+        "AC-3: L0/L1 и L2 без architectureImpact не задеты."
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "R2",
+      "kind": "FR",
+      "text": "Долгосрочный план виден в интерфейсе, а не только в файле.",
+      "acceptance": [
+        "AC-1: В панели есть вкладка плана: инициативы с незавершённой работой, решения (свежие первыми), ближайшие задачи.",
+        "AC-2: При открытии — одно чтение плана, без опроса.",
+        "AC-3: Доступность: клавиатура, заголовки, пустое состояние названо."
+      ],
+      "status": "deferred",
+      "reason": "Проверено драйвером: вкладка Plan — 1 чтение state/views/plan.md и 0 команд, 30 инициатив с работой, 4 решения (первое DEC-004), 6 открытых задач; возврат на вкладку — 0 чтений; axe 0 нарушений, стрелки и tabpanel работают, пустой и отсутствующий вид дают названные сообщения; тесты панели 23/23. Кейс исполнительский — независимой приёмки нет."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-GATE",
+        "name": "ворота делегирования",
+        "responsibility": "Отказ на L2-делегирование с architectureImpact, если в записи анализа нет консультации архитектора.",
+        "owner": "plugins/orchestrator",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PANEL",
+        "name": "панель состояния",
+        "responsibility": "Вкладка плана: инициативы, решения, ближайшие задачи из сгенерированного плана.",
+        "owner": "plugins/project-state-panel",
+        "owns": [
+          "D-PLAN"
+        ],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-PLAN",
+      "name": "план проекта",
+      "owner": "kit",
+      "ownerComponentId": "C-PANEL",
+      "description": "Сгенерированный план state/plan.yaml и его полный вид state/views/plan.md."
+    }
+  ],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "I-ARCH-CONSULT",
+      "text": "L2-делегирование с architectureImpact не стартует без записанного решения архитектора в записи анализа.",
+      "scope": "delegation"
+    }
+  ],
+  "decisions": [],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": []
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "R1",
+      "processId": "P-TARGET",
+      "componentId": "C-GATE",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mx0own6u-l6enc4",
+          "role": "BACKEND",
+          "at": "2026-11-28T17:34:21.068Z",
+          "evidence": [
+            "Отказ architect_consult_required на реальной записи с пустым decisions; текст говорит, что записать: решение, обоснование, отвергнутые варианты, компоненты, инварианты, проверки, путь отката.",
+            "End-to-end: L2+architectureImpact → отказ, строк 0; L1 → ok, 1 строка и 1 ребёнок; L0 → ok.",
+            "Тест 7/7 exit 0; на копии модуля до правки 3/7 exit 1; кейс red mx0p0dzj-wsntq-1 и green mx0p0i4i-x78rw."
+          ]
+        },
+        {
+          "taskId": "task-live-1",
+          "role": "BACKEND",
+          "at": "2026-11-28T17:36:58.365Z",
+          "evidence": [
+            "Наборы orchestrator 56/56 и analysis 13/13 после правки."
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "processId": "P-TARGET",
+      "componentId": "C-PANEL",
+      "contractIds": [],
+      "dataIds": [
+        "D-PLAN"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mx0ownei-0u6fo1",
+          "role": "UX/UI",
+          "at": "2026-11-28T17:34:21.342Z",
+          "evidence": [
+            "Вкладка Plan: одно чтение state/views/plan.md, 0 команд, 30 инициатив, 4 решения, 6 задач; возврат — 0 чтений; axe 0 нарушений; пустой и отсутствующий вид названы; панельные тесты 23/23."
+          ]
+        }
+      ],
+      "reason": "Драйвер зелёный, кейс исполнительский."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "6ddbc4057cdfb4e9e482970f24115bf552787fed923c4504619202af23e16ea2",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T17:34:13.930Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T17:34:21.068Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0own6u-l6enc4 -> R1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T17:34:21.342Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0ownei-0u6fo1 -> R2"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T17:36:58.365Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-live-1 -> R1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T17:38:07.990Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: R1 changed, R2 changed; impacts: 2"
+    }
+  ]
+}

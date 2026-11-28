@@ -251,6 +251,20 @@ gives the process a TTY so the launch URL is printed; without one the URL never 
 - Acceptance evidence is the command, its output and the exit code (or one browser observation),
   not a child's summary. `task_close` on a child's word is how the board starts lying.
 
+### 6.1 The order of the long-term results
+
+Results are built in order; each depends on the ones before it. The order changes on evidence, never
+on the number of closed tasks. The state of each initiative is the generated view `state/views/plan.md`.
+
+| # | Result | Depends on | Done when |
+|---|---|---|---|
+| 1 | The board write loses no confirmed row and passes no forgery | — | acceptance cases green on the accepted bytes, red on the previous version; the version is deployed |
+| 2 | The shell check record is resolvable and honest about authorship | 1 | a false record is cleared by the area owner with a reason; a surviving edit still refuses |
+| 3 | A subagent start knows both activation shapes and lives in one place | 2 | the orchestrator carries no form fields; both shapes are checked; the seam contract is written down |
+| 4 | The request is measured through a harness session, not by guesswork | 3 | one step shows which section changed and where the sent bytes first diverged; a comparison changes one factor |
+| 5 | Context rules change only on measurement | 4 | every change has a before/after measurement and behaviour did not regress |
+| 6 | An architecture-conformance check runs on one pilot | 3 | a change that breaks an accepted boundary does not reach acceptance; moving a block on the map does not stop work |
+
 ## 7. Acceptance: analysis, cases, and what counts as proof
 
 ### 7.1 The Analysis Record and its gates

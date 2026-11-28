@@ -14,7 +14,7 @@
  *                  (@deepseek-ai/cordis, @deepseek-ai/dsh-tools), reaches inside a harness
  *                  package (@deepseek-ai/<pkg>/<subpath>), or resolves into the installed
  *                  harness directory (node_modules/@deepseek-ai/). The seam,
- *                  plugins/orchestrator/harness-seam.mjs (docs/ARCHITECTURE.md §8), is where
+ *                  plugins/orchestrator/harness-seam.mjs (docs/ARCHITECTURE.md §3), is where
  *                  such a reach is allowed.
  *   I-ONE-WRITER   a write call (writeFile*, appendFile*, createWriteStream, copyFile*, rename*,
  *                  rmSync, unlinkSync, truncateSync, writeSync) whose arguments name a state's
@@ -27,15 +27,30 @@
  *   @deepseek-ai/dsh-mcp-client) is wiring, not an import, and is not covered. The check reads
  *   source; it does not run the kit.
  *
+ * ARCHITECTURE DRIFT (a report, never a finding)
+ *   docs/ARCHITECTURE.md §2 names each component with its path. Both modes also print how that
+ *   table compares with the tree: a declared path the tree does not have, and a scanned code file
+ *   no declared path claims; a missing page says "архитектуры нет". The section never enters
+ *   `open` or `stale` and never changes the exit code — a stale architecture page is a fact for
+ *   the orchestrator and the architect, not a build failure.
+ *
+ *   A drift line is ONE line of counts (declared paths, paths the tree lacks, code files no
+ *   component claims) followed by at most DRIFT_EXAMPLES examples: a list of eighty files stops
+ *   being read, and an unread report names nothing. The complete lists stay in --json and behind
+ *   --drift-all.
+ *
  * EXCEPTIONS
  *   Each entry names the rule, the file, the matched literal, the OWNER and the REASON. An
  *   exception that no longer matches anything is a finding of its own (a stale exception), so the
  *   list cannot rot: retiring the code must retire the exception in the same change.
  *
  * USAGE
- *   node scripts/check-boundaries.mjs                 report: print findings, always exit 0
+ *   node scripts/check-boundaries.mjs                 report: print findings and the architecture
+ *                                                     drift, always exit 0
  *   node scripts/check-boundaries.mjs --check         gate: exit 1 on an unexcepted finding
- *   node scripts/check-boundaries.mjs --json          machine-readable result
+ *   node scripts/check-boundaries.mjs --json          machine-readable result, the complete
+ *                                                     architecture drift included
+ *   node scripts/check-boundaries.mjs --drift-all     print every drifting path, not the examples
  *   node scripts/check-boundaries.mjs --list          the component inventory only
  *   node scripts/check-boundaries.mjs --root <dir>    scan <dir> (a pilot tree or a fixture)
  *
@@ -45,7 +60,7 @@
  *   2  an exception names a rule that does not exist
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -59,6 +74,12 @@ const FIXTURE_DIRS = new Set(['node_modules', 'test', 'tests', 'proof', 'dist', 
 
 /** The one place allowed to reach into harness internals. */
 export const SEAM = 'plugins/orchestrator/harness-seam.mjs'
+
+/** The architecture page whose component table names paths in the tree. */
+export const ARCHITECTURE_FILE = 'docs/ARCHITECTURE.md'
+
+/** How many drifting paths the report prints before it says how many are left (--drift-all shows all). */
+export const DRIFT_EXAMPLES = 5
 
 /** The two invariants this check knows (docs/analysis/architecture-boundaries.json). */
 export const RULES = ['I-SEAM-ONLY', 'I-ONE-WRITER']
@@ -263,6 +284,69 @@ export function inside(file, dir) {
   return file === dir || file.startsWith(dir + '/')
 }
 
+/**
+ * The component paths docs/ARCHITECTURE.md declares: the backticked literals of the FIRST column
+ * of the table whose header cell says "Компонент" (§2, "Компоненты, владельцы, контракты"). The
+ * second column names state paths and consumers, not components, so it is not read. A literal is
+ * a path when it has a separator or a file extension.
+ *
+ * @param {string} markdown - the architecture page's text.
+ * @returns {string[]|null} the declared paths; `null` when the page has no component table.
+ */
+export function architecturePaths(markdown) {
+  const lines = String(markdown ?? '').split(/\r?\n/)
+  const header = lines.findIndex((line, index) => {
+    if (!line.trim().startsWith('|')) return false
+    if (!/компонент/i.test(line.split('|')[1] ?? '')) return false
+    // A real table header: the separator row follows it.
+    return /^\|[\s:|-]+\|$/.test((lines[index + 1] ?? '').trim())
+  })
+  if (header < 0) return null
+  const paths = []
+  for (const line of lines.slice(header + 1)) {
+    if (!line.trim().startsWith('|')) break
+    const first = line.split('|')[1] ?? ''
+    for (const match of first.matchAll(/`([^`]+)`/g)) {
+      const token = match[1].trim()
+      if (token !== '' && (token.includes('/') || /\.(mjs|js|cjs|mts|ts|json|yml|yaml|sh|ps1)$/.test(token))) paths.push(token)
+    }
+  }
+  return paths
+}
+
+/**
+ * How docs/ARCHITECTURE.md's component table compares with the tree. A REPORT, never a finding:
+ * `scan()` keeps it out of `open` and `stale`, so the gate's verdict and exit codes do not move.
+ *
+ *   present: false     - no architecture page: nothing to compare, and not a failure;
+ *   components: false  - the page has no component table: nothing to compare;
+ *   missing            - declared paths the tree does not have;
+ *   unowned            - scanned code files no declared path claims.
+ *
+ * @param {string} [root] - the tree to compare against.
+ * @param {string[]} [files] - its scanned code files (kit-relative, forward slashes).
+ */
+export function architectureDrift(root = KIT, files = codeFiles(root)) {
+  const file = ARCHITECTURE_FILE
+  let markdown
+  try {
+    markdown = readFileSync(join(root, file), 'utf8')
+  } catch {
+    return { present: false, components: false, file, paths: [], missing: [], unowned: [] }
+  }
+  const paths = architecturePaths(markdown)
+  if (paths === null) return { present: true, components: false, file, paths: [], missing: [], unowned: [] }
+  const claimed = (rel) => paths.some((path) => inside(rel, path.endsWith('/') ? path.slice(0, -1) : path))
+  return {
+    present: true,
+    components: true,
+    file,
+    paths,
+    missing: paths.filter((path) => !existsSync(join(root, path))),
+    unowned: files.filter((rel) => !claimed(rel)),
+  }
+}
+
 /** Scan one root: the findings, the findings an exception waived, and the stale exceptions. */
 export function scan(root = KIT) {
   const findings = []
@@ -325,7 +409,7 @@ export function scan(root = KIT) {
     else waived.push({ exception, finding: hit })
   }
   const open = findings.filter((finding) => !waived.some((entry) => entry.finding === finding))
-  return { root, scanned: files.length, findings, open, waived, stale }
+  return { root, scanned: files.length, findings, open, waived, stale, architecture: architectureDrift(root, files) }
 }
 
 export function main(argv = process.argv.slice(2), root = KIT) {
@@ -333,6 +417,7 @@ export function main(argv = process.argv.slice(2), root = KIT) {
   const scanRoot = at >= 0 && argv[at + 1] !== undefined ? resolve(argv[at + 1]) : root
   const gate = argv.includes('--check')
   const json = argv.includes('--json')
+  const driftAll = argv.includes('--drift-all')
   const known = new Set(RULES)
   const unknown = EXCEPTIONS.filter((exception) => !known.has(exception.rule))
   if (unknown.length > 0) {
@@ -355,6 +440,30 @@ export function main(argv = process.argv.slice(2), root = KIT) {
   }
   for (const exception of result.stale) {
     console.log('  STALE EXCEPTION ' + exception.id + ' (' + exception.rule + ' ' + exception.file + ' "' + exception.match + '"): nothing matches it any more — retract it or restore the code')
+  }
+  const drift = result.architecture
+  if (drift.present === false) {
+    console.log('  архитектуры нет (' + drift.file + ') — сверять нечего')
+  } else if (drift.components === false) {
+    console.log('  в ' + drift.file + ' нет таблицы компонентов — сверять нечего')
+  } else if (drift.missing.length === 0 && drift.unowned.length === 0) {
+    console.log('  архитектура сходится с деревом (' + drift.file + ')')
+  } else {
+    // One line of counts, then a few examples. The full list is a flag away: a report nobody
+    // finishes reading names nothing, and the counts are the fact the reader needs either way.
+    const drifting = [
+      ...drift.missing.map((path) => 'нет такого пути: ' + path),
+      ...drift.unowned.map((file) => 'файл кода вне компонентов: ' + file),
+    ]
+    console.log(
+      '  архитектура расходится с деревом (' + drift.file + '): объявлено путей: ' + drift.paths.length +
+        ', нет в дереве: ' + drift.missing.length + ', файлов кода вне компонентов: ' + drift.unowned.length,
+    )
+    const shown = driftAll ? drifting : drifting.slice(0, DRIFT_EXAMPLES)
+    for (const line of shown) console.log('    ' + line)
+    if (shown.length < drifting.length) {
+      console.log('    ещё ' + (drifting.length - shown.length) + ' — полный список: --drift-all или --json')
+    }
   }
   const red = result.open.length + result.stale.length
   if (!gate) {

@@ -2,27 +2,27 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (2)
+## open (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
-| TASK-486 | Политика не должна требовать документов, которых нет в проекте | — | — | yes |
 
 ## active (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-488 | Собрать батч: правила документации и панель | — | — | yes |
+| TASK-500 | Разблокировать и закоммитить батч | — | — | yes |
 
-## review (1)
+## review (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
+| TASK-499 | Батч: архитектура в контексте, панель, расхождение | — | — | yes |
 
-## done (389)
+## done (401)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -414,7 +414,19 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-483 | Восстановить строки доски для старых задач | REQ-307 | — | no |
 | TASK-484 | Ревью и оптимизация клиента панели состояния | REQ-306 | — | no |
 | TASK-485 | Почему web_fetch работает у корня и падает у детей | — | — | yes |
+| TASK-486 | Политика не должна требовать документов, которых нет в проекте | — | — | yes |
 | TASK-487 | Панель: критичный axe, контраст и правдивый README | REQ-306 | — | no |
+| TASK-488 | Собрать батч: правила документации и панель | — | — | yes |
+| TASK-489 | Ворота: L2 с architectureImpact без решения архитектора не стартует | REQ-308 | — | no |
+| TASK-490 | Вкладка плана в панели состояния | REQ-309 | — | no |
+| TASK-491 | План: счётчики не должны спорить со своими списками | — | — | yes |
+| TASK-492 | Архитектура в один файл на 8 КБ | REQ-310 | — | no |
+| TASK-493 | Архитектура в первом сообщении каждой сессии | REQ-311 | — | no |
+| TASK-494 | Сигнал расхождения архитектуры с деревом | — | — | yes |
+| TASK-495 | Архитектура: сценарии изменения, карта и метка происхождения | — | — | yes |
+| TASK-496 | Предел раздела архитектуры: 12 288 байт | — | — | yes |
+| TASK-497 | Расхождение архитектуры: итог и примеры вместо 80 строк | — | — | yes |
+| TASK-498 | Архитектура: инструменты кита в §2 | — | — | yes |
 
 ## blocked (1)
 

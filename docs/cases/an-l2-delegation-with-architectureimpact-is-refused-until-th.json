@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "id": "an-l2-delegation-with-architectureimpact-is-refused-until-th",
+  "title": "An L2 delegation with architectureImpact is refused until the record carries an ARCH- decision",
+  "requirement": "REQ-308 (AC-1..AC-3): an L2 change that declares architectureImpact does not start without the architect's decision recorded in the Analysis Record; the refusal carries a code and says what to write; the same delegation with the decision passes; L0, L1 and L2 without architectureImpact are unaffected.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/orchestrator/test/architect-consult-gate.test.mjs",
+  "runCommand": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+  "steps": [
+    "Mount the orchestrator with a fake board and the analysis service; call delegate_task with changeClass L2, architectureImpact true and analysisId architect-gate-and-plan-view, whose decisions[] holds no ARCH- entry.",
+    "Call the same delegation with decisions[] carrying {id:\"ARCH-1\"}.",
+    "Call L0, L1 and L2 without architectureImpact.",
+    "Run architectConsultation against the real Analysis Record of this workspace, then against a copy of it with one ARCH- decision."
+  ],
+  "expected": "The first call returns {ok:false, code:\"architect_consult_required\"} with a message naming decisions[] and an ARCH- id, the components, invariants, checks and rollback path, and writes no task row and starts no child; the second creates one row and starts one child; L0/L1/L2-without-impact pass; the real record refuses and its copy passes.",
+  "tags": [
+    "orchestrator",
+    "delegate_task",
+    "DEC-002",
+    "architect",
+    "gate"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "7a23cde32713bfc50b102ee93e04340a97a229a6dc3619bd6ba41aac4595ede1"
+    }
+  ],
+  "linkedTaskId": "task-mx0own6u-l6enc4",
+  "reqId": "REQ-308",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+  "purpose": "implementation",
+  "testHash": "176bf4c4a792c18c4d6475b5555218168c853559224ed58ccdeb03e2d6894b15",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-28T17:37:09.440Z",
+  "updatedAt": "2026-11-28T17:37:21.331Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T17:37:15.960Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T17:37:21.331Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0p0dzj-wsntq-1",
+      "at": "2026-11-28T17:37:15.957Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+        "taskId": "task-mx0own6u-l6enc4"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 179,
+      "commandSha256": "0312d7378eba2f54c5557e5eb1d95ec4f4517e11009c7676dd0c4659c3ee88db",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\orchestrator-prefix-gate",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/orchestrator-prefix-gate",
+      "head": "690138da407bcfa2a0e2be239405c2298898b133",
+      "dirty": false,
+      "stdout": "docs/cases/runs/an-l2-delegation-with-architectureimpact-is-refused-until-th/mx0p0dzj-wsntq-1/stdout.log",
+      "stderr": "docs/cases/runs/an-l2-delegation-with-architectureimpact-is-refused-until-th/mx0p0dzj-wsntq-1/stderr.log",
+      "summary": "docs/cases/runs/an-l2-delegation-with-architectureimpact-is-refused-until-th/mx0p0dzj-wsntq-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0p0i4i-x78rw-1",
+      "at": "2026-11-28T17:37:21.330Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+        "taskId": "task-mx0own6u-l6enc4"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 170,
+      "commandSha256": "0312d7378eba2f54c5557e5eb1d95ec4f4517e11009c7676dd0c4659c3ee88db",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "aa7d65f86e4113e6250b132b459263e9f0e46094",
+      "dirty": true,
+      "stdout": "docs/cases/runs/an-l2-delegation-with-architectureimpact-is-refused-until-th/mx0p0i4i-x78rw-1/stdout.log",
+      "stderr": "docs/cases/runs/an-l2-delegation-with-architectureimpact-is-refused-until-th/mx0p0i4i-x78rw-1/stderr.log",
+      "summary": "docs/cases/runs/an-l2-delegation-with-architectureimpact-is-refused-until-th/mx0p0i4i-x78rw-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T17:37:15.960Z",
+    "runId": "mx0p0dzj-wsntq-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\orchestrator-prefix-gate",
+    "head": "690138da407bcfa2a0e2be239405c2298898b133",
+    "dirty": false,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+      "taskId": "task-mx0own6u-l6enc4"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T17:37:21.331Z",
+    "command": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0p0i4i-x78rw-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+      "taskId": "task-mx0own6u-l6enc4"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

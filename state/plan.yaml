@@ -1,7 +1,7 @@
 # GENERATED — DO NOT EDIT. The plan summary the state feed delivers in L1,
 # written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.
 schemaVersion: 1
-initiatives: 29
+initiatives: 31
 openTasks: 6
 work:
   - id: "agent-surface-and-shell"
@@ -10,11 +10,23 @@ work:
     confirmed: 7
     requirements: 8
     openTasks: []
+  - id: "architect-gate-and-plan-view"
+    title: "Архитектурные ворота и план в интерфейсе"
+    stage: "ready"
+    confirmed: 1
+    requirements: 2
+    openTasks: []
   - id: "architect-role-and-context-economy"
     title: "Роль ARCHITECT: минималистичный пресет системного дизайнера…"
     stage: "ready"
     confirmed: 0
     requirements: 7
+    openTasks: []
+  - id: "architecture-in-context"
+    title: "Архитектура в контексте оркестратора"
+    stage: "ready"
+    confirmed: 1
+    requirements: 2
     openTasks: []
   - id: "batch-execution"
     title: "Пакетная работа: две seats на спайк вместо ребёнка на строку"
@@ -52,19 +64,7 @@ work:
     confirmed: 0
     requirements: 9
     openTasks: []
-  - id: "independent-verification"
-    title: "Независимая проверка: происхождение доказательства, роль TE…"
-    stage: "ready"
-    confirmed: 0
-    requirements: 11
-    openTasks: []
-  - id: "kit-boot-convergence"
-    title: "Одна команда `dsh web`: сведение кита, отказ вместо тихого…"
-    stage: "ready"
-    confirmed: 0
-    requirements: 2
-    openTasks: []
-  # +19 more initiatives with open work: state/views/plan.md
+  # +21 more initiatives with open work: state/views/plan.md
 decisions: 4
   - { id: "DEC-004", initiative: "request-cache", title: "Резерв под ответ на маршруте Codex — 32 768" }
   - { id: "DEC-003", initiative: "request-cache", title: "Правила контекста меняются только по замеру; оценка замер н…" }
@@ -83,9 +83,9 @@ next:
   - id: "TASK-383"
     status: "active"
     title: "Отказ board_limit: назвать причину — долг проверки и minima…"
-  - id: "TASK-486"
-    status: "open"
-    title: "Политика не должна требовать документов, которых нет в прое…"
-  - id: "TASK-488"
+  - id: "TASK-499"
+    status: "review"
+    title: "Батч: архитектура в контексте, панель, расхождение"
+  - id: "TASK-500"
     status: "active"
-    title: "Собрать батч: правила документации и панель"
+    title: "Разблокировать и закоммитить батч"

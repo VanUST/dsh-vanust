@@ -4,9 +4,10 @@
  *   once) and L2 (the small delta for a turn boundary whose state hash changed).
  *
  * WHAT IS READ
- *   Only the projections the project-state core generated: `state/views/digest.md`,
+ *   The projections the project-state core generated: `state/views/digest.md`,
  *   `state/views/board.md`, `state/views/snapshot.md`, plus `state/plan.yaml` when it exists.
- *   Nothing here writes state, and nothing parses the projections back into an entity model.
+ *   Also `docs/ARCHITECTURE.md` — the architecture page the orchestration must see — hard-capped
+ *   for L1. Nothing here writes state, and nothing parses the projections back into an entity model.
  *
  * DETERMINISM
  *   The text is a pure function of those files (no clock), so the content hash is a stable
@@ -21,6 +22,15 @@ export const L1_HEADER = 'STATE (L1, generated — do not edit the projections):
 export const L2_HEADER = 'STATE (L2, delta): the project state changed since the last turn.'
 export const L2_LIMIT_BYTES = 1200
 
+/** The architecture page L1 carries, relative to the workspace. */
+export const ARCHITECTURE_PATH = 'docs/ARCHITECTURE.md'
+/**
+ * Hard cap of the architecture section. The page travels inside L1, so it must stay a few
+ * kilobytes; over the cap the section keeps whole lines within the budget and ends with a
+ * marker that names the file, the budget and the real size — a visible cut, not a silent one.
+ */
+export const ARCHITECTURE_LIMIT_BYTES = 12288
+
 const utf8 = (text) => Buffer.byteLength(text ?? '', 'utf8')
 
 const readIf = (path) => {
@@ -29,6 +39,33 @@ const readIf = (path) => {
   } catch {
     return null
   }
+}
+
+/**
+ * The architecture text as L1 carries it: whole lines within `limit` bytes, or the kept prefix
+ * followed by a marker naming the cut. A file under the cap is returned unchanged (trimmed), so
+ * a small architecture page is delivered whole.
+ *
+ * @param {string} raw - the architecture file's text.
+ * @param {number} [limit] - the section budget, marker included.
+ * @returns {string}
+ */
+export function architectureExcerpt(raw, limit = ARCHITECTURE_LIMIT_BYTES) {
+  const source = String(raw)
+  // The marker reports the file's own size, so it counts the bytes on disk, not the trimmed text.
+  const total = utf8(source)
+  const text = source.replace(/\r\n/g, '\n').trim()
+  if (utf8(text) <= limit) return text
+  const marker = `\n[architecture truncated: the section budget is ${limit} bytes and the file is ${total}; read ${ARCHITECTURE_PATH} for the rest]`
+  const budget = limit - utf8(marker)
+  const kept = []
+  for (const line of text.split('\n')) {
+    const candidate = `${kept.join('\n')}${kept.length > 0 ? '\n' : ''}${line}`
+    if (utf8(candidate) > budget) break
+    kept.push(line)
+  }
+  if (kept.length === 0) return marker.trim()
+  return `${kept.join('\n')}${marker}`
 }
 
 /** Read the projection set; `ok: false` means there is no state to deliver. */
@@ -40,20 +77,33 @@ export function readState(cwd) {
   const board = readIf(join(views, 'board.md')) ?? ''
   const snapshot = readIf(join(views, 'snapshot.md')) ?? ''
   const plan = readIf(join(cwd, 'state', 'plan.yaml'))
+  // The architecture page is not a projection, but the orchestration must see it in L1. The RAW
+  // file joins the hash, not the capped excerpt: an edit past the cap still moves the hash, so the
+  // next turn gets a delta instead of missing a change L1 could not show. A missing file is a
+  // named state (`architecture: null`), not a failure: composeL1 says so in the section.
+  const architectureRaw = readIf(join(cwd, ARCHITECTURE_PATH))
+  const architecture = architectureRaw === null ? null : architectureExcerpt(architectureRaw)
   // The plan is part of the state: `regenerateViews` writes `state/plan.yaml` from the analysis
   // records, and an initiative that changed stage without moving a task moves only the plan. The
   // plan therefore joins the hash, so its change is a delta, not a silent edit the session misses.
-  const hash = createHash('sha256').update(`${digest}\u0000${board}\u0000${snapshot}\u0000${plan ?? ''}`, 'utf8').digest('hex')
-  return { ok: true, digest, board, snapshot, plan, hash }
+  const hash = createHash('sha256').update(`${digest}\u0000${board}\u0000${snapshot}\u0000${plan ?? ''}\u0000${architectureRaw ?? ''}`, 'utf8').digest('hex')
+  return { ok: true, digest, board, snapshot, plan, architecture, hash }
 }
 
-/** L1: header + digest + open tasks + plan + last snapshot. One message, composed once. */
+/** L1: header + digest + open tasks + plan + architecture + last snapshot. Composed once. */
 export function composeL1(state) {
   const parts = [L1_HEADER, '', state.digest.trim()]
   if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board, state.snapshot))
   if (typeof state.plan === 'string' && state.plan.trim() !== '') {
     parts.push('', '## Plan', '', state.plan.trim())
   }
+  // After the plan and before the last snapshot: the architecture says what the project is, the
+  // snapshot says where it is now. An absent page keeps its section and names the path, so the
+  // reader learns the page is missing instead of assuming the state feed never carries one.
+  const architecture = typeof state.architecture === 'string' && state.architecture.trim() !== ''
+    ? state.architecture.trim()
+    : `${ARCHITECTURE_PATH} is absent: this workspace has no architecture page to deliver.`
+  parts.push('', '## Architecture', '', architecture)
   if (state.snapshot.trim() !== '') {
     parts.push('', '## Last snapshot', '', state.snapshot.trim())
   }

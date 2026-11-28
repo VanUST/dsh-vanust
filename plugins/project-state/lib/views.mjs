@@ -420,7 +420,14 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
     lines.push(...decisionSection(decisions))
     return lines.join('\n') + '\n'
   }
-  lines.push(`Инициатив: ${rows.length}; с открытыми задачами: ${inFlight.length}; с несделанными требованиями: ${withRemaining.length}.`)
+  // TWO COUNTS, TWO NAMES. "С открытыми задачами" counts INITIATIVES whose traced tasks are still
+  // open - the last column of the table - and the open work below is listed per initiative. The
+  // journal's own open tasks are a different set (a task need not be traced from a record), so
+  // they are counted in their own sentence and listed under their own heading: the header used to
+  // say "0 open tasks" next to a list of six (2026-11-28). The first three numbers keep their
+  // wording because the panel parses this line (plugins/project-state-panel/client.js).
+  const tracedOpen = inFlight.reduce((total, row) => total + row.openTasks.length, 0)
+  lines.push(`Инициатив: ${rows.length}; с открытыми задачами: ${inFlight.length}; с несделанными требованиями: ${withRemaining.length}. Открытых задач журнала: ${openJournalTasks.length}; из них связаны с инициативой: ${tracedOpen}.`)
   lines.push('')
   lines.push('| Инициатива | Этап | Подтверждено | Осталось | Открытые задачи |')
   lines.push('|---|---|---|---|---|')
@@ -429,7 +436,9 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
   }
   lines.push(...decisionSection(decisions))
   if (inFlight.length > 0) {
-    lines.push('', '## Открытые задачи')
+    // The heading counts what the list under it holds, so the number in the header and the list
+    // below can be checked against each other by reading the file.
+    lines.push('', `## Открытые задачи инициатив (${inFlight.length} инициатив, ${tracedOpen} задач)`)
     for (const row of inFlight) {
       lines.push('', `### ${row.record.id}`)
       for (const task of row.openTasks) lines.push(`- ${task.id} (${String(task.status ?? 'unknown')}): ${shortTitle(task.title)}`)
@@ -487,12 +496,21 @@ const yamlString = (value) => JSON.stringify(String(value ?? ''))
 export function renderPlanYaml(initiatives = [], model = { tasks: [] }) {
   const { rows, openJournalTasks } = planSections(initiatives, model)
   const live = rows.filter((row) => row.remaining.length > 0 || row.openTasks.length > 0)
+  // WHAT IS COUNTED AND WHAT IS PRINTED, side by side. "initiativesWithOpenWork" is the total of
+  // initiatives that have unfinished work; "initiativesListed" is how many rows follow in this
+  // file, because the list is capped (PLAN_INITIATIVE_ROWS) and a count of 30 above ten rows read
+  // as an error (2026-11-28). The same pair for the journal's open tasks, whose total is not the
+  // per-row `openTasks` list either (that one is the initiative's traced tasks).
+  const listedInitiatives = Math.min(live.length, PLAN_INITIATIVE_ROWS)
+  const listedTasks = Math.min(openJournalTasks.length, PLAN_TASK_ROWS)
   const lines = [
     '# GENERATED — DO NOT EDIT. The plan summary the state feed delivers in L1,',
     '# written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.',
     'schemaVersion: 1',
-    `initiatives: ${live.length}`,
-    `openTasks: ${openJournalTasks.length}`,
+    `initiativesWithOpenWork: ${live.length}`,
+    `initiativesListed: ${listedInitiatives}`,
+    `openTasksInJournal: ${openJournalTasks.length}`,
+    `openTasksListed: ${listedTasks}`,
   ]
   lines.push(live.length === 0 ? 'work: []' : 'work:')
   for (const row of live.slice(0, PLAN_INITIATIVE_ROWS)) {

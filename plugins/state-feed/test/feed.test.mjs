@@ -24,10 +24,15 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createStateService } from '../../project-state/lib/core.mjs'
-import { L1_HEADER, L2_HEADER, L2_LIMIT_BYTES, composeL1, composeL2, readState, stateMessage } from '../lib/feed.mjs'
+import { ARCHITECTURE_LIMIT_BYTES, ARCHITECTURE_PATH, L1_HEADER, L2_HEADER, L2_LIMIT_BYTES, composeL1, composeL2, readState, stateMessage } from '../lib/feed.mjs'
 import { apply, isRootAgent } from '../index.mjs'
 
 const clock = () => '2026-01-03T00:00:00.000Z'
+/** The negative control: the harness sets this to prove the case can fail at all. */
+const NEGATIVE_CONTROL = process.env.CASE_NEGATIVE_CONTROL
+
+/** The architecture page a test workspace carries unless a test asks for an absent one. */
+const ARCH_PROBE = '# Architecture probe\n\nThe feed reads projections; the architecture section is bounded.\n'
 
 /** A fake host: collects handlers and every injected message. */
 function host() {
@@ -74,13 +79,17 @@ function agentOf(cwd, { id = 'root-1', depth = 0, parent } = {}) {
   return { agent, injected }
 }
 
-async function workspace() {
+async function workspace({ architecture = true } = {}) {
   const cwd = await mkdtemp(join(tmpdir(), 'state-feed-'))
   const state = createStateService({ cwd, now: clock })
   const req = await state.create('req', { title: 'State feed', criteria: ['L1 once', 'L2 by hash'] })
   const task = await state.create('task', { title: 'Deliver the digest', reqId: req.id })
   await state.regenerateViews()
   await writeFile(join(cwd, 'state', 'plan.yaml'), 'name: probe\nphase: delivery\n')
+  if (architecture) {
+    await mkdir(join(cwd, 'docs'), { recursive: true })
+    await writeFile(join(cwd, ARCHITECTURE_PATH), ARCH_PROBE)
+  }
   return { cwd, state, req, task }
 }
 
@@ -96,10 +105,119 @@ test('root receives L1 once, with the digest and the plan', async () => {
   assert.match(text, /REQ 1 · TASK 1/)
   assert.match(text, /## Plan/)
   assert.match(text, /name: probe/)
+  assert.match(text, /## Architecture/)
+  assert.match(text, /Architecture probe/)
   assert.equal(injected[0].source.kind, 'state-feed')
   const decision = await preStep(env, agent, 2, 1, [human()])
   assert.equal(injected.length, 1, 'L1 is never repeated')
   assert.equal(decision.messages.length, 1, 'a first step with no delta enters only the claimed batch')
+})
+
+/*
+PROOF: the architecture page travels in L1, bounded, and a change to it moves the state hash
+Behavior: readState() reads docs/ARCHITECTURE.md and the first message carries it as the
+  "## Architecture" section, after the plan and before the last snapshot; a page under the cap is
+  delivered whole; an oversized page is cut on a line boundary so the section stays within
+  ARCHITECTURE_LIMIT_BYTES, and the marker names the budget, the real file size and the path; a
+  missing page is a named state, not a throw; the raw page is part of the state hash, so even an
+  edit below the cut changes the hash and the next turn gets a delta.
+Fails when: the first message has no Architecture section, the section grows past its budget, the
+  cut is silent, a missing file leaves an empty section or throws, or an edit past the cap leaves
+  the hash where it was.
+Production path: plugins/state-feed/lib/feed.mjs (readState, composeL1, architectureExcerpt),
+  delivered by index.mjs as the first user/message of a root session.
+*/
+test('L1 carries the architecture page after the plan and inside its budget', async () => {
+  const { cwd } = await workspace()
+  const state = readState(cwd)
+  const l1 = composeL1(state)
+  const planAt = l1.indexOf('## Plan')
+  const archAt = l1.indexOf('## Architecture')
+  const snapshotAt = l1.indexOf('## Last snapshot')
+  assert.ok(planAt > 0 && archAt > planAt && snapshotAt > archAt, 'the architecture section is missing or not between the plan and the snapshot')
+  assert.equal(state.architecture, ARCH_PROBE.trim(), 'a page under the cap is delivered whole')
+  if (NEGATIVE_CONTROL !== undefined) assert.equal(archAt, -1, 'negative control "' + NEGATIVE_CONTROL + '": L1 must not carry the architecture section')
+})
+
+test('an oversized architecture page is cut on a line, inside ARCHITECTURE_LIMIT_BYTES, with a named marker', async () => {
+  const { cwd } = await workspace()
+  const lines = ['# Architecture probe', '']
+  for (let index = 0; index < 400; index += 1) lines.push('- invariant ' + index + ': ' + 'x'.repeat(40))
+  await writeFile(join(cwd, ARCHITECTURE_PATH), lines.join('\n'))
+  const state = readState(cwd)
+  const bytes = Buffer.byteLength(state.architecture, 'utf8')
+  assert.ok(bytes <= ARCHITECTURE_LIMIT_BYTES, 'the section is ' + bytes + ' bytes; the budget is ' + ARCHITECTURE_LIMIT_BYTES)
+  assert.ok(state.architecture.includes('the section budget is ' + ARCHITECTURE_LIMIT_BYTES + ' bytes'))
+  assert.ok(state.architecture.includes('read ' + ARCHITECTURE_PATH + ' for the rest'), 'the cut does not name the file to read')
+  assert.ok(state.architecture.startsWith('# Architecture probe'), 'the cut kept nothing from the top')
+  for (const kept of state.architecture.split('\n')) {
+    if (kept.startsWith('[architecture truncated:')) continue
+    assert.ok(lines.includes(kept), 'the cut kept a partial line: ' + kept)
+  }
+  const l1 = composeL1(state)
+  const section = l1.slice(l1.indexOf('## Architecture'), l1.indexOf('## Last snapshot'))
+  const body = section.replace(/^## Architecture\n+/, '')
+  assert.ok(Buffer.byteLength(body, 'utf8') <= ARCHITECTURE_LIMIT_BYTES, 'L1 carries more architecture than the budget')
+})
+
+/*
+The page this workspace actually ships, at the budget the orchestrator reads: the first half puts
+docs/ARCHITECTURE.md itself through readState/composeL1 and requires it whole — no cut marker and
+its last line present in L1 — while the file stays under ARCHITECTURE_LIMIT_BYTES. The second half
+proves the cap still bites: a page past the budget ends with the marker naming the budget, the
+real size and the path to read. The page outgrowing the budget fails the first half on purpose:
+then the budget is what moves, not the page.
+*/
+test('the shipped architecture page arrives whole; a page past the budget is cut and names the path', async () => {
+  const real = await readFile(new URL('../../../docs/ARCHITECTURE.md', import.meta.url), 'utf8')
+  const realBytes = Buffer.byteLength(real, 'utf8')
+  assert.ok(realBytes <= ARCHITECTURE_LIMIT_BYTES, 'docs/ARCHITECTURE.md is ' + realBytes + ' bytes and the architecture section budget is ' + ARCHITECTURE_LIMIT_BYTES + ': raise ARCHITECTURE_LIMIT_BYTES in plugins/state-feed/lib/feed.mjs or the first message carries a cut')
+  const { cwd } = await workspace()
+  await writeFile(join(cwd, ARCHITECTURE_PATH), real)
+  const state = readState(cwd)
+  assert.equal(state.architecture, real.replace(/\r\n/g, '\n').trim(), 'the shipped page is not delivered whole')
+  assert.equal(state.architecture.includes('[architecture truncated:'), false, 'the shipped page carries a cut marker')
+  const l1 = composeL1(state)
+  const lastLine = real.replace(/\r\n/g, '\n').trim().split('\n').filter((line) => line.trim() !== '').at(-1)
+  assert.ok(l1.includes(lastLine), 'the last line of the shipped page is missing from L1')
+
+  const lines = ['# Architecture probe', '']
+  for (let index = 0; index < 400; index += 1) lines.push('- invariant ' + index + ': ' + 'x'.repeat(40))
+  await writeFile(join(cwd, ARCHITECTURE_PATH), lines.join('\n'))
+  const capped = readState(cwd).architecture
+  assert.ok(Buffer.byteLength(capped, 'utf8') <= ARCHITECTURE_LIMIT_BYTES, 'the cut section is past its budget')
+  assert.ok(capped.includes('the section budget is ' + ARCHITECTURE_LIMIT_BYTES + ' bytes'), 'the marker does not name the budget')
+  assert.ok(capped.includes('read ' + ARCHITECTURE_PATH + ' for the rest'), 'the marker does not name the path to read')
+})
+
+test('a missing architecture page is a named state, not a failure', async () => {
+  const { cwd } = await workspace({ architecture: false })
+  const state = readState(cwd)
+  assert.equal(state.ok, true)
+  assert.equal(state.architecture, null)
+  const l1 = composeL1(state)
+  assert.ok(l1.includes('## Architecture'), 'the section disappeared with the file')
+  assert.ok(l1.includes(ARCHITECTURE_PATH + ' is absent'), 'the section does not name the missing page')
+})
+
+test('the architecture page is part of the state hash, including past the cap', async () => {
+  const { cwd } = await workspace()
+  const before = readState(cwd)
+  await writeFile(join(cwd, ARCHITECTURE_PATH), ARCH_PROBE + '\n- a second invariant\n')
+  const edited = readState(cwd)
+  assert.notEqual(edited.hash, before.hash, 'an architecture edit left the state hash where it was')
+  assert.notEqual(edited.architecture, before.architecture)
+  // An edit past the cut is invisible in L1 and must still move the hash: that is the delta.
+  const lines = ['# Architecture probe', '']
+  for (let index = 0; index < 400; index += 1) lines.push('- invariant ' + index + ': ' + 'x'.repeat(40))
+  const big = lines.join('\n')
+  await writeFile(join(cwd, ARCHITECTURE_PATH), big)
+  const capped = readState(cwd)
+  await writeFile(join(cwd, ARCHITECTURE_PATH), big + '\n- a tail edit past the cut\n')
+  const tail = readState(cwd)
+  const keptPrefix = (text) => text.replace(/\n?\[architecture truncated:[\s\S]*$/, '')
+  assert.equal(keptPrefix(tail.architecture), keptPrefix(capped.architecture), 'the kept prefix should not change: the edit is past the cap')
+  assert.notEqual(tail.hash, capped.hash, 'an edit past the cap left the state hash where it was')
 })
 
 test('no state/views/digest.md means no injection at all', async () => {

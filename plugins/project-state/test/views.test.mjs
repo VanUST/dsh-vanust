@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { createStateService } from '../lib/core.mjs'
-import { PLAN_YAML_LIMIT_BYTES } from '../lib/views.mjs'
+import { PLAN_INITIATIVE_ROWS, PLAN_TASK_ROWS, PLAN_YAML_LIMIT_BYTES, renderPlan, renderPlanYaml } from '../lib/views.mjs'
 
 const clock = () => '2026-01-02T00:00:00.000Z'
 const sha = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
@@ -272,4 +272,100 @@ test('the plan drops the OLDEST decision rows instead of leaving plan.yaml past 
   assert.match(plan, new RegExp(ids[0]))
   assert.match(plan, new RegExp(ids[ids.length - 1]))
 })
+
+/*
+PROOF: the plan's counters agree with the lists printed beside them
+Behavior: plan.md states the initiatives total, the initiatives with open tasks, the initiatives
+  with unfinished requirements and the journal's open tasks; each number equals the length of the
+  list under it (table rows, initiative blocks, bullets). plan.yaml names its four counters as a
+  pair per view - what exists and what is listed - so a capped list of ten cannot be read as a
+  total of thirty. Both projections derive the same numbers from the same planSections() call.
+Fails when: a header number counts one set and the list under it shows another (the pre-fix
+  header said "0 open tasks" above six of them), or plan.yaml reports a total where it printed a
+  capped list, or the two files disagree about the same fact.
+Production path: plugins/project-state/lib/views.mjs (renderPlan, renderPlanYaml) through
+  planSections; the state core writes them in regenerateViews.
+*/
+test('the plan counters equal the lists under them, in both projections', () => {
+  const open = (id, title) => ({ id, title, status: 'active' })
+  const initiatives = []
+  for (let index = 1; index <= 30; index += 1) {
+    const id = 'init-' + String(index).padStart(2, '0')
+    initiatives.push({
+      id,
+      title: 'Initiative ' + index,
+      status: 'ready',
+      requirements: [{ id: 'R1', status: 'planned' }, { id: 'R2', status: 'planned' }],
+      // The first two initiatives carry traced open tasks: 1 + 2 = 3 open tasks under initiatives.
+      trace: index === 1 ? [{ requirementId: 'R1', tasks: [{ taskId: 'task-a' }] }]
+        : index === 2 ? [{ requirementId: 'R1', tasks: [{ taskId: 'task-b' }, { taskId: 'task-c' }] }]
+          : [],
+    })
+  }
+  const tasks = [open('task-a', 'A'), open('task-b', 'B'), open('task-c', 'C')]
+  // Nine more open tasks that no analysis record traces - the journal's own work.
+  for (let index = 1; index <= 9; index += 1) tasks.push(open('task-open-' + index, 'Open ' + index))
+  tasks.push({ id: 'task-done', title: 'Done', status: 'done' })
+
+  const plan = renderPlan(initiatives, { tasks })
+  const yaml = renderPlanYaml(initiatives, { tasks })
+  const control = process.env.CASE_NEGATIVE_CONTROL ?? ''
+
+  // The pre-fix shape this change removes: a header that counts only initiatives while the list
+  // below it shows the journal's open tasks. It must be ABSENT from the fixed output.
+  if (control === 'expect-pre-fix') {
+    assert.doesNotMatch(plan, /Открытых задач журнала:/)
+    assert.doesNotMatch(yaml, /^initiativesListed:/m)
+    return
+  }
+
+  // ── plan.md: every number in the header is the length of the list under it ──────────────
+  const header = /Инициатив: (\d+); с открытыми задачами: (\d+); с несделанными требованиями: (\d+)\. Открытых задач журнала: (\d+); из них связаны с инициативой: (\d+)\./.exec(plan)
+  assert.notEqual(header, null, 'the plan.md header no longer states both counts:\n' + plan.split('\n').slice(0, 8).join('\n'))
+  const [, initiativesTotal, initiativeBlocks, withWork, journalOpen, tracedOpen] = header.map(Number)
+  const lines = plan.split('\n')
+  const tableRows = lines.filter((line) => line.startsWith('| ') && !line.startsWith('| Инициатива') && !line.startsWith('|---')).length
+  assert.equal(initiativesTotal, tableRows, 'the initiatives total must equal the table rows')
+  const initiativeHeading = /^## Открытые задачи инициатив \((\d+) инициатив, (\d+) задач\)$/m.exec(plan)
+  assert.notEqual(initiativeHeading, null, 'the initiative section no longer names its own counts')
+  const sectionStart = lines.findIndex((line) => /^## Открытые задачи инициатив/m.test(line))
+  const journalStart = lines.findIndex((line) => /^## Открытые задачи журнала/m.test(line))
+  assert.ok(sectionStart >= 0 && journalStart > sectionStart, 'both open-work sections must be there')
+  const initiativeSection = lines.slice(sectionStart, journalStart)
+  assert.equal(Number(initiativeHeading[1]), initiativeSection.filter((line) => line.startsWith('### ')).length, 'initiative blocks under the heading')
+  assert.equal(Number(initiativeHeading[2]), initiativeSection.filter((line) => line.startsWith('- ')).length, 'tasks listed under the initiatives')
+  assert.equal(initiativeBlocks, Number(initiativeHeading[1]), 'the header and the section count the same initiatives')
+  assert.equal(tracedOpen, Number(initiativeHeading[2]), 'the header and the section count the same tasks')
+  const journalHeading = /^## Открытые задачи журнала \((\d+)\)$/.exec(lines[journalStart])
+  assert.notEqual(journalHeading, null)
+  assert.equal(journalOpen, Number(journalHeading[1]), 'the header and the section count the same open tasks')
+  assert.equal(Number(journalHeading[1]), lines.slice(journalStart + 1).filter((line) => line.startsWith('- ')).length, 'bullets under the journal heading')
+  // The two numbers are different facts, and both are right for this input.
+  assert.equal(initiativeBlocks, 2)
+  assert.equal(withWork, 30)
+  assert.equal(journalOpen, 12)
+  assert.equal(tracedOpen, 3)
+
+  // ── plan.yaml: total and listed, per view, with no ambiguous key ────────────────────────
+  const value = (key) => {
+    const match = new RegExp('^' + key + ': (\\d+)$', 'm').exec(yaml)
+    assert.notEqual(match, null, 'plan.yaml lost the counter ' + key)
+    return Number(match[1])
+  }
+  const workIds = (yaml.split(/^work:$/m)[1] ?? '').split(/^next:/m)[0].split('\n').filter((line) => line.startsWith('  - id:')).length
+  const nextIds = (yaml.split(/^next:/m)[1] ?? '').split('\n').filter((line) => line.startsWith('  - id:')).length
+  assert.equal(value('initiativesWithOpenWork'), 30, 'initiatives with unfinished work is the total')
+  assert.equal(value('initiativesListed'), workIds, 'initiativesListed equals the rows printed under work:')
+  assert.equal(value('openTasksInJournal'), 12, 'the journal total')
+  assert.equal(value('openTasksListed'), nextIds, 'openTasksListed equals the rows printed under next:')
+  assert.ok(value('initiativesListed') <= PLAN_INITIATIVE_ROWS, 'the list stays inside its row cap')
+  assert.ok(value('openTasksListed') <= PLAN_TASK_ROWS, 'the next list stays inside its row cap')
+  assert.doesNotMatch(yaml, /^initiatives: /m, 'the old ambiguous key is gone')
+  assert.doesNotMatch(yaml, /^openTasks: /m, 'the old ambiguous key is gone')
+
+  // ── the two projections count the same facts ───────────────────────────────────────────
+  assert.equal(value('initiativesWithOpenWork'), withWork, 'plan.yaml and plan.md agree on the initiatives with work')
+  assert.equal(value('openTasksInJournal'), journalOpen, 'plan.yaml and plan.md agree on the journal open tasks')
+})
+
 
