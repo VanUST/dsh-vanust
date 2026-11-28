@@ -1418,6 +1418,13 @@
                 config:
                   thresholdRatio: 0.5
                   retainRatio: 0.08
+                  # The Codex route reserves 32K for the answer, not the 64K default. Measured
+                  # over 41 sessions (19 compactions on this route, threshold 78 464; the three
+                  # steps after a compaction spend up to 26.6% fresh tokens). Expected effect:
+                  # about 13 compactions and a threshold of about 111 232 (272K window - 128K
+                  # answer reserve - 32K headroom). The flash route keeps its window-share
+                  # threshold; this headroom does not bind there.
+                  headroomTokens: 32768
                   summarizationProvider: deepseek-official
                   summarizationModel: deepseek-flash
               - id: command-compact

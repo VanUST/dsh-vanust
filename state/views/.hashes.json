@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "files": {
-    "board.md": "9290a479ecf47b76bc3f843215d3be2d4205b97466eb14a3efb2504799448024",
-    "digest.md": "1ed755585b522c79b1b22b659f4f1dbfe0f0723b60a0f7ae80a321be4394e269",
-    "index.json": "6ee1683909da2ca1e2d7a72f400dbb0a4ad990a533d168bd1a1713a3d0ff172a",
+    "board.md": "5dce51f71e8adf0af4308234dad9811365e5ec64f3a75b1ff6dc488924ef35ac",
+    "digest.md": "c89cd705347811a7ae7e6bc93ebc4bcc1073db10c8edfe1fb3a33e4f356631c9",
+    "index.json": "174f16b977ea9d67bbe5aeb35fe5acfbcdc8558dc8ffebf76eb7cfce6a37440c",
     "map/REQ-001.mmd": "5d11b132de6989760cff65d76228853d10d299ac08fb8c0858e8e6ecfbd9bab2",
     "map/REQ-002.mmd": "653d5bde8ef4b08a70767e4ef10029a5ceca54e3616cd63bf4161569a5951e9b",
     "map/REQ-003.mmd": "636d203829796c04fd9b08897f6dbc9dfc7576eef7b63e31aeefc5c8e8234294",
@@ -295,8 +295,11 @@
     "map/REQ-301.mmd": "a65ae4636c3af40a1134b20c5b8218077436b89062a56a3e6872fcc60aef8fdc",
     "map/REQ-302.mmd": "46ba623381930c681dbbfd13db13c5d17e453379a0269beb06a6655e61f9d4b2",
     "map/REQ-303.mmd": "bfac43ba3b56a1de937c806572f78f3a2325ca79ff84dd8ccbf29186c6228ca8",
-    "plan.md": "8919013ef4524326a29006f7d08392513b4a8bdfeb83237796129fa095275409",
-    "snapshot.md": "bef04ba1a8fc013001f37a7bea8e8de0d21162306c7e0aa4f531f7cc02a769a2",
-    "traceability.md": "b6f47edfa5138f71b7ae864c9e0b478d8ca23db52dc605f8c40b0671048baa35"
+    "plan.md": "d3d27ccee4d552bd0ee77659ef40d632c6ea3327a8c15273d27ff4a4b7d0d6d9",
+    "snapshot.md": "e13105a581936040b0a30a5ae43210250bef5d4a4c382e6cec8bedba4c4234b7",
+    "traceability.md": "12841fa4e935933cae13f4e9353bafc2f28589b8dc79a12b3f90a37fbc4d8a18"
+  },
+  "stateFiles": {
+    "plan.yaml": "1a3779e91d9582c9b57c785c972b60172bbc7493125ec3804c6976c7720d8841"
   }
 }
