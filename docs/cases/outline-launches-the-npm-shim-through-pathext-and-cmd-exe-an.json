@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "id": "outline-launches-the-npm-shim-through-pathext-and-cmd-exe-an",
+  "title": "Outline launches the npm shim through PATHEXT and cmd.exe, and refuses when it is absent",
+  "requirement": "REQ-009: the outline tool finds the code-skeleton-mcp that npm installs as a .cmd shim on Windows and calls it with its arguments; a PATH without that shim degrades to the named refusal instead of a tool that cannot start.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/outline/test/outline-shim.test.mjs",
+  "runCommand": "node --test plugins/outline/test/outline-shim.test.mjs",
+  "steps": [
+    "Build a fixture directory holding code-skeleton-mcp.cmd that forwards its arguments to node with a stub recording argv and printing an outline.",
+    "Resolve the bare name code-skeleton-mcp against that directory as the search path.",
+    "Call buildOutlineResult for a path containing spaces, & and parentheses at depth 2.",
+    "Resolve against a search path that holds no shim, then read the prompt section for the absent case."
+  ],
+  "expected": "The name resolves to <dir>\\code-skeleton-mcp.cmd, the probe accepts it, the shim receives [\"outline\", <path>, \"--depth\", \"2\"] with the path intact as one argument, and the empty search path resolves to null so the section says OUTLINE: unavailable.",
+  "tags": [
+    "outline",
+    "windows",
+    "pathext",
+    "shim",
+    "child_process"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/outline/outline.mjs",
+      "sha256": "a5c48f08f743fe8bbc43073c0c59ba147c5554a802b294688938f679fc778b41"
+    }
+  ],
+  "linkedTaskId": "task-mx0lupmh-2ai2xh",
+  "reqId": "REQ-009",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+  "purpose": "implementation",
+  "testHash": "b9b253159c25d67eaf1650cc968d5f5e36686b71b434295f6cc497e749bdd782",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-28T16:17:23.050Z",
+  "updatedAt": "2026-11-28T16:17:40.412Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T16:17:36.712Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T16:17:40.412Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0m5yb9-7gu8y-1",
+      "at": "2026-11-28T16:17:36.709Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+        "taskId": "task-mx0lupmh-2ai2xh"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 162,
+      "commandSha256": "7ab2812ad918168d10b09d998bf6d1720ca9fddd03472198fa988a5a23aee859",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\outline-prefix-copy",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/outline-prefix-copy",
+      "head": "e3eb625ad81de9d01c8a7ff2e6d50b65a90ed2dc",
+      "dirty": false,
+      "stdout": "docs/cases/runs/outline-launches-the-npm-shim-through-pathext-and-cmd-exe-an/mx0m5yb9-7gu8y-1/stdout.log",
+      "stderr": "docs/cases/runs/outline-launches-the-npm-shim-through-pathext-and-cmd-exe-an/mx0m5yb9-7gu8y-1/stderr.log",
+      "summary": "docs/cases/runs/outline-launches-the-npm-shim-through-pathext-and-cmd-exe-an/mx0m5yb9-7gu8y-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0m6106-ixdox-1",
+      "at": "2026-11-28T16:17:40.411Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+        "taskId": "task-mx0lupmh-2ai2xh"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 342,
+      "commandSha256": "7ab2812ad918168d10b09d998bf6d1720ca9fddd03472198fa988a5a23aee859",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "9d58b85dc457ec19ffc3edfe0ffde4635ca9779f",
+      "dirty": true,
+      "stdout": "docs/cases/runs/outline-launches-the-npm-shim-through-pathext-and-cmd-exe-an/mx0m6106-ixdox-1/stdout.log",
+      "stderr": "docs/cases/runs/outline-launches-the-npm-shim-through-pathext-and-cmd-exe-an/mx0m6106-ixdox-1/stderr.log",
+      "summary": "docs/cases/runs/outline-launches-the-npm-shim-through-pathext-and-cmd-exe-an/mx0m6106-ixdox-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T16:17:36.712Z",
+    "runId": "mx0m5yb9-7gu8y-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/outline/test/outline-shim.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\outline-prefix-copy",
+    "head": "e3eb625ad81de9d01c8a7ff2e6d50b65a90ed2dc",
+    "dirty": false,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+      "taskId": "task-mx0lupmh-2ai2xh"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T16:17:40.412Z",
+    "command": "node --test plugins/outline/test/outline-shim.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0m6106-ixdox-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "39af25e0-147a-45a0-8a33-7d682655f33a",
+      "taskId": "task-mx0lupmh-2ai2xh"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

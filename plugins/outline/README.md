@@ -51,6 +51,16 @@ pairing with `read` whoever the agent is.
 | `timeoutMs` | `10000` | kill one outline call after this long and report `ETIMEDOUT`. |
 | `maxBytes` | `262144` | reject a larger stdout with `EOVERFLOW` instead of truncating it. |
 
+## Windows
+
+A name is completed through `PATHEXT` (`.COM`, `.EXE`, `.BAT`, `.CMD`), so the npm
+global bin resolves to `code-skeleton-mcp.cmd` and not to the extensionless `sh` script
+next to it, which Windows cannot start. An `.exe` is started directly with its argument
+list; a `.cmd` or `.bat` shim is a batch script, so it is started as
+`cmd.exe /d /s /c "<line>"` with every argument quoted by the child-process quoting rules.
+On a PATH with no shim the resolver returns null, so the tool degrades exactly as it does
+on Linux.
+
 ## Tool arguments
 
 | argument | type | default | meaning |
@@ -77,10 +87,18 @@ the tool reports as `EXIT`; a zero exit with empty or non-JSON stdout is a named
 ## Proof
 
 ```bash
-node scripts/outline-selftest.mjs
+node --test plugins/outline/test/outline-shim.test.mjs   # a fake .cmd shim in a fake PATH
+node scripts/outline-selftest.mjs                        # the real binary over two real files
 ```
 
-Runs the real binary over two files of this kit, asserts at least 90 % byte saving, compares
-two runs byte for byte, exercises the degradation path (a PATH with no binary), and feeds
-`parseOutlineOutput` a broken JSON and a document above the output limit. Exit 0 only when
-every case holds.
+The second needs the real binary: it runs over two files of this kit, asserts at least 90 %
+byte saving, compares two runs byte for byte, exercises the degradation path (a PATH with no
+binary), and feeds `parseOutlineOutput` a broken JSON and a document above the output limit.
+Exit 0 only when every case holds.
+
+The first is the Windows launch contract: a fixture `code-skeleton-mcp.cmd` in a fixture
+directory resolves through `PATHEXT`, is probed through `cmd.exe`, is called with a path
+containing spaces and `&` still as one argument, and a fixture PATH without the shim
+resolves to null. It goes red on the pre-fix resolver: with
+`CASE_NEGATIVE_CONTROL=expect-pre-fix` it fails, and in a copy of the previous
+`outline.mjs` it fails on the resolution itself.

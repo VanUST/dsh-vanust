@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-outline",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A cheap table of contents for a source file: the `outline` tool returns symbols with line ranges, signatures and first-line docstrings instead of the body, so an agent reads a 2 000-line file as ~80 lines and then reads only the range it picked. Parsing is code-skeleton-mcp (tree-sitter WASM, pinned by provisioning); the plugin registers on the host so the root and every preset get it, and says `outline unavailable` with the places it looked when the binary is absent.",
   "type": "module",
   "main": "outline.mjs",

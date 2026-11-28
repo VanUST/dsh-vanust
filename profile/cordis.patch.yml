@@ -906,6 +906,13 @@
 # matters instead of the whole file on every later step. The binary is resolved
 # from PATH and a configured `bin`; when neither answers, no tool is registered
 # and the section says `outline unavailable` and where the plugin looked.
+# 2026-11-28: mounted ON again. The Windows failure is fixed in the plugin itself: the
+# resolver completes a bare name through PATHEXT (so `code-skeleton-mcp.cmd` resolves) and
+# runs a `.cmd`/`.bat` shim through `cmd.exe` instead of spawning it directly. Before the
+# fix the binary was never found, no tool was registered, and every prompt carried an
+# "OUTLINE: unavailable" block; the row was mounted off (`enabled: false`) only while the
+# plugin could not start the npm shim. The tool now registers on the host for the root and
+# every preset, with no per-row config.
 - insert:
     - id: outline
       name: '@cc/dsh-outline'
@@ -982,11 +989,16 @@
     welcomeNoticeVersion: 2026-09-28.1
 
 # The `web` bundle stopped declaring `searchProvider: deepseek-search-api` in 0.2.2-rc.5;
-# a harness default is not a contract, so the kit states the route it relies on. Without
-# this row an upgrade silently changes where the web search tools send their requests.
+# a harness default is not a contract, so the kit states the route it relies on. This row
+# REPLACES the bundle's `web` config rather than merging into it: declaring only
+# `searchProvider` dropped `fetchProvider: http`, and with both bundled fetch providers
+# registered (`deepseek-fetch-api`, `http`) every web_fetch failed with
+# `WEB_PROVIDER_AMBIGUOUS`, which in turn made research-first refuse to create files.
+# Both keys are therefore stated here; the values are the ones 0.2.2-rc.3 shipped.
 - id: web
   config:
     searchProvider: deepseek-search-api
+    fetchProvider: http
 
 - id: agent-default-model
   name: '@deepseek-ai/dsh-agent-default-model'

@@ -1,0 +1,29 @@
+---
+id: TASK-473
+kind: task
+title: "Живая проверка на новой сборке: шов и план"
+status: done
+revision: 4
+createdAt: 2026-11-28T15:22:43.904Z
+updatedAt: 2026-11-28T15:23:06.569Z
+boardId: task-mx0k7d5e-mqv8ng
+chore: true
+choreReason: "Живая проверка на перезапущенной сборке: нужно увидеть, что шов и план работают на 0.2.2-rc.5, а не только на прежней версии."
+nonScope: ["Ничего не менять: только прочитать и ответить."]
+owner:
+  kind: agent
+  label: DOCS
+  sessionId: 4ffe0019-2f15-446e-89e0-1257ad7a3092
+preset: docs
+resultEvidence: ["Ребёнок роли DOCS стартовал через шов уже на загруженной сборке 0.2.2-rc.5 и вернул ответ — шов работает на новой версии, а не только на прежней.", "state/plan.yaml:68-69 — decisions: 4, первая строка DEC-004 с инициативой request-cache.", "state/views/plan.md:64 — раздел «Решения (4)», в таблице DEC-004, DEC-003 (request-cache), DEC-002 (architecture-boundaries), DEC-001 (documentation-owners).", "Плана доставки: state-feed читает state/plan.yaml и включает его в хеш состояния — проверено ранее тестами 20/20 и живой сессией."]
+resultSummary: "Живая проверка на новой сборке пройдена: субагент запущен через шов на 0.2.2-rc.5, план содержит четыре решения и первым стоит DEC-004 с инициативой request-cache, раздел решений есть в plan.md."
+role: DOCS
+scope: [state/plan.yaml, state/views/plan.md]
+sessions:
+  - sessionId: 4ffe0019-2f15-446e-89e0-1257ad7a3092
+    label: DOCS
+    role: DOCS
+    status: sleeping
+---
+
+Прочитай state/plan.yaml и назови: сколько в нём решений, какой идентификатор у первого и какая у него инициатива; затем назови первый абзац раздела решений в state/views/plan.md. Ничего не меняй и не запускай. Ответ короткий: число решений, идентификатор и инициатива первой строки, и одна строка из plan.md.

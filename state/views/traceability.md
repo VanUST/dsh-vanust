@@ -12,7 +12,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-006 | done | — | — | — | no |
 | REQ-007 | done | — | — | — | no |
 | REQ-008 | done | — | — | — | no |
-| REQ-009 | done | — | — | — | no |
+| REQ-009 | done | — | TEST-118 | — | no |
 | REQ-010 | done | — | — | — | no |
 | REQ-011 | done | — | — | — | no |
 | REQ-012 | done | — | — | — | no |
@@ -418,3 +418,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-115 | REQ-303 | verified | — |
 | TEST-116 | REQ-299 | verified | — |
 | TEST-117 | REQ-303 | verified | — |
+| TEST-118 | REQ-009 | verified | — |

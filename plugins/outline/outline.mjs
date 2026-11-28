@@ -28,8 +28,8 @@
  *   printed: `{path, language, symbols:[{kind, name, line, endLine, signature,
  *   docstring}]}`. A failed call returns `{ok:false, code, message}` instead, so an
  *   empty answer can never read as a complete one. Exports `resolveOutlineBin`,
- *   `parseOutlineOutput`, `outlineArgv` and `buildOutlineResult` so the contract can be
- *   exercised without a running harness.
+ *   `executableOnPath`, `spawnPlan`, `parseOutlineOutput`, `outlineArgv` and
+ *   `buildOutlineResult` so the contract can be exercised without a running harness.
  *
  * KEYWORDS
  *   outline, code skeleton, symbols, line ranges, read tool, code-skeleton-mcp,
@@ -59,7 +59,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
+import { delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -112,21 +112,109 @@ export function isExecutable(file) {
   }
 }
 
+/** The extensions `cmd.exe` appends to a bare name; its own default when PATHEXT is unset. */
+const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD'
+
+/** A batch shim: Windows cannot start it directly, so it runs through `cmd.exe`. */
+const BATCH_SHIM = /\.(cmd|bat)$/i
+
+/**
+ * The file names Windows tries for one bare command name, in `cmd.exe`'s order.
+ *
+ * Windows completes a bare name with each PATHEXT extension before the bare name itself. An
+ * npm global bin holds both `code-skeleton-mcp.cmd` and an extensionless sh script: the
+ * script is a POSIX file Windows cannot start (`ENOENT`), so the extensions come first and
+ * the bare name is only the fallback for a program shipped without one.
+ *
+ * @param command - Name as written, with or without an extension.
+ * @returns Candidate file names, most preferred first.
+ */
+function windowsNames(command) {
+  const name = String(command)
+  if (extname(name) !== '') return [name]
+  const pathext = String(process.env.PATHEXT || DEFAULT_PATHEXT)
+    .split(';')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== '')
+  return [...new Set([...pathext.map((extension) => `${name}${extension}`), name])]
+}
+
 /**
  * The first executable named `command` on `searchPath`, or null.
+ *
+ * On Windows the name is completed through PATHEXT (see {@link windowsNames}), so an npm
+ * shim such as `code-skeleton-mcp.cmd` resolves exactly as an `.exe` does.
  *
  * @param command - Binary name without a platform suffix.
  * @param searchPath - `PATH`-shaped list; defaults to this process's PATH.
  * @returns Absolute path, or null when nothing executable matched.
  */
 export function executableOnPath(command, searchPath = process.env.PATH ?? '') {
-  const suffix = process.platform === 'win32' && !command.toLowerCase().endsWith('.exe') ? '.exe' : ''
+  const names = process.platform === 'win32' ? windowsNames(command) : [String(command)]
   for (const directory of String(searchPath).split(delimiter)) {
     if (directory === '') continue
-    const candidate = join(directory, `${command}${suffix}`)
-    if (isExecutable(candidate)) return candidate
+    for (const name of names) {
+      const candidate = join(directory, name)
+      if (isExecutable(candidate)) return candidate
+    }
   }
   return null
+}
+
+/**
+ * One argument as it must appear on a `cmd.exe` command line.
+ *
+ * `cmd.exe` takes a command line, not an argument list, so a batch shim forces a single
+ * string. These are the rules `CommandLineToArgvW` undoes again in the program the shim
+ * starts with `%*`: a quote becomes `\"`, the backslashes before a quote are doubled, and
+ * the backslashes before the closing quote are doubled. Quoting is not a substitute for the
+ * list: `%NAME%` still expands inside quotes - a `cmd` limitation, not a choice - so the
+ * path is still passed as one quoted element and never spliced into a format string.
+ *
+ * @param value - One element of the argument list.
+ * @returns That element as it must appear on a `cmd.exe` command line.
+ */
+function escapeCmdArgument(value) {
+  const text = String(value)
+  if (text === '') return '""'
+  let quoted = '"'
+  let backslashes = 0
+  for (const char of text) {
+    if (char === '\\') {
+      backslashes += 1
+      continue
+    }
+    if (char === '"') {
+      quoted += `${'\\'.repeat(backslashes * 2 + 1)}"`
+      backslashes = 0
+      continue
+    }
+    quoted += `${'\\'.repeat(backslashes)}${char}`
+    backslashes = 0
+  }
+  return `${quoted}${'\\'.repeat(backslashes * 2)}"`
+}
+
+/**
+ * How to start `bin` with `argv`, keeping the argument vector intact.
+ *
+ * An `.exe` - and any POSIX binary - is started directly with its own argument vector. A
+ * `.cmd` or `.bat` shim is a batch script: Windows cannot start it directly and `spawn`
+ * refuses it without a shell (`EINVAL`), so it runs as
+ * `cmd.exe /d /s /c "<line>"`, every element quoted by {@link escapeCmdArgument}.
+ *
+ * @param bin - Absolute path from {@link resolveOutlineBin}.
+ * @param argv - Argument vector from {@link outlineArgv}.
+ * @returns `{ command, argv, options }` to spread into `spawn` or `spawnSync`.
+ */
+export function spawnPlan(bin, argv) {
+  if (process.platform !== 'win32' || !BATCH_SHIM.test(bin)) return { command: bin, argv, options: {} }
+  const line = [bin, ...argv].map((value) => escapeCmdArgument(value)).join(' ')
+  return {
+    command: process.env.ComSpec || 'cmd.exe',
+    argv: ['/d', '/s', '/c', `"${line}"`],
+    options: { windowsVerbatimArguments: true },
+  }
 }
 
 /**
@@ -172,11 +260,13 @@ function packageVersion(bin) {
  * @returns True when it printed a parseable outline with a `symbols` array.
  */
 function probeOutlineBin(bin) {
-  const run = spawnSync(bin, ['outline', SELF, '--depth', '1'], {
+  const plan = spawnPlan(bin, ['outline', SELF, '--depth', '1'])
+  const run = spawnSync(plan.command, plan.argv, {
     encoding: 'utf8',
     timeout: PROBE_TIMEOUT_MS,
     maxBuffer: PROBE_MAX_BYTES,
     stdio: ['ignore', 'pipe', 'pipe'],
+    ...plan.options,
   })
   if (run.error !== undefined || run.status !== 0) return false
   try {
@@ -278,8 +368,9 @@ export function parseOutlineOutput(stdout) {
 function runOutline(bin, argv, limits) {
   return new Promise((settle, reject) => {
     let child
+    const plan = spawnPlan(bin, argv)
     try {
-      child = spawn(bin, argv, { stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(plan.command, plan.argv, { stdio: ['ignore', 'pipe', 'pipe'], ...plan.options })
     } catch (error) {
       reject(new OutlineError(`${BINARY} could not start: ${String(error)}`, 'ESPAWN'))
       return

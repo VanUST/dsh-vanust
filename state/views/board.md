@@ -13,7 +13,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-470 | Объявить снятие связи потребителям и закоммитить батч | — | — | yes |
+| TASK-481 | Собрать батч к одному перезапуску: outline, политика, профиль | — | — | yes |
 
 ## review (2)
 
@@ -22,7 +22,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
 | TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 
-## done (372)
+## done (383)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -398,6 +398,17 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-467 | Привязать решение к требованию и закоммитить изменение профиля | — | — | yes |
 | TASK-468 | План несёт свежие решения; основание — на принятом требовании | — | — | yes |
 | TASK-469 | Снятие связи в журнале и перевязка решения на принятое требование | REQ-304 | — | no |
+| TASK-470 | Объявить снятие связи потребителям и закоммитить батч | — | — | yes |
+| TASK-471 | Пересобрать пакет состояния и вернуть HEAD в зелёное | — | — | yes |
+| TASK-472 | Проверка развёртывания после перезапуска | — | — | yes |
+| TASK-473 | Живая проверка на новой сборке: шов и план | — | — | yes |
+| TASK-474 | Замер стоимости воркфлоу: накладные расходы против работы | — | — | yes |
+| TASK-475 | Краевые кейсы воркфлоу: отказы на границах | — | — | yes |
+| TASK-476 | Критика: где воркфлоу, кэш и инструменты дают сбой | — | — | yes |
+| TASK-477 | Порог делегирования из замера и честные правила ролей | — | — | yes |
+| TASK-478 | Outline: включить инструмент или убрать объявление из промпта | — | — | yes |
+| TASK-479 | Outline: запуск Windows-шима через PATHEXT и shell | — | — | yes |
+| TASK-480 | Починить выбор веб-провайдера: research-first блокирует создание файлов | — | — | yes |
 
 ## blocked (1)
 

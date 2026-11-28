@@ -61,12 +61,25 @@
 | state-task-specifics — Карточка задачи в реестре состояния: конкретика и переход к сессии субагента | completed | 4 из 4 | — | — |
 | taskboard-write-integrity — Доска задач: запись строки и её проверка при закрытии | completed | 2 из 2 | — | — |
 
+## Решения (4)
+
+Порядок работ и условия остановки: строка — одно решение журнала; полный текст и причина — в файле решения.
+
+| Решение | Статус | Инициатива | Правило |
+|---|---|---|---|
+| DEC-004 | accepted | request-cache | Резерв под ответ на маршруте Codex — 32 768 |
+| DEC-003 | accepted | request-cache | Правила контекста меняются только по замеру; оценка замер не заменяет |
+| DEC-002 | accepted | architecture-boundaries | Архитектурная консультация при смене контракта, владельца данных или нового компонента |
+| DEC-001 | accepted | documentation-owners | Порядок трёх проблем и правила документации |
+
+Файлы решений: state/decision/<ID>.md.
+
 ## Открытые задачи журнала (6)
 - TASK-273 (open): Codex sign-in tool: codex_signin_start/status/cancel
 - TASK-337 (review): Independent acceptance case: devops role and the one-live-deployment lane
 - TASK-372 (blocked): Задержка отправки и размер контекста: есть ли связь
 - TASK-383 (active): Отказ board_limit: назвать причину — долг проверки и minimal viable change
 - TASK-438 (review): Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе
-- TASK-470 (active): Объявить снятие связи потребителям и закоммитить батч
+- TASK-481 (active): Собрать батч к одному перезапуску: outline, политика, профиль
 
 Записи анализа: docs/analysis/<initiative>.json.
