@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 299 · TASK 510 · TEST 128 · event 3756
+REQ 299 · TASK 518 · TEST 129 · event 3822
 
 ## Gaps
 
-- REQ without TASK: 295 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 506
+- REQ without TASK: 294 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
+- TASK without reqId: 513
 - TEST without reqId: 52
 
 ## Open requirements (14)
@@ -27,7 +27,7 @@ REQ 299 · TASK 510 · TEST 128 · event 3756
 - REQ-235 proposed: Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.
 - REQ-236 proposed: Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Mak
 
-## Open work (4)
+## Open work (5)
 
 - TASK-273 open: Codex sign-in tool: codex_signin_start/status/cancel
 [truncated: the digest budget is 3072 bytes; read index.json or state/req/]

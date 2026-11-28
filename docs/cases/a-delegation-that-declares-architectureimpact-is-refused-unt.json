@@ -4,7 +4,7 @@
   "title": "A delegation that declares architectureImpact is refused until the record carries an ARCH- decision, whatever the class says",
   "requirement": "REQ-308: a delegation that declares architectureImpact does not start without the architect's decision (an ARCH- entry in the Analysis Record decisions[]); the flag decides, not the derived class, so an omitted changeClass or changeClass L1 with the flag is refused too; L0, L1 and L2 without the flag are unaffected.",
   "kind": "regression",
-  "status": "failing",
+  "status": "verified",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/orchestrator/test/architect-consult-gate.test.mjs",
@@ -38,11 +38,11 @@
   "authorPreset": "backend",
   "authorSessionId": "e4e13ac1-8225-4dfa-b344-857844b44af7",
   "purpose": "implementation",
-  "testHash": "e7c61f1780584b752da8888786630531f70d1f0992a94db37284d85fd23678ba",
+  "testHash": "b5a62d977915de87e8eec2a0ff711a3ca8f56c550b13803a8cb3a7989629424b",
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 6,
   "createdAt": "2026-11-28T18:10:23.313Z",
-  "updatedAt": "2026-11-28T18:10:27.556Z",
+  "updatedAt": "2026-11-28T18:40:16.134Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -59,6 +59,45 @@
       "editedBy": "agent",
       "action": "ran-failed",
       "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T18:10:27.556Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A delegation that declares architectureImpact is refused until the record carries an ARCH- decision, whatever the class says",
+        "requirement": "REQ-308: a delegation that declares architectureImpact does not start without the architect's decision (an ARCH- entry in the Analysis Record decisions[]); the flag decides, not the derived class, so an omitted changeClass or changeClass L1 with the flag is refused too; L0, L1 and L2 without the flag are unaffected.",
+        "expected": "delegate_task returns {ok:false, code:\"architect_consult_required\"} bearing a message that names decisions[] and ARCH-, and writes no task row and starts no child - for changeClass L2 with the flag, for the flag with no changeClass (the record answers L1) and for changeClass L1 with the flag; the same flagged delegation passes once decisions[] carries an ARCH- entry; L0, L1 and L2 without the flag pass unchanged.",
+        "steps": [
+          "Mount the orchestrator with a fake board and the analysis service whose gate answers \"L1\" for an omitted changeClass, as the real store does.",
+          "delegate_task with changeClass L2, architectureImpact true and a record whose decisions[] has no ARCH- entry: refused, no task row, no child.",
+          "delegate_task with architectureImpact true and no changeClass: refused with the same code.",
+          "delegate_task with changeClass L1 and architectureImpact true: refused with the same code.",
+          "delegate_task with the flag and a record carrying {id:\"ARCH-1\"}: one task row, one child.",
+          "delegate_task for L0, L1 and L2 without the flag: still pass."
+        ],
+        "automated": true,
+        "testPath": "plugins/orchestrator/test/architect-consult-gate.test.mjs",
+        "runCommand": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+        "status": "failing",
+        "checks": [],
+        "negativeControl": "expect-pre-fix",
+        "linkedTaskId": "task-mx0q3wee-jbpzdv"
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T18:40:09.984Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T18:40:16.134Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
     }
   ],
   "evidence": {},
@@ -138,24 +177,114 @@
       ],
       "passed": false,
       "artifacts": []
+    },
+    {
+      "runId": "mx0r99zc-hjzvo-1",
+      "at": "2026-11-28T18:40:09.982Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "03bf75aa-207a-4b54-8bae-a12a0ca51e90",
+        "taskId": "task-mx0q3wee-jbpzdv"
+      },
+      "control": "expect-pre-fix",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 179,
+      "commandSha256": "0312d7378eba2f54c5557e5eb1d95ec4f4517e11009c7676dd0c4659c3ee88db",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "87e304a80af2ffa2f5ca1b269b4ab5fee4826351",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-delegation-that-declares-architectureimpact-is-refused-unt/mx0r99zc-hjzvo-1/stdout.log",
+      "stderr": "docs/cases/runs/a-delegation-that-declares-architectureimpact-is-refused-unt/mx0r99zc-hjzvo-1/stderr.log",
+      "summary": "docs/cases/runs/a-delegation-that-declares-architectureimpact-is-refused-unt/mx0r99zc-hjzvo-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0r9es1-hmqks-1",
+      "at": "2026-11-28T18:40:16.133Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "03bf75aa-207a-4b54-8bae-a12a0ca51e90",
+        "taskId": "task-mx0q3wee-jbpzdv"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 167,
+      "commandSha256": "0312d7378eba2f54c5557e5eb1d95ec4f4517e11009c7676dd0c4659c3ee88db",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "87e304a80af2ffa2f5ca1b269b4ab5fee4826351",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-delegation-that-declares-architectureimpact-is-refused-unt/mx0r9es1-hmqks-1/stdout.log",
+      "stderr": "docs/cases/runs/a-delegation-that-declares-architectureimpact-is-refused-unt/mx0r9es1-hmqks-1/stderr.log",
+      "summary": "docs/cases/runs/a-delegation-that-declares-architectureimpact-is-refused-unt/mx0r9es1-hmqks-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
     }
   ],
+  "lastVerified": {
+    "at": "2026-11-28T18:40:16.134Z",
+    "command": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0r9es1-hmqks-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "03bf75aa-207a-4b54-8bae-a12a0ca51e90",
+      "taskId": "task-mx0q3wee-jbpzdv"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "degraded": false,
   "redFirst": {
-    "at": "2026-11-28T18:10:26.408Z",
-    "runId": "mx0q71t9-pxu5f-1",
+    "at": "2026-11-28T18:40:09.984Z",
+    "runId": "mx0r99zc-hjzvo-1",
     "exitCode": 1,
     "control": "expect-pre-fix",
     "command": "node --test plugins/orchestrator/test/architect-consult-gate.test.mjs",
     "source": "negative-control",
     "redSource": "runner",
     "cwd": "C:\\dsh-kit",
-    "head": "7b86a55312590ea1bb7571dbcf8822b115f36c3d",
+    "head": "87e304a80af2ffa2f5ca1b269b4ab5fee4826351",
     "dirty": true,
     "runBy": {
       "preset": "backend",
-      "sessionId": "e4e13ac1-8225-4dfa-b344-857844b44af7",
+      "sessionId": "03bf75aa-207a-4b54-8bae-a12a0ca51e90",
       "taskId": "task-mx0q3wee-jbpzdv"
     }
-  },
-  "lastVerified": null
+  }
 }

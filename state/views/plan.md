@@ -2,12 +2,12 @@
 
 Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.
 
-Инициатив: 57; с открытыми задачами: 0; с несделанными требованиями: 31.
+Инициатив: 57; с открытыми задачами: 0; с несделанными требованиями: 30. Открытых задач журнала: 6; из них связаны с инициативой: 0.
 
 | Инициатива | Этап | Подтверждено | Осталось | Открытые задачи |
 |---|---|---|---|---|
 | agent-surface-and-shell — Открытая поверхность: модель Codex в харнессе, вход внешнего агента, State наверху и адап… | ready | 7 из 8 | BR1 | — |
-| architect-gate-and-plan-view — Архитектурные ворота и план в интерфейсе | ready | 1 из 2 | R2 | — |
+| architect-gate-and-plan-view — Архитектурные ворота и план в интерфейсе | ready | 2 из 2 | — | — |
 | architect-role-and-context-economy — Роль ARCHITECT: минималистичный пресет системного дизайнера и границы контекста у всех ро… | ready | 0 из 7 | FR-1, FR-2, FR-3, FR-4 +3 | — |
 | architecture-in-context — Архитектура в контексте оркестратора | ready | 1 из 2 | R1 | — |
 | batch-execution — Пакетная работа: две seats на спайк вместо ребёнка на строку | ready | 0 из 2 | FR1, NFR1 | — |
@@ -81,8 +81,8 @@
 - TASK-273 (open): Codex sign-in tool: codex_signin_start/status/cancel
 - TASK-337 (review): Independent acceptance case: devops role and the one-live-deployment lane
 - TASK-372 (blocked): Задержка отправки и размер контекста: есть ли связь
-- TASK-383 (active): Отказ board_limit: назвать причину — долг проверки и minimal viable change
-- TASK-507 (blocked): Кейс ворот: перепривязать и подтвердить прогоном
-- TASK-510 (active): Коммит: профиль и проверка ролей
+- TASK-383 (review): Отказ board_limit: назвать причину — долг проверки и minimal viable change
+- TASK-517 (active): Кейсы после правок: перемерить устаревшие
+- TASK-518 (active): Финальный батч: коммит и push
 
 Записи анализа: docs/analysis/<initiative>.json.

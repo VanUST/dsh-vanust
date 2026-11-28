@@ -12,16 +12,17 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-510 | Коммит: профиль и проверка ролей | — | — | yes |
+| TASK-517 | Кейсы после правок: перемерить устаревшие | — | — | yes |
+| TASK-518 | Финальный батч: коммит и push | — | — | yes |
 
-## review (1)
+## review (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
+| TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
 
-## done (411)
+## done (418)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -434,17 +435,23 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-504 | Первая архитектурная консультация: решения ARCH- для двух инициатив | — | — | yes |
 | TASK-505 | Роль ARCHITECT: право записать решение и файл | — | — | yes |
 | TASK-506 | Кейсы ворот: свести два следа к одному живому | — | — | yes |
+| TASK-507 | Кейс ворот: перепривязать и подтвердить прогоном | — | — | yes |
 | TASK-508 | Батч после критики: ворота, доставка, профиль | — | — | yes |
 | TASK-509 | Профиль и карта ролей: расхождение должно валить гейт | — | — | yes |
+| TASK-510 | Коммит: профиль и проверка ролей | — | — | yes |
+| TASK-511 | Проверка после перезапуска: дрейф, версии, ключи плана | — | — | yes |
+| TASK-512 | Ворота в установленной сборке: прогон четырёх входов | — | — | yes |
+| TASK-513 | Приёмка вкладки плана: независимый кейс | REQ-309 | — | no |
+| TASK-515 | TESTER: браузер из .tools вместо схем в контексте | — | — | yes |
+| TASK-516 | Вкладка плана: «Reading…» навсегда — дефект или стенд? | — | — | yes |
 
-## blocked (2)
+## blocked (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-372 | Задержка отправки и размер контекста: есть ли связь | — | — | yes |
-| TASK-507 | Кейс ворот: перепривязать и подтвердить прогоном | — | — | yes |
 
-## cancelled (93)
+## cancelled (94)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -541,3 +548,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-424 | Прогнать замер кэша на одном маршруте модели | — | — | yes |
 | TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 | TASK-446 | Разобрать красный delegation-basis-proof | — | — | yes |
+| TASK-514 | Роль TESTER: браузер для измерения интерфейса | — | — | yes |

@@ -2479,16 +2479,28 @@ window.__ModuleLoader__.load({
 
       // ONE READ FOR THE PLAN. It runs when the Plan tab is first opened (and after Reload), never
       // on a tab switch: a ready plan stays in the panel.
+      //
+      // WHICH LOAD THIS PANEL HAS STARTED IS A REF, NOT plan.phase. React runs an effect's
+      // cleanup before the next setup whenever the dependencies changed, so an effect that sets
+      // plan.phase AND depends on plan.phase aborts its own read on the commit that shows
+      // "Reading…" — the aborted signal makes the reply land nowhere and the tab hangs there for
+      // good (seen in Chrome with a 25 ms transport; an instant mock hid it). The key is the
+      // reload token, so Reload still re-reads and a tab switch does not.
+      const planLoad = useRef({ token: -1 })
       useEffect(() => {
-        if (mode !== 'plan' || plan.phase !== 'idle') return undefined
+        if (mode !== 'plan') return undefined
+        if (planLoad.current.token === reloadToken) return undefined
         if (typeof sessionId !== 'string' || sessionId === '') {
           setPlan({ phase: 'empty' })
           return undefined
         }
+        planLoad.current.token = reloadToken
+        let finished = false
         const controller = new AbortController()
         setPlan({ phase: 'loading' })
         readText(remote, sessionId, PLAN_VIEW_PATH, controller.signal).then(
           (read) => {
+            finished = true
             if (controller.signal.aborted) return
             if (read.ok !== true) {
               setPlan(read.missing === true ? { phase: 'empty' } : { phase: 'error', code: read.code ?? 'plan_unreadable', message: read.message ?? 'state/views/plan.md could not be read' })
@@ -2497,11 +2509,17 @@ window.__ModuleLoader__.load({
             setPlan({ phase: 'ready', view: parsePlanView(read.text) })
           },
           (error) => {
+            finished = true
             if (!controller.signal.aborted) setPlan({ phase: 'error', code: 'plan_unreadable', message: errorText(error) })
           },
         )
-        return () => controller.abort()
-      }, [mode, plan.phase, reloadToken, remote, sessionId])
+        return () => {
+          controller.abort()
+          // Leaving the tab (or the panel) mid-read leaves the plan unparsed: let the next open
+          // start it again instead of sticking on "Reading…" for this session.
+          if (!finished) planLoad.current.token = -1
+        }
+      }, [mode, reloadToken, remote, sessionId])
 
       // v2 P2: the Design map mode no longer asks designmap for a rendered scene; the page
       // editor loads designmap/pages itself through the same command transport.

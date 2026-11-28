@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "architect-gate-and-plan-view",
-  "rev": 7,
+  "rev": 12,
   "status": "ready",
   "createdAt": "2026-11-28T17:34:13.930Z",
-  "updatedAt": "2026-11-28T18:09:58.164Z",
+  "updatedAt": "2026-11-28T20:46:05.622Z",
   "updatedBy": "agent",
   "title": "Архитектурные ворота и план в интерфейсе",
   "requestedSolution": "Ворота на L2 с architectureImpact по записи консультации архитектора; вкладка плана в панели состояния.",
@@ -70,8 +70,7 @@
         "AC-2: При открытии — одно чтение плана, без опроса.",
         "AC-3: Доступность: клавиатура, заголовки, пустое состояние названо."
       ],
-      "status": "deferred",
-      "reason": "Проверено драйвером: вкладка Plan — 1 чтение state/views/plan.md и 0 команд, 30 инициатив с работой, 4 решения (первое DEC-004), 6 открытых задач; возврат на вкладку — 0 чтений; axe 0 нарушений, стрелки и tabpanel работают, пустой и отсутствующий вид дают названные сообщения; тесты панели 23/23. Кейс исполнительский — независимой приёмки нет."
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -147,9 +146,7 @@
           "role": "BACKEND",
           "at": "2026-11-28T17:34:21.068Z",
           "evidence": [
-            "Отказ architect_consult_required на реальной записи с пустым decisions; текст говорит, что записать: решение, обоснование, отвергнутые варианты, компоненты, инварианты, проверки, путь отката.",
-            "End-to-end: L2+architectureImpact → отказ, строк 0; L1 → ok, 1 строка и 1 ребёнок; L0 → ok.",
-            "Тест 7/7 exit 0; на копии модуля до правки 3/7 exit 1; кейс red mx0p0dzj-wsntq-1 и green mx0p0i4i-x78rw."
+            "Отказ architect_consult_required на реальной записи без ARCH-; L1 и L0 проходят; тест 8/8, набор 57/57; кейс с красным контролем."
           ]
         },
         {
@@ -158,6 +155,14 @@
           "at": "2026-11-28T17:36:58.365Z",
           "evidence": [
             "Наборы orchestrator 56/56 и analysis 13/13 после правки."
+          ]
+        },
+        {
+          "taskId": "task-mx0r9zek-ibsfqg",
+          "role": "BACKEND",
+          "at": "2026-11-28T18:41:00.000Z",
+          "evidence": [
+            "Установленная сборка 0.1.87 совпадает с исходником (SHA256 E2B0F90E…): L2+флаг и флаг без класса — отказ, L2 без флага — проходит, запись с ARCH-1 — проходит."
           ]
         }
       ]
@@ -170,22 +175,38 @@
       "dataIds": [
         "D-PLAN"
       ],
-      "status": "deferred",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mx0ownei-0u6fo1",
           "role": "UX/UI",
           "at": "2026-11-28T17:34:21.342Z",
           "evidence": [
-            "Вкладка Plan: одно чтение state/views/plan.md, 0 команд, 30 инициатив, 4 решения, 6 задач; возврат — 0 чтений; axe 0 нарушений; пустой и отсутствующий вид названы; панельные тесты 23/23."
+            "Первая версия вкладки: одно чтение, 30 инициатив, 4 решения, axe 0, пустые состояния названы."
+          ]
+        },
+        {
+          "taskId": "task-mx0v4zhe-1xk8rl",
+          "role": "TESTER",
+          "at": "2026-11-28T20:28:47.964Z",
+          "evidence": [
+            "Приёмочный драйвер на Chromium: зелёный exit 0 — одно чтение state/views/plan.md, 0 команд, секции, DEC-004 > DEC-003, пустой и отсутствующий план названы, axe 0, клавиатура переключает.",
+            "Красный на worktree aa7d65f: exit 1, 10 именованных провалов, включая color-contrast; кейс purpose acceptance, verified rev 5, прогоны mx0vqgt5-482xb-1 и mx0vqmiu-wepwc-1."
+          ]
+        },
+        {
+          "taskId": "task-mx0viceg-cpyc8m",
+          "role": "UX/UI",
+          "at": "2026-11-28T20:39:11.390Z",
+          "evidence": [
+            "Дефект зависания «Reading…» найден приёмкой и исправлен: после правки при 0/25/250 мс — RENDERED, 31 строка, одно чтение, axe []; регрессии нет."
           ]
         }
-      ],
-      "reason": "Драйвер зелёный, кейс исполнительский."
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "f759080dfc4d8bdc5f5b9a45466dcc3583fb9168d3f3ac16756ea1f9d6233e41",
+  "fingerprint": "0b6f06d5353f109a14995dd7f21402762e135fe0b850fb1727335c484bafe308",
   "history": [
     {
       "revision": 1,
@@ -238,6 +259,46 @@
     {
       "revision": 7,
       "at": "2026-11-28T18:09:58.164Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-28T20:28:39.223Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: R2 changed; impacts: 1"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T20:28:47.964Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0v4zhe-1xk8rl -> R2"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T20:36:50.428Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0v4zhe-1xk8rl -> R2"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-28T20:42:23.901Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0v4zhe-1xk8rl -> R2"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-28T20:46:05.622Z",
       "editedBy": "agent",
       "action": "upsert",
       "status": "ready",

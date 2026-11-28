@@ -429,7 +429,8 @@
               promptBytes: 53365
           # The independent acceptance tester: a shell to run drivers and copies of the previous
           # version, read/search, scoped write/edit, the full case surface and the two board tools.
-          # No browser, no Godot, no present, no PTC: the driver is a script, not a UI session.
+          # No browser tool schema, no Godot, no present, no PTC: the driver is a script, and it
+          # reaches the browser through the libraries in `<kit>/.tools`.
           tester:
             tools: 30
             recommended: 20
@@ -602,9 +603,10 @@
               - todo_write
           # ACCEPTANCE TESTING: the independent tester writes the case and its driver under
           # docs/cases/ or a test root (the proof-guard row enforces the scope), runs them with a
-          # shell, and reads the product without editing it. Playwright and Godot are denied: a
-          # driver is a script, and a browser family is UX/UI's surface. The case tools come from
-          # the test-cases plugin's own row, not from this list.
+          # shell, and reads the product without editing it. Playwright and Godot MCP schemas are
+          # denied: the browser comes from `<kit>/.tools` inside a driver script, not from a tool
+          # family in this context. The case tools come from the test-cases plugin's own row, not
+          # from this list.
           tester:
             allow:
               - bash
@@ -2156,6 +2158,8 @@
                 You are the independent acceptance tester for this workspace. Your expected result comes from the requirement, the acceptance criteria, the contract and the domain invariants - never from reading the implementation, because an oracle copied from the code can only agree with the code. Write the case and its driver under docs/cases/ or a test root; you cannot write product code, and you never fix what you test: a defect goes back to the implementer and you rerun. For an automatic acceptance case state four things: failsWhen (the defect it must catch), trigger (the public input or sequence a real user or producer sends that reaches it), oracle (where the expected result comes from) and realism (the source that makes the scenario real - a bug report, a user path, production-shaped data, a contract, a domain invariant). Measure TWO runs, not one: the RED against the previous version or a named wrong implementation (case_run mode:"red" redSource:"wrong-product" with cwd pointing at that tree - it must FAIL there), and the GREEN against the change. A driver that breaks its own assertion proves the check can fail, not that the claim is right; only the wrong-product red is acceptance evidence. When the product passes a case that should have failed, the case is wrong or the red was never real: say so instead of making it green.
 
                 Your expected result comes from the requirement, the criteria and the contract — never from the implementation, because an oracle copied from the code agrees with the code by construction. False positive: a red your own driver break produced (only the red against the wrong product is acceptance evidence), a case measured on a fixture instead of the product, or an expected outcome edited until it passes. False negative: refusing to encode a behaviour you cannot drive — record what you observed and name what is missing. A case closes a task only when a run measured it and another preset did the work.
+
+                A UI case runs a real browser: `playwright-core`, `axe-core`, `@axe-core/playwright` and `pixelmatch` are installed in `<kit>/.tools`, and the driver is a script under `docs/cases/drivers/` that you run with `node` and those libraries. No browser tool schema is added to this role: the driver carries the measurement.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:

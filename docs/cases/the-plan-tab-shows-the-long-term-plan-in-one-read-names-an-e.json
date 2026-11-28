@@ -1,0 +1,225 @@
+{
+  "schemaVersion": 1,
+  "id": "the-plan-tab-shows-the-long-term-plan-in-one-read-names-an-e",
+  "title": "The plan tab shows the long-term plan in one read, names an empty plan, and stays accessible",
+  "requirement": "REQ-309: the long-term plan is visible in the interface, not only in the file. AC-1: a plan tab lists the initiatives with unfinished work, the decisions (freshest first) and the nearest tasks. AC-2: on open, one read of the plan, no polling. AC-3: accessibility - keyboard, headings, and an empty state named in words.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "reason": "The tester composition has no way to mount the panel and no accessibility engine: no DOM renderer (jsdom, happy-dom, linkedom), no react-dom, no axe-core and no Playwright in the workspace, in the harness cache or globally (only the saxes XML parser matches the search). client.js is a browser bundle mounted through a Cordis slot; its own test pattern evaluates the source with a fake loader whose createElement returns null and exposes no plan model or tab read in __test. A mounted run would have to fake the mount, and the axe result could not be produced at all - so this case is recorded with its steps and expected outcome, not claimed as evidence. It needs a role with a browser (Playwright) and axe-core, or an exported plan model plus a DOM renderer.",
+  "steps": [
+    "Mount the real client.js in a browser with the real state/views/plan.md and count workspace-file reads and command calls while the plan tab opens.",
+    "Read the rendered tab: initiatives with unfinished work, decisions newest first, nearest open tasks, and the headings.",
+    "Point the panel at an empty plan and at a missing state/views/plan.md: each names the state in words.",
+    "Run an axe scan on the open panel and on the plan tab.",
+    "Switch tabs with the keyboard (Tab into the tablist, arrow keys/Enter) and check the selected tab and focus follow."
+  ],
+  "expected": "The plan tab shows the initiatives with unfinished work, the decisions freshest first and the nearest open tasks from the real state/views/plan.md; opening it performs exactly one read of state/views/plan.md and zero command calls; an empty plan and a missing file are named in words; an axe scan reports no violations; Tab/arrow keys switch between the panel tabs with visible focus and the panel keeps its headings.",
+  "tags": [
+    "project-state-panel",
+    "plan-tab",
+    "REQ-309",
+    "acceptance",
+    "axe",
+    "keyboard",
+    "playwright"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "3787e28797a13ef2c0fb7491a4394b5ee7c7a42162ba8e8226131e420b8d2cd7"
+    }
+  ],
+  "criterionId": "AC-1",
+  "reqId": "REQ-309",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+  "purpose": "acceptance",
+  "failsWhen": "The plan is only in the file (no tab), the tab reads the plan repeatedly or polls, the empty/missing plan shows a blank or a raw error, axe reports a violation, or the keyboard cannot switch tabs.",
+  "realism": "REQ-309 AC-1..AC-3 and the real state/views/plan.md (12 190 bytes); the red base exists: client.js before commit 7b86a55 has no PLAN_VIEW_PATH, no PlanMode and no plan tab, while the current client.js has all three.",
+  "revision": 5,
+  "createdAt": "2026-11-28T20:29:51.386Z",
+  "updatedAt": "2026-11-28T20:45:46.169Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T20:29:51.386Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The plan tab shows the long-term plan in one read, names an empty plan, and stays accessible",
+        "requirement": "REQ-309: the long-term plan is visible in the interface, not only in the file. AC-1: a plan tab lists the initiatives with unfinished work, the decisions (freshest first) and the nearest tasks. AC-2: on open, one read of the plan, no polling. AC-3: accessibility - keyboard, headings, and an empty state named in words.",
+        "expected": "The plan tab shows the initiatives with unfinished work, the decisions freshest first and the nearest open tasks from the real state/views/plan.md; opening it performs exactly one read of state/views/plan.md and zero command calls; an empty plan and a missing file are named in words; an axe scan reports no violations; Tab/arrow keys switch between the panel tabs with visible focus and the panel keeps its headings.",
+        "steps": [
+          "Mount the real client.js in a browser with the real state/views/plan.md and count workspace-file reads and command calls while the plan tab opens.",
+          "Read the rendered tab: initiatives with unfinished work, decisions newest first, nearest open tasks, and the headings.",
+          "Point the panel at an empty plan and at a missing state/views/plan.md: each names the state in words.",
+          "Run an axe scan on the open panel and on the plan tab.",
+          "Switch tabs with the keyboard (Tab into the tablist, arrow keys/Enter) and check the selected tab and focus follow."
+        ],
+        "automated": false,
+        "reason": "The tester composition has no way to mount the panel and no accessibility engine: no DOM renderer (jsdom, happy-dom, linkedom), no react-dom, no axe-core and no Playwright in the workspace, in the harness cache or globally (only the saxes XML parser matches the search). client.js is a browser bundle mounted through a Cordis slot; its own test pattern evaluates the source with a fake loader whose createElement returns null and exposes no plan model or tab read in __test. A mounted run would have to fake the mount, and the axe result could not be produced at all - so this case is recorded with its steps and expected outcome, not claimed as evidence. It needs a role with a browser (Playwright) and axe-core, or an exported plan model plus a DOM renderer.",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null,
+        "linkedTaskId": null
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T20:45:35.257Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T20:45:41.809Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T20:45:41.809Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The plan tab shows the long-term plan in one read, names an empty plan, and stays accessible",
+        "requirement": "REQ-309: the long-term plan is visible in the interface, not only in the file. AC-1: a plan tab lists the initiatives with unfinished work, the decisions (freshest first) and the nearest tasks. AC-2: on open, one read of the plan, no polling. AC-3: accessibility - keyboard, headings, and an empty state named in words.",
+        "expected": "The plan tab shows the initiatives with unfinished work, the decisions freshest first and the nearest open tasks from the real state/views/plan.md; opening it performs exactly one read of state/views/plan.md and zero command calls; an empty plan and a missing file are named in words; an axe scan reports no violations; Tab/arrow keys switch between the panel tabs with visible focus and the panel keeps its headings.",
+        "steps": [
+          "Mount the real client.js in a browser with the real state/views/plan.md and count workspace-file reads and command calls while the plan tab opens.",
+          "Read the rendered tab: initiatives with unfinished work, decisions newest first, nearest open tasks, and the headings.",
+          "Point the panel at an empty plan and at a missing state/views/plan.md: each names the state in words.",
+          "Run an axe scan on the open panel and on the plan tab.",
+          "Switch tabs with the keyboard (Tab into the tablist, arrow keys/Enter) and check the selected tab and focus follow."
+        ],
+        "automated": true,
+        "testPath": "docs/cases/drivers/plan-tab-acceptance.mjs",
+        "runCommand": "node docs/cases/drivers/plan-tab-acceptance.mjs",
+        "reason": "The tester composition has no way to mount the panel and no accessibility engine: no DOM renderer (jsdom, happy-dom, linkedom), no react-dom, no axe-core and no Playwright in the workspace, in the harness cache or globally (only the saxes XML parser matches the search). client.js is a browser bundle mounted through a Cordis slot; its own test pattern evaluates the source with a fake loader whose createElement returns null and exposes no plan model or tab read in __test. A mounted run would have to fake the mount, and the axe result could not be produced at all - so this case is recorded with its steps and expected outcome, not claimed as evidence. It needs a role with a browser (Playwright) and axe-core, or an exported plan model plus a DOM renderer.",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": null,
+        "linkedTaskId": null
+      }
+    }
+  ],
+  "evidence": {},
+  "testPath": "docs/cases/drivers/plan-tab-acceptance.mjs",
+  "runCommand": "node docs/cases/drivers/plan-tab-acceptance.mjs",
+  "testHash": "2eab62a7a9cf79f01358d9a8ba56dfe5a3e4c88fe18e91e9ae470b1b402f49ef",
+  "lastVerified": {
+    "at": "2026-11-28T20:45:41.809Z",
+    "command": "node docs/cases/drivers/plan-tab-acceptance.mjs",
+    "exitCode": 0,
+    "runId": "mx0vqmiu-wepwc-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": null
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "degraded": false,
+  "runs": [
+    {
+      "runId": "mx0vqgt5-482xb-1",
+      "at": "2026-11-28T20:45:35.255Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 5071,
+      "commandSha256": "c4004952b3b7b658cdacf1262446d1f863075811c049441e064959f81b411161",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\panel-red-before-7b86a55",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/panel-red-before-7b86a55",
+      "head": "aa7d65f86e4113e6250b132b459263e9f0e46094",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-plan-tab-shows-the-long-term-plan-in-one-read-names-an-e/mx0vqgt5-482xb-1/stdout.log",
+      "stderr": "docs/cases/runs/the-plan-tab-shows-the-long-term-plan-in-one-read-names-an-e/mx0vqgt5-482xb-1/stderr.log",
+      "summary": "docs/cases/runs/the-plan-tab-shows-the-long-term-plan-in-one-read-names-an-e/mx0vqgt5-482xb-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0vqmiu-wepwc-1",
+      "at": "2026-11-28T20:45:41.808Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 4205,
+      "commandSha256": "c4004952b3b7b658cdacf1262446d1f863075811c049441e064959f81b411161",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "87e304a80af2ffa2f5ca1b269b4ab5fee4826351",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-plan-tab-shows-the-long-term-plan-in-one-read-names-an-e/mx0vqmiu-wepwc-1/stdout.log",
+      "stderr": "docs/cases/runs/the-plan-tab-shows-the-long-term-plan-in-one-read-names-an-e/mx0vqmiu-wepwc-1/stderr.log",
+      "summary": "docs/cases/runs/the-plan-tab-shows-the-long-term-plan-in-one-read-names-an-e/mx0vqmiu-wepwc-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T20:45:35.257Z",
+    "runId": "mx0vqgt5-482xb-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node docs/cases/drivers/plan-tab-acceptance.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\panel-red-before-7b86a55",
+    "head": "aa7d65f86e4113e6250b132b459263e9f0e46094",
+    "dirty": true,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": null
+    }
+  }
+}

@@ -2,10 +2,10 @@
 id: TASK-383
 kind: task
 title: "Отказ board_limit: назвать причину — долг проверки и minimal viable change"
-status: active
-revision: 6
+status: review
+revision: 8
 createdAt: 2026-11-27T22:29:58.555Z
-updatedAt: 2026-11-28T17:01:23.768Z
+updatedAt: 2026-11-28T18:39:35.137Z
 acceptance:
   - text: "Отказ `board_limit` объясняет **причину**: предел существует, чтобы не копить долг проверки — каждое изменение должно быть доказано рабочим до начала следующего (minimal viable change); больше десяти незакрытых задач означает накопление непроверенной работы, а не прогресс."
     done: false
