@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 280 · TASK 414 · TEST 104 · event 2904
+REQ 280 · TASK 414 · TEST 104 · event 2907
 
 ## Gaps
 
@@ -27,7 +27,7 @@ REQ 280 · TASK 414 · TEST 104 · event 2904
 - REQ-235 proposed: Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.
 - REQ-236 proposed: Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Mak
 
-## Open work (7)
+## Open work (6)
 
 - TASK-273 open: Codex sign-in tool: codex_signin_start/status/cancel
 [truncated: the digest budget is 3072 bytes; read index.json or state/req/]

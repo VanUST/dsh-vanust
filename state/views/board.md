@@ -2,12 +2,11 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (2)
+## open (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
-| TASK-414 | Pull the updated kit and verify it locally | — | 1/5 | yes |
 
 ## active (1)
 
@@ -24,7 +23,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-289 | P1 fix 2: целевое ревью W1 head/test и B1 junction | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
 
-## done (317)
+## done (318)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -345,6 +344,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-411 | P2 proof in a browser: the page editor loads, saves and never writes in read mode | — | — | yes |
 | TASK-412 | One renderer: Excalidraw's own export, custom SVG writer deleted | REQ-250 | — | no |
 | TASK-413 | map_render: frame the page, do not crop it | REQ-250 | — | no |
+| TASK-414 | Pull the updated kit and verify it locally | — | 5/5 | yes |
 
 ## blocked (1)
 
