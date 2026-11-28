@@ -77,6 +77,10 @@ export function apply(ctx, config = {}) {
     list: delegate('list'),
     update: delegate('update'),
     link: delegate('link'),
+    // A wrong link is a journal fact, not a hand edit: `update` ignores `links`, the panel
+    // refuses it as `field_not_editable`, and `link` only appends. Without this delegate the
+    // operation exists in the core and is invisible to the panel and every other consumer.
+    unlink: delegate('unlink'),
     issueId: delegate('issueId'),
     claim: delegate('claim'),
     release: delegate('release'),

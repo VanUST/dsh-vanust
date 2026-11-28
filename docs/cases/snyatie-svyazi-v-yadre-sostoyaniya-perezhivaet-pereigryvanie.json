@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "id": "snyatie-svyazi-v-yadre-sostoyaniya-perezhivaet-pereigryvanie",
+  "title": "Снятие связи в ядре состояния переживает переигрывание журнала",
+  "requirement": "Ядро состояния умеет снимать одну связь под блокировкой и записывает это событием журнала: файл и результат переигрывания совпадают, снятая связь не возвращается, соседние связи и добавление новой связи работают.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/project-state/test/core.test.mjs",
+  "runCommand": "node --test plugins/project-state/test/core.test.mjs",
+  "steps": [
+    "Создать два REQ и DECISION, связать DECISION с отклонённым REQ и с TASK.",
+    "Вызвать unlink(DECISION, отклонённый REQ) через ядро состояния.",
+    "Прочитать файл решения и вызвать replay(): байты должны совпасть, в файле остаётся только связь с TASK, в журнале есть событие unlink.",
+    "Повторить снятие той же связи (ожидается link_missing) и добавить связь с принятым REQ (ожидается ok)."
+  ],
+  "expected": "unlink возвращает ok и имя снятой цели; в файле остаются только остальные связи; replay() даёт ok без mismatch и без problems; повторное снятие отвергается link_missing; link() после снятия добавляет новую связь, и replay() снова совпадает.",
+  "tags": [
+    "state-core",
+    "links",
+    "replay"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state/lib/core.mjs",
+      "sha256": "797250b6ed8731c96d558d8d6e4ac461a721606406094dbb331f7d998a57bef0"
+    }
+  ],
+  "linkedTaskId": "task-mx0j5npt-nial4i",
+  "reqId": "REQ-303",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+  "purpose": "implementation",
+  "testHash": "5577dab59088a565df562051f4a95c4519ccc912946b513fa83e2cc99ef3af4d",
+  "negativeControl": "unlink-removes-the-link",
+  "revision": 3,
+  "createdAt": "2026-11-28T14:54:25.088Z",
+  "updatedAt": "2026-11-28T14:54:31.686Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T14:54:30.435Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"unlink-removes-the-link\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T14:54:31.686Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0j72j2-zvzxd-1",
+      "at": "2026-11-28T14:54:30.434Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+        "taskId": "task-mx0j5npt-nial4i"
+      },
+      "control": "unlink-removes-the-link",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 585,
+      "commandSha256": "e817341f78daa5bb4ca9982c8a284751742b7e23c219913ad8939dcb378adba8",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "0226810159782d2230bb234934183145dc4f2d6f",
+      "dirty": true,
+      "stdout": "docs/cases/runs/snyatie-svyazi-v-yadre-sostoyaniya-perezhivaet-pereigryvanie/mx0j72j2-zvzxd-1/stdout.log",
+      "stderr": "docs/cases/runs/snyatie-svyazi-v-yadre-sostoyaniya-perezhivaet-pereigryvanie/mx0j72j2-zvzxd-1/stderr.log",
+      "summary": "docs/cases/runs/snyatie-svyazi-v-yadre-sostoyaniya-perezhivaet-pereigryvanie/mx0j72j2-zvzxd-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0j73ht-881zp-1",
+      "at": "2026-11-28T14:54:31.685Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+        "taskId": "task-mx0j5npt-nial4i"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 594,
+      "commandSha256": "e817341f78daa5bb4ca9982c8a284751742b7e23c219913ad8939dcb378adba8",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "0226810159782d2230bb234934183145dc4f2d6f",
+      "dirty": true,
+      "stdout": "docs/cases/runs/snyatie-svyazi-v-yadre-sostoyaniya-perezhivaet-pereigryvanie/mx0j73ht-881zp-1/stdout.log",
+      "stderr": "docs/cases/runs/snyatie-svyazi-v-yadre-sostoyaniya-perezhivaet-pereigryvanie/mx0j73ht-881zp-1/stderr.log",
+      "summary": "docs/cases/runs/snyatie-svyazi-v-yadre-sostoyaniya-perezhivaet-pereigryvanie/mx0j73ht-881zp-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T14:54:30.435Z",
+    "runId": "mx0j72j2-zvzxd-1",
+    "exitCode": 1,
+    "control": "unlink-removes-the-link",
+    "command": "node --test plugins/project-state/test/core.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "C:\\dsh-kit",
+    "head": "0226810159782d2230bb234934183145dc4f2d6f",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+      "taskId": "task-mx0j5npt-nial4i"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T14:54:31.686Z",
+    "command": "node --test plugins/project-state/test/core.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0j73ht-881zp-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "0365cc69-8aa3-494a-9f75-4cdacf5217ac",
+      "taskId": "task-mx0j5npt-nial4i"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

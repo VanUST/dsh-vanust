@@ -378,7 +378,11 @@ function planDecisions(model = {}) {
   return (Array.isArray(model.decisions) ? model.decisions : [])
     .filter((decision) => decision !== null && typeof decision === 'object' && typeof decision.id === 'string')
     .filter((decision) => !RETIRED_DECISION_STATUSES.has(String(decision.status)))
-    .sort(byId)
+    // NEWEST FIRST, because the plan keeps the newest: the block has a byte cap, so the rows it
+    // can carry are trimmed from the OLD end. Sorted the other way round, a fresh decision was
+    // the first row dropped — the plan showed the rules that were about to be superseded and hid
+    // the one the session had just decided (measured on DEC-004).
+    .sort((a, b) => byId(b, a))
     .map((decision) => {
       const link = (Array.isArray(decision.links) ? decision.links : []).find((entry) => entry !== null && typeof entry === 'object' && entry.kind === 'req' && typeof entry.id === 'string')
       const req = link === undefined ? undefined : reqs.get(link.id)
@@ -441,10 +445,10 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
 
 
 /**
- * The plan's decisions block: one row per live DECISION, the initiative it belongs to and the rule
- * it states. The same derivation feeds `plan.yaml`, so the two views cannot disagree. It renders
- * even when the workspace has no analysis records yet: a decision is the journal's, not the
- * initiative's.
+ * The plan's decisions block: one row per live DECISION, newest first, the initiative it belongs
+ * to and the rule it states. The same derivation feeds `plan.yaml`, so the two views cannot
+ * disagree about which rules hold. It renders even when the workspace has no analysis records
+ * yet: a decision is the journal's, not the initiative's.
  */
 function decisionSection(decisions) {
   if (decisions.length === 0) return []
@@ -513,19 +517,18 @@ export function renderPlanYaml(initiatives = [], model = { tasks: [] }) {
   }
   // THE DECISIONS COME BEFORE THE OPEN WORK: the order and the stop conditions are what a new
   // session has to know first. The cap is enforced here rather than hoped for, because this is
-  // the one block that grows with every accepted decision: the newest rows are dropped last and
-  // named by a marker (never a half row), and `plan.md` still lists all of them.
+  // the one block that grows with every accepted decision: the OLDEST rows are dropped and named
+  // by a marker (never a half row), while the newest decisions always make it in; `plan.md` still
+  // lists all of them. One row is one line — id, initiative, short title — so four decisions cost
+  // ~440 bytes instead of ~520 and the block fits beside the initiatives.
   const decisions = planDecisions(model)
   const decisionBlock = (shown) => {
     if (decisions.length === 0) return []
     const block = [`decisions: ${decisions.length}`]
     for (const decision of shown) {
-      block.push(`  - id: ${yamlString(decision.id)}`)
-      block.push(`    status: ${yamlString(decision.status)}`)
-      block.push(`    initiative: ${yamlString(decision.initiative)}`)
-      block.push(`    title: ${yamlString(shortTitle(decision.title, PLAN_YAML_TITLE_LIMIT))}`)
+      block.push(`  - { id: ${yamlString(decision.id)}, initiative: ${yamlString(decision.initiative)}, title: ${yamlString(shortTitle(decision.title, PLAN_YAML_TITLE_LIMIT))} }`)
     }
-    if (shown.length < decisions.length) block.push(`  # +${decisions.length - shown.length} more decisions: state/views/plan.md`)
+    if (shown.length < decisions.length) block.push(`  # +${decisions.length - shown.length} older decisions: state/views/plan.md`)
     return block
   }
   let shown = decisions.slice(0, PLAN_DECISION_ROWS)

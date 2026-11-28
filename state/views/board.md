@@ -13,7 +13,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-467 | Привязать решение к требованию и закоммитить изменение профиля | — | — | yes |
+| TASK-470 | Объявить снятие связи потребителям и закоммитить батч | — | — | yes |
 
 ## review (2)
 
@@ -22,7 +22,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
 | TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 
-## done (369)
+## done (372)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -395,6 +395,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-464 | Закоммитить переход на rc.5 и сопутствующий батч | — | — | yes |
 | TASK-465 | Как работает вытеснение истории: порог, цена, что остаётся | — | — | yes |
 | TASK-466 | Снизить резерв под ответ для маршрута Codex по замеру | — | — | yes |
+| TASK-467 | Привязать решение к требованию и закоммитить изменение профиля | — | — | yes |
+| TASK-468 | План несёт свежие решения; основание — на принятом требовании | — | — | yes |
+| TASK-469 | Снятие связи в журнале и перевязка решения на принятое требование | REQ-304 | — | no |
 
 ## blocked (1)
 

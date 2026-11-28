@@ -2,7 +2,7 @@
 
 Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.
 
-Инициатив: 53; с открытыми задачами: 0; с несделанными требованиями: 27.
+Инициатив: 54; с открытыми задачами: 0; с несделанными требованиями: 28.
 
 | Инициатива | Этап | Подтверждено | Осталось | Открытые задачи |
 |---|---|---|---|---|
@@ -23,6 +23,7 @@
 | project-hygiene-guide-and-docs — Project hygiene: one working guide, durable docs only, a legacy audit, and the orchestrat… | ready | 0 из 6 | FR1, FR2, FR3, FR4 +2 | — |
 | proof-guard-resolution — Запись проверки оболочки: разрешение и авторство | ready | 1 из 1 | — | — |
 | risk-closure — Закрытие остаточных рисков независимой проверки | ready | 0 из 1 | FR1 | — |
+| state-link-correction — Исправление связи в журнале: снятие связи | ready | 0 из 1 | R1 | — |
 | state-panel-hide-chores — Скрыть chore-задачи из вида доски задач | ready | 1 из 1 | — | — |
 | task-order-and-dependencies — Порядок шагов как контракт: правило в политике и отказ доски `dependency_open` | ready | 0 из 2 | FR1, FR2 | — |
 | task-state-owner-control — Владелец меняет состояние задачи сам: ручной статус в панели Project state и доска без пр… | ready | 4 из 4 | — | — |
@@ -60,25 +61,12 @@
 | state-task-specifics — Карточка задачи в реестре состояния: конкретика и переход к сессии субагента | completed | 4 из 4 | — | — |
 | taskboard-write-integrity — Доска задач: запись строки и её проверка при закрытии | completed | 2 из 2 | — | — |
 
-## Решения (4)
-
-Порядок работ и условия остановки: строка — одно решение журнала; полный текст и причина — в файле решения.
-
-| Решение | Статус | Инициатива | Правило |
-|---|---|---|---|
-| DEC-001 | accepted | documentation-owners | Порядок трёх проблем и правила документации |
-| DEC-002 | accepted | architecture-boundaries | Архитектурная консультация при смене контракта, владельца данных или нового компонента |
-| DEC-003 | accepted | request-cache | Правила контекста меняются только по замеру; оценка замер не заменяет |
-| DEC-004 | accepted | request-cache | Резерв под ответ на маршруте Codex — 32 768 |
-
-Файлы решений: state/decision/<ID>.md.
-
 ## Открытые задачи журнала (6)
 - TASK-273 (open): Codex sign-in tool: codex_signin_start/status/cancel
 - TASK-337 (review): Independent acceptance case: devops role and the one-live-deployment lane
 - TASK-372 (blocked): Задержка отправки и размер контекста: есть ли связь
 - TASK-383 (active): Отказ board_limit: назвать причину — долг проверки и minimal viable change
 - TASK-438 (review): Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе
-- TASK-467 (active): Привязать решение к требованию и закоммитить изменение профиля
+- TASK-470 (active): Объявить снятие связи потребителям и закоммитить батч
 
 Записи анализа: docs/analysis/<initiative>.json.

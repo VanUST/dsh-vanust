@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "files": {
-    "board.md": "5dce51f71e8adf0af4308234dad9811365e5ec64f3a75b1ff6dc488924ef35ac",
-    "digest.md": "c89cd705347811a7ae7e6bc93ebc4bcc1073db10c8edfe1fb3a33e4f356631c9",
-    "index.json": "174f16b977ea9d67bbe5aeb35fe5acfbcdc8558dc8ffebf76eb7cfce6a37440c",
+    "board.md": "cc4bf938fa6931f064dd57cd598130488ef2bd0b5c39d33a0773e605aca9eaa2",
+    "digest.md": "cca54e8d32059429349fdc7c0c4afd0d0151377255eec6a4da2a654553d719b3",
+    "index.json": "edff50b707f5d519d1ce6c213b7f0c2bc51efd882e9b75dc503e304d86c26e9b",
     "map/REQ-001.mmd": "5d11b132de6989760cff65d76228853d10d299ac08fb8c0858e8e6ecfbd9bab2",
     "map/REQ-002.mmd": "653d5bde8ef4b08a70767e4ef10029a5ceca54e3616cd63bf4161569a5951e9b",
     "map/REQ-003.mmd": "636d203829796c04fd9b08897f6dbc9dfc7576eef7b63e31aeefc5c8e8234294",
@@ -294,12 +294,10 @@
     "map/REQ-300.mmd": "ef4226cefa5f0033ec706c52a5b52050260e181ae985ad07629202c2f87193da",
     "map/REQ-301.mmd": "a65ae4636c3af40a1134b20c5b8218077436b89062a56a3e6872fcc60aef8fdc",
     "map/REQ-302.mmd": "46ba623381930c681dbbfd13db13c5d17e453379a0269beb06a6655e61f9d4b2",
-    "map/REQ-303.mmd": "bfac43ba3b56a1de937c806572f78f3a2325ca79ff84dd8ccbf29186c6228ca8",
-    "plan.md": "d3d27ccee4d552bd0ee77659ef40d632c6ea3327a8c15273d27ff4a4b7d0d6d9",
-    "snapshot.md": "e13105a581936040b0a30a5ae43210250bef5d4a4c382e6cec8bedba4c4234b7",
-    "traceability.md": "12841fa4e935933cae13f4e9353bafc2f28589b8dc79a12b3f90a37fbc4d8a18"
-  },
-  "stateFiles": {
-    "plan.yaml": "1a3779e91d9582c9b57c785c972b60172bbc7493125ec3804c6976c7720d8841"
+    "map/REQ-303.mmd": "d6c31dfe918764eba41da580c75f617736f65a4249ef1665c2529372e7defa7c",
+    "map/REQ-304.mmd": "cfd0afa3c9a161f5f9e2cd4684d47b79de389940bf8abfd2b2796f10efd8e54e",
+    "plan.md": "775e024fff745df5a61d7fc744555577a8afa1a73034456fc7be51577425b3c7",
+    "snapshot.md": "a34c73091d3fe757c48926baaea2af60110d7345e84317037504a34fa8f10dd0",
+    "traceability.md": "22176178fd3644071cdbfc003067e2f87493c6db914c38f33c730ef432b48539"
   }
 }

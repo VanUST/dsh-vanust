@@ -98,6 +98,7 @@ agent's turn.
 | `update(cwd, id, { expectedRevision, … })` | CAS: a stale revision refuses with `revision_conflict` and writes nothing. `origin: "human"` marks the written fields as the owner's (`manualFields`), and an automatic write skips those fields; `release: [field]` hands them back |
 | `complete(cwd, id, { expectedRevision })` | `update` with `status: done` |
 | `link(cwd, from, to)` | append `{kind, id, hash}` where `hash` is sha256 of the target's bytes |
+| `unlink(cwd, from, to)` | remove that one link under the same lock, journal an `unlink` event (the emptied list is cleared); `link_missing` when there is nothing to remove |
 | `claim(cwd, id, { owner })` / `release(cwd, id)` | TASK active/open transition |
 | `journal(cwd, event)` | append one `waiver` event to `state/events.jsonl` (the one audit path a consumer outside this plugin may use); `replay()` skips it |
 | `issueId(cwd, kind)` | the next ID WITHOUT reserving it (advisory; `create` allocates) |

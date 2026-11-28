@@ -746,6 +746,47 @@ export function createStateService(options = {}) {
       }
     },
 
+    /**
+     * Remove ONE link, under the same lock as `link`, and record the removal in the journal.
+     *
+     * WHY IT EXISTS. A link stores the target's hash, so it is not a label a hand edit may
+     * change: the journal is the source of truth and `replay()` rebuilds the entity from its
+     * events. Without this operation a wrong link was permanent - `update` ignores `links`, the
+     * panel refuses it as `field_not_editable`, and `link` only appends - so a decision stayed
+     * pointed at a requirement that had been rejected (measured on DEC-004 -> REQ-300, where the
+     * measurement behind the decision had moved to the accepted REQ-298 of the same initiative).
+     *
+     * @param fromId - the entity that holds the link.
+     * @param toId - the target whose link is removed.
+     */
+    async unlink(fromId, toId) {
+      const from = ID_PATTERN.exec(String(fromId))
+      if (from === null) return fail('id_invalid', `id "${fromId}" is not a typed id`)
+      if (ID_PATTERN.exec(String(toId)) === null) return fail('id_invalid', `id "${toId}" is not a typed id`)
+      const kind = KIND_BY_PREFIX[from[1]]
+      try {
+        return await withLock(async () => {
+          const rel = entityPath(kind, String(fromId))
+          const record = await readEntity(rel)
+          if (record === null) return fail('not_found', `no entity ${fromId}`)
+          if (record.invalid === true) return fail('frontmatter_invalid', `${record.rel}: ${record.error}`)
+          const links = Array.isArray(record.frontmatter.links) ? [...record.frontmatter.links] : []
+          const kept = links.filter((entry) => entry?.id !== String(toId))
+          if (kept.length === links.length) return fail('link_missing', `${fromId} does not link ${toId}`)
+          const next = { ...record.frontmatter, revision: Number(record.frontmatter.revision) + 1, updatedAt: now() }
+          // An emptied list is CLEARED, the same way a cleared scope line is: a `links: []` would
+          // claim a list that is not there and every reader would have to special-case it.
+          if (kept.length === 0) delete next.links
+          else next.links = kept
+          const text = await writeEntity(rel, next, record.body)
+          const event = await appendJournal({ op: 'unlink', id: String(fromId), kind, revision: next.revision, record: next, body: record.body })
+          return { ok: true, id: String(fromId), path: rel, revision: next.revision, removed: { id: String(toId) }, hash: sha256(text), event: event.seq }
+        })
+      } catch (error) {
+        return fail('write_failed', error.message)
+      }
+    },
+
     /** Claim a TASK for one owner (status active, a lease in the body is the caller's). */
     async claim(id, { owner } = {}) {
       if (typeof owner !== 'string' || owner.trim() === '') return fail('owner_required', 'claim needs a non-empty owner')
@@ -844,7 +885,10 @@ export function createStateService(options = {}) {
             problems.push({ seq: null, code: 'journal_invalid', message: 'unparsable journal line' })
             continue
           }
-          if (event.op === 'create' || event.op === 'update' || event.op === 'link' || event.op === 'claim' || event.op === 'release' || event.op === 'complete') {
+          // `unlink` carries the frontmatter AFTER the removal, like every other write: the
+          // replayed bytes are the file's bytes, so a removed link cannot come back through the
+          // journal (the reason this event had to be added together with the operation).
+          if (event.op === 'create' || event.op === 'update' || event.op === 'link' || event.op === 'unlink' || event.op === 'claim' || event.op === 'release' || event.op === 'complete') {
             if (event.kind === undefined || event.record === undefined) {
               problems.push({ seq: event.seq, code: 'journal_invalid', message: 'event without kind/record' })
               continue

@@ -43,6 +43,47 @@ test('twenty parallel creates get twenty distinct IDs and twenty files', async (
   assert.equal(files.length, 20)
 })
 
+/*
+PROOF: a wrong link can be taken off, and the journal stays the source of truth
+Behavior: unlink() removes exactly ONE link under the lock and records an `unlink` event; the file
+  on disk matches replay() afterwards, the removed link never comes back through the journal, the
+  other links of the same entity stay, a second removal of the same target is refused as
+  link_missing, a removal with nothing to remove is refused, and link() still adds a new target.
+Fails when: the removed link survives in the file or in replay, replay reports bytes_differ, a
+  duplicate removal succeeds, a sibling link disappears, or adding a link stops working.
+Production path: plugins/project-state/lib/core.mjs (unlink, replay, link) through
+  createStateService.
+*/
+test('a link can be taken off, and replay rebuilds the file without it', async () => {
+  const { cwd, state } = await workspace()
+  const accepted = await state.create('req', { title: 'Accepted measurement', analysisRef: { initiative: 'request-cache', requirementId: 'R1' } })
+  const rejected = await state.create('req', { title: 'Rejected measurement', status: 'rejected', analysisRef: { initiative: 'request-cache', requirementId: 'R2' } })
+  const task = await state.create('task', { title: 'The work that reads the decision', reqId: accepted.id })
+  const decision = await state.create('decision', { title: 'Reserve for the answer', status: 'accepted' })
+  assert.equal((await state.link(decision.id, rejected.id)).ok, true)
+  assert.equal((await state.link(decision.id, task.id)).ok, true)
+  // The negative control: the harness sets this to prove the assertion can fail at all.
+  if (process.env.CASE_NEGATIVE_CONTROL !== undefined) assert.equal((await state.unlink(decision.id, rejected.id)).ok, false, `negative control "${process.env.CASE_NEGATIVE_CONTROL}": the removal must not succeed`)
+  const removed = await state.unlink(decision.id, rejected.id)
+  assert.equal(removed.ok, true, JSON.stringify(removed))
+  assert.equal(removed.removed.id, rejected.id, 'the result names the removed target')
+  const after = await state.get(decision.id)
+  assert.deepEqual(after.frontmatter.links.map((link) => link.id), [task.id], 'only the removed link goes: the sibling stays')
+  const replay = await state.replay()
+  assert.equal(replay.ok, true, 'replay disagrees with the file: ' + JSON.stringify(replay.mismatches) + JSON.stringify(replay.problems))
+  const journal = (await readFile(join(cwd, 'state', 'events.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line))
+  assert.equal(journal.filter((event) => event.op === 'unlink').length, 1, 'the removal is its own journal event')
+  const twice = await state.unlink(decision.id, rejected.id)
+  assert.equal(twice.ok, false, 'a link that is already off cannot be removed again')
+  assert.equal(twice.code, 'link_missing')
+  assert.equal((await state.unlink('DEC-999', accepted.id)).code, 'not_found')
+  // A removal must not disable adding: the corrected link goes on after it.
+  const relinked = await state.link(decision.id, accepted.id)
+  assert.equal(relinked.ok, true)
+  assert.deepEqual((await state.get(decision.id)).frontmatter.links.map((link) => link.id).sort(), [accepted.id, task.id].sort())
+  assert.equal((await state.replay()).ok, true)
+})
+
 test('the same entity with the same clock serializes to the same bytes', async () => {
   const first = await workspace()
   const second = await workspace()

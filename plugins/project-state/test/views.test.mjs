@@ -232,9 +232,8 @@ test('the plan carries the journal decision with the initiative it was linked to
   // The negative control: the harness sets this to prove the assertion can fail at all.
   if (process.env.CASE_NEGATIVE_CONTROL !== undefined) assert.doesNotMatch(planYaml, /^decisions: /m, `negative control "${process.env.CASE_NEGATIVE_CONTROL}": the plan must not show decisions`)
   assert.match(planYaml, /^decisions: 1$/m)
-  assert.match(planYaml, new RegExp('  - id: "' + decision.id + '"'))
-  assert.match(planYaml, /^    status: "accepted"$/m)
-  assert.match(planYaml, /^    initiative: "documentation-owners"$/m)
+  // One compact, human-readable row: id, initiative, short title.
+  assert.match(planYaml, new RegExp('  - \\{ id: "' + decision.id + '", initiative: "documentation-owners", title: "[^"]+" \\}'))
   const plan = await readFile(join(cwd, 'state', 'views', 'plan.md'), 'utf8')
   assert.match(plan, /## Решения \(1\)/)
   assert.match(plan, new RegExp('\\| ' + decision.id + ' \\| accepted \\| documentation-owners \\|'))
@@ -245,23 +244,32 @@ test('the plan carries the journal decision with the initiative it was linked to
   assert.equal(retired.ok, true)
   assert.equal((await state.regenerateViews()).ok, true)
   const after = await readFile(join(cwd, 'state', 'plan.yaml'), 'utf8')
-  assert.doesNotMatch(after, new RegExp('  - id: "' + decision.id + '"'))
-  assert.match(after, new RegExp('  - id: "' + successor.id + '"'))
+  assert.doesNotMatch(after, new RegExp('id: "' + decision.id + '"'))
+  assert.match(after, new RegExp('id: "' + successor.id + '"'))
 })
 
-test('the plan drops decision rows instead of leaving plan.yaml past its byte cap', async () => {
+test('the plan drops the OLDEST decision rows instead of leaving plan.yaml past its byte cap', async () => {
   const { cwd, state } = await workspace()
+  const ids = []
   for (let index = 0; index < 40; index += 1) {
     const created = await state.create('decision', { title: 'Правило ' + String(index).padStart(2, '0') + ': правило контекста меняется только по замеру до и после', status: 'accepted', body: 'Правило.' })
     assert.equal(created.ok, true)
+    ids.push(created.id)
   }
   const regenerated = await state.regenerateViews()
   assert.equal(regenerated.ok, true)
   const planYaml = await readFile(join(cwd, 'state', 'plan.yaml'), 'utf8')
   assert.ok(Buffer.byteLength(planYaml, 'utf8') <= PLAN_YAML_LIMIT_BYTES, 'plan.yaml is ' + Buffer.byteLength(planYaml, 'utf8') + ' bytes; the cap is ' + PLAN_YAML_LIMIT_BYTES)
   assert.match(planYaml, /^decisions: 40$/m)
-  assert.match(planYaml, /# \+\d+ more decisions: state\/views\/plan\.md/)
+  // The NEWEST decision survives the cap, the oldest one does not, and the marker says where the
+  // rest are instead of pretending the list is complete.
+  assert.match(planYaml, new RegExp('id: "' + ids[ids.length - 1] + '"'))
+  assert.doesNotMatch(planYaml, new RegExp('id: "' + ids[0] + '"'))
+  assert.match(planYaml, /# \+\d+ older decisions: state\/views\/plan\.md/)
   const plan = await readFile(join(cwd, 'state', 'views', 'plan.md'), 'utf8')
   assert.match(plan, /## Решения \(40\)/)
+  // plan.md is not capped: it still carries the oldest decision and the newest.
+  assert.match(plan, new RegExp(ids[0]))
+  assert.match(plan, new RegExp(ids[ids.length - 1]))
 })
 

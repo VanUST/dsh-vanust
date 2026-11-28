@@ -1,7 +1,7 @@
 # GENERATED — DO NOT EDIT. The plan summary the state feed delivers in L1,
 # written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.
 schemaVersion: 1
-initiatives: 27
+initiatives: 28
 openTasks: 6
 work:
   - id: "agent-surface-and-shell"
@@ -64,21 +64,12 @@ work:
     confirmed: 0
     requirements: 2
     openTasks: []
-  # +17 more initiatives with open work: state/views/plan.md
+  # +18 more initiatives with open work: state/views/plan.md
 decisions: 4
-  - id: "DEC-001"
-    status: "accepted"
-    initiative: "documentation-owners"
-    title: "Порядок трёх проблем и правила документации"
-  - id: "DEC-002"
-    status: "accepted"
-    initiative: "architecture-boundaries"
-    title: "Архитектурная консультация при смене контракта, владельца д…"
-  - id: "DEC-003"
-    status: "accepted"
-    initiative: "request-cache"
-    title: "Правила контекста меняются только по замеру; оценка замер н…"
-  # +1 more decisions: state/views/plan.md
+  - { id: "DEC-004", initiative: "request-cache", title: "Резерв под ответ на маршруте Codex — 32 768" }
+  - { id: "DEC-003", initiative: "request-cache", title: "Правила контекста меняются только по замеру; оценка замер н…" }
+  - { id: "DEC-002", initiative: "architecture-boundaries", title: "Архитектурная консультация при смене контракта, владельца д…" }
+  - { id: "DEC-001", initiative: "documentation-owners", title: "Порядок трёх проблем и правила документации" }
 next:
   - id: "TASK-273"
     status: "open"
@@ -95,6 +86,6 @@ next:
   - id: "TASK-438"
     status: "review"
     title: "Приёмка шва харнесса: обе формы и отсутствие формы в оркест…"
-  - id: "TASK-467"
+  - id: "TASK-469"
     status: "active"
-    title: "Привязать решение к требованию и закоммитить изменение проф…"
+    title: "Снятие связи в журнале и перевязка решения на принятое треб…"
