@@ -4,7 +4,7 @@
   "title": "Orchestrator traces requirements through system design",
   "requirement": "Для нетривиального бизнес-запроса root-оркестратор должен до декомпозиции связать бизнес-результат, процесс, требования, глобальную архитектуру, системные контракты, задачи и последующие доказательства. Изменение требования должно запускать impact analysis, а не просто создавать ещё одну задачу.",
   "kind": "scenario",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "reason": "",
@@ -39,9 +39,9 @@
     }
   ],
   "linkedTaskId": "task-mwf3lroq-ii7skg",
-  "revision": 11,
+  "revision": 12,
   "createdAt": "2026-11-13T14:55:20.590Z",
-  "updatedAt": "2026-11-18T13:02:12.191Z",
+  "updatedAt": "2026-11-28T11:43:29.594Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -175,6 +175,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-28T11:43:29.594Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/analysis/analysis.mjs, plugins/analysis/store.mjs, plugins/orchestrator/orchestrator.mjs"
     }
   ],
   "evidence": {
@@ -233,5 +240,14 @@
       "passed": true,
       "artifacts": []
     }
-  ]
+  ],
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.594Z",
+    "changedFiles": [
+      "plugins/analysis/analysis.mjs",
+      "plugins/analysis/store.mjs",
+      "plugins/orchestrator/orchestrator.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/analysis/analysis.mjs, plugins/analysis/store.mjs, plugins/orchestrator/orchestrator.mjs"
+  }
 }

@@ -4,7 +4,7 @@
   "title": "Case library drift rule",
   "requirement": "driftFor flags a changed surface hash and a missing test",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "docs/cases/tests/case-library.test.mjs",
@@ -22,9 +22,9 @@
       "sha256": "c8936578934e90ee7d07edefafb9ada1eef6d94191c8eadfcf4af1c46da069ec"
     }
   ],
-  "revision": 2,
+  "revision": 3,
   "createdAt": "2026-11-11T11:30:50.863Z",
-  "updatedAt": "2026-11-11T11:30:56.002Z",
+  "updatedAt": "2026-11-28T11:43:29.497Z",
   "createdBy": "agent",
   "history": [
     {
@@ -33,6 +33,13 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": null
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T11:43:29.497Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/test-cases/lib/schema.mjs"
     }
   ],
   "evidence": {
@@ -54,5 +61,12 @@
     "at": "2026-11-11T11:30:56.001Z",
     "command": "node --test docs/cases/tests/case-library.test.mjs",
     "exitCode": 0
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.497Z",
+    "changedFiles": [
+      "plugins/test-cases/lib/schema.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/test-cases/lib/schema.mjs"
   }
 }

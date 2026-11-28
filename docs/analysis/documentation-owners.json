@@ -1,0 +1,271 @@
+{
+  "schemaVersion": 1,
+  "id": "documentation-owners",
+  "rev": 10,
+  "status": "completed",
+  "createdAt": "2026-11-28T13:08:09.458Z",
+  "updatedAt": "2026-11-28T13:25:55.055Z",
+  "updatedBy": "agent",
+  "title": "Документация: три владельца вместо расползания",
+  "requestedSolution": "Сократить документацию до навигации, архитектуры и словаря; план сделать сгенерированным видом; однодневки удалить, а факты перевезти к владельцам.",
+  "businessOutcome": {
+    "problem": "Документация повторяет правду, у которой есть владелец (версии, счётчики, статусы, порядок работ), поэтому устаревает молча; за одну сессию добавилось пять markdown-файлов, и один из них уже врал о состоянии установки.",
+    "outcome": "Новая сессия читает три документа и сгенерированный план, и каждый факт в них верен на момент чтения; однодневки не накапливаются.",
+    "successMetrics": [
+      "В docs/ ровно три документа: навигация, архитектура, словарь.",
+      "План — сгенерированный вид журнала; рукописного файла плана нет.",
+      "Проверка отказывает новому документу вне списка и документу с версиями, счётчиками или номерами задач."
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Ведение документации",
+        "actors": [
+          "агент"
+        ],
+        "steps": [
+          "Задача добавляет свой markdown-файл.",
+          "Файл повторяет версии и статусы.",
+          "Следующая сессия читает устаревшее."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Ведение документации",
+        "actors": [
+          "агент",
+          "проверка"
+        ],
+        "steps": [
+          "Задача либо дополняет один из трёх документов, либо пишет доказательство в запись анализа или кейс.",
+          "Проверка отказывает новому документу вне списка.",
+          "План пересобирается из журнала."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "R1",
+      "kind": "FR",
+      "text": "Документация состоит из трёх файлов, план собирается из журнала, а однодневки удаляются при закрытии задачи.",
+      "acceptance": [
+        "AC-1: В docs/ остаются только GUIDE.md, ARCHITECTURE.md, TERMINOLOGY.md; остальные markdown-файлы удалены, их содержание переехало к владельцу.",
+        "AC-2: Порядок и состояние инициатив читаются из сгенерированного вида state/views/plan.md; рукописного файла плана нет.",
+        "AC-3: Проверка отказывает новому документу в docs/ вне списка и падает на документе с версией, счётчиком или номером задачи."
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-DOCS",
+        "name": "документация проекта",
+        "responsibility": "Хранит только навигацию, архитектуру и словарь; не повторяет состояние, доказательства и процедуры.",
+        "owner": "DOCS",
+        "owns": [
+          "D-DOCS"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PLANVIEW",
+        "name": "сгенерированный вид плана",
+        "responsibility": "Собирает порядок и состояние инициатив из записей анализа и журнала; не хранит рукописный текст.",
+        "owner": "BACKEND",
+        "owns": [
+          "D-PLAN"
+        ],
+        "dependsOn": [
+          "C-DOCS"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-DOCS",
+      "name": "документация",
+      "owner": "kit",
+      "ownerComponentId": "C-DOCS",
+      "description": "Три файла: GUIDE.md, ARCHITECTURE.md, TERMINOLOGY.md."
+    },
+    {
+      "id": "D-PLAN",
+      "name": "вид плана",
+      "owner": "kit",
+      "ownerComponentId": "C-PLANVIEW",
+      "description": "state/views/plan.md — порядок и состояние инициатив, собранные из docs/analysis/*.json и задач."
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-DOCS",
+      "name": "CT-DOCS",
+      "between": [
+        "C-DOCS",
+        "C-PLANVIEW"
+      ],
+      "change": "additive",
+      "description": "План не пишется руками: вид собирается из записей анализа и таскборда и пересобирается той же командой, что и остальные виды."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "I-DOC-ONE-OWNER",
+      "text": "Документ не повторяет состояние, версии, счётчики и идентификаторы задач: они живут в журнале, кейсах и записях анализа.",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-DOC-OWNER",
+      "decision": "План — сгенерированный вид журнала; документов ровно три; однодневка при закрытии задачи переезжает к владельцу и удаляется.",
+      "rationale": "Документ стареет, когда повторяет чужую правду. Навигация, решения и инварианты стареют медленно; состояние и доказательства уже имеют владельцев.",
+      "alternatives": [
+        "Оставить план рукописным документом",
+        "Хранить план в таскборде"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": []
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "R1",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [
+        "CT-DOCS"
+      ],
+      "dataIds": [
+        "D-DOCS",
+        "D-PLAN"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mx0feq7p-3posst",
+          "role": "DOCS",
+          "at": "2026-11-28T13:08:28.834Z",
+          "evidence": [
+            "docs/: ARCHITECTURE.md, GUIDE.md, TERMINOLOGY.md — ровно три; у каждого «Дата проверки: 2026-11-28»; check-documentation exit 0, make verify exit 0.",
+            "Слияние: контракт шва, библиотека кейсов, доска с границей проверки, карта дизайна, средства презентации, плейбуки; процедура проверки кандидата — rules/DEPLOYMENT.md §9; удалены шесть рукописных файлов после переноса фактов."
+          ]
+        },
+        {
+          "taskId": "task-mx0ff2xi-mlhjkb",
+          "role": "BACKEND",
+          "at": "2026-11-28T13:08:45.399Z",
+          "evidence": [
+            "state/views/plan.md: 10 363 Б, 70 строк, sha256 f9271003…; два прогона одинаковы, изменение записи анализа меняет байты; план собирается renderPlan в project-state/lib/views.mjs вместе с остальными видами."
+          ]
+        },
+        {
+          "taskId": "task-mx0fm2hf-x9jmfc",
+          "role": "BACKEND",
+          "at": "2026-11-28T13:22:00.000Z",
+          "evidence": [
+            "Правила undeclared_document, state_version, state_task_id, state_counter, document_date_missing, document_stale в scripts/check-documentation.mjs; 9/9 фикстурных тестов, красный на неправильной реализации 8 из 9."
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "357c1db40a22a45c96df66cc577918c9812400cd2cda15ae2238e5e9617a0ab2",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:08:09.458Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:08:28.631Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0feq7p-3posst -> R1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T13:08:45.116Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0ff2xi-mlhjkb -> R1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T13:11:09.179Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0ff2xi-mlhjkb -> R1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T13:14:03.728Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0feq7p-3posst -> R1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T13:14:11.119Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0fm2hf-x9jmfc -> R1"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T13:20:54.842Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0feq7p-3posst -> R1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-28T13:20:55.078Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0fm2hf-x9jmfc -> R1"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T13:25:49.766Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T13:25:55.055Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

@@ -4,7 +4,7 @@
   "title": "State header shows three counters",
   "requirement": "The State button in the session header shows three numbers in order — unfinished tasks, active tasks, active subagents — each named in aria-label, with the count area stated: tasks from the workspace projections, subagents from live child sessions of the chat. Zero shows as 0; a read error shows — with the error in title and the button still opens the panel.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
@@ -46,9 +46,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-18T12:46:00.311Z",
-  "updatedAt": "2026-11-18T12:46:10.318Z",
+  "updatedAt": "2026-11-28T11:43:29.636Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -65,6 +65,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:43:29.636Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/project-state-panel/client.js, plugins/project-state-panel/test/counts-and-sort.test.mjs"
     }
   ],
   "evidence": {},
@@ -166,5 +173,13 @@
     "runId": "mwm47idp-e7ubc-1",
     "source": "runner",
     "commit": null
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.636Z",
+    "changedFiles": [
+      "plugins/project-state-panel/client.js",
+      "plugins/project-state-panel/test/counts-and-sort.test.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/project-state-panel/client.js, plugins/project-state-panel/test/counts-and-sort.test.mjs"
   }
 }

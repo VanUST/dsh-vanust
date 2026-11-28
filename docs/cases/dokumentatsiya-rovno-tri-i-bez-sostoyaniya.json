@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "id": "dokumentatsiya-rovno-tri-i-bez-sostoyaniya",
+  "title": "Документация ровно три и без состояния",
+  "requirement": "docs/ содержит ровно GUIDE, ARCHITECTURE, TERMINOLOGY (PRESET-PLAYBOOKS — вход сборки, cases/ и analysis/ не документация); документ не содержит версии, номера задачи или счётчика и несёт дату проверки не старше связанных файлов и 180 дней.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/check-documentation.test.mjs",
+  "runCommand": "node --test scripts/check-documentation.test.mjs",
+  "steps": [
+    "Собрать фикстуру: три документа с датой проверки, PRESET-PLAYBOOKS.md, docs/cases/*.md, docs/analysis/*.md.",
+    "Запустить node scripts/check-documentation.mjs --documents-only --root <фикстура> — законный набор проходит (exit 0, \"documentation ok\").",
+    "Добавить четвёртый markdown вне списка, версию, TASK-номер, счётчик, документ без даты, дату старше 180 дней, дату старше связанного файла — каждый вариант exit 1 с своим кодом."
+  ],
+  "expected": "Законный набор проходит; каждый из восьми нарушений даёт exit 1 и названный код (undeclared_document, state_version, state_task_id, state_counter, document_date_missing, document_stale); пин @deepseek-ai/dsh@<версия> состоянием не считается.",
+  "tags": [
+    "documentation",
+    "three-documents",
+    "state-ban",
+    "review-date"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/check-documentation.mjs",
+      "sha256": "d2032dc68b4773949479a2fef77d95b9934c09b0cc0dc2775774b832b33d1fd8"
+    }
+  ],
+  "reqId": "REQ-297",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "ebb39f39-079c-4e0b-a88f-0bbfb4ad4832",
+  "purpose": "implementation",
+  "testHash": "b8e4e497b82d68728b908dca1a373ea67c619dcc4959716c46ea4b6bf6ba80f7",
+  "revision": 2,
+  "createdAt": "2026-11-28T13:21:24.380Z",
+  "updatedAt": "2026-11-28T13:21:28.933Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:21:28.933Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0fvfqf-s227l-1",
+      "at": "2026-11-28T13:21:28.931Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "ebb39f39-079c-4e0b-a88f-0bbfb4ad4832",
+        "taskId": null
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 685,
+      "commandSha256": "5fddbc8085ec54ffaf6bc6cb74e4d50dba01d71f9065c0568c9281363f79f07f",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "88e42df42a90026310d1bc75ac32cd9e64c8bb34",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dokumentatsiya-rovno-tri-i-bez-sostoyaniya/mx0fvfqf-s227l-1/stdout.log",
+      "stderr": "docs/cases/runs/dokumentatsiya-rovno-tri-i-bez-sostoyaniya/mx0fvfqf-s227l-1/stderr.log",
+      "summary": "docs/cases/runs/dokumentatsiya-rovno-tri-i-bez-sostoyaniya/mx0fvfqf-s227l-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": null
+}

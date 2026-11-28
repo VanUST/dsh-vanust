@@ -81,6 +81,11 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
+// THE ACTIVATION FORM LIVES IN ONE PLACE (harness-seam.mjs): this file passes the facts of a
+// delegation and never names a spec field. Kept re-exported for scripts/dsh-migration-proof.mjs,
+// which exercises the two readers without a runtime.
+import { activationSpec } from './harness-seam.mjs'
+export { activationSpec } from './harness-seam.mjs'
 
 /**
  * The child tool compositions this deployment runs, in roster order. A role names the
@@ -545,26 +550,6 @@ You are a delegated specialist. Do exactly the task brief you received.
  * @param extra - Optional blocks. `carryForward` is what the role already finished.
  * @returns The brief text.
  */
-/**
- * Build the `subagents.startActivation` spec for BOTH harness contracts.
- *
- * dsh 0.2.1-rc.2 reads the request as `spec.request.*` (`dsh-subagent` startActivation:
- * `spec.request.parent`, `spec.request.maxDepth`, `spec.request.outputSchema`); dsh 0.2.2 reads
- * the same fields at the TOP level (`spec.parent.id`, `spec.maxDepth`, `spec.outputSchema`,
- * because `SubagentActivationSpec extends SubagentStartRequest`). Sending only one shape is a
- * hard break on the other version — on 0.2.2 the nested form throws
- * `Cannot read properties of undefined (reading 'id')` before a child exists.
- *
- * The duplicate is bounded to this one call: both readers ignore what they do not use, and the
- * legacy `request` block is one deletion when the pin moves.
- *
- * @param spec - `{ provider, label, signal, delivery, request }`.
- * @returns the spec for `ctx.subagents.startActivation`.
- */
-export function activationSpec({ provider, label, signal, delivery, request }) {
-  return { provider, label, ...request, request, signal, delivery }
-}
-
 /**
  * The task contract, as the child sees it (P2).
  *
@@ -1353,28 +1338,17 @@ export function apply(ctx, config = {}) {
             }
           }
           childBrief = carryForward === '' ? brief : renderBrief(task, args, maxBriefChars, { carryForward })
-          // THE ACTIVATION SPEC CARRIES BOTH SHAPES, ON PURPOSE.
-          // dsh 0.2.1 reads the request as `spec.request.*` (`dsh-subagent` startActivation:
-          // `spec.request.parent`, `spec.request.maxDepth`, `…outputSchema`); dsh 0.2.2 reads
-          // the same fields at the TOP level of the spec (`spec.parent.id`, `spec.maxDepth`).
-          // Sending only one shape is a hard break on the other version: on 0.2.2 the nested
-          // form throws `Cannot read properties of undefined (reading 'id')` before a child
-          // exists, and on 0.2.1 the flat form asks `manager.startExternal(spec)` for a parent
-          // it cannot see. The duplicate is bounded to the creation call, both readers ignore
-          // the fields they do not use, and the day the pin moves the legacy block is one
-          // deletion.
+          // THE FACTS OF THE DELEGATION, NOT THE SPEC SHAPE: harness-seam.mjs builds the
+          // activation object both pinned harness contracts read (see that module).
           const activation = await ctx.subagents.startActivation(activationSpec({
-            provider,
-            label: role.slice(0, 160),
+            role,
+            preset,
+            prompt: `${roleBrief}\n\n${childBrief}`,
+            parent,
+            route: provider,
             signal: exec.signal,
-            delivery: 'parent',
-            request: {
-              prompt: [{ type: 'text', text: `${roleBrief}\n\n${childBrief}` }],
-              parent,
-              agentPreset: preset,
-              ...(childCwd === taskCwd ? {} : { cwd: childCwd }),
-              ...(agentOptions === undefined ? {} : { agentOptions }),
-            },
+            ...(childCwd === taskCwd ? {} : { cwd: childCwd }),
+            ...(agentOptions === undefined ? {} : { agentOptions }),
           }))
           childId = activation.childId
           // The ledger is the last word on identity: it refuses a label whose preset is already

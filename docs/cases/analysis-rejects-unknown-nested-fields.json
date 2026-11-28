@@ -4,7 +4,7 @@
   "title": "Analysis rejects unknown nested fields",
   "requirement": "Analysis Record не должен молча выбрасывать неизвестные nested-поля или превращать неверный contract enum в пустое значение. Пустые обязательные решения также недопустимы.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "reason": "Automated by the behavioral proof; the red run below is against the previous committed store bytes.",
@@ -37,9 +37,9 @@
     }
   ],
   "linkedTaskId": "task-mwj27220-stljsf",
-  "revision": 10,
+  "revision": 11,
   "createdAt": "2026-11-16T09:27:00.237Z",
-  "updatedAt": "2026-11-18T13:02:02.805Z",
+  "updatedAt": "2026-11-28T11:43:29.468Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -116,6 +116,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T11:43:29.468Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/analysis/store.mjs, plugins/analysis/analysis.mjs, scripts/analysis-before-decomposition-proof.mjs"
     }
   ],
   "evidence": {
@@ -174,5 +181,14 @@
       "passed": true,
       "artifacts": []
     }
-  ]
+  ],
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.468Z",
+    "changedFiles": [
+      "plugins/analysis/store.mjs",
+      "plugins/analysis/analysis.mjs",
+      "scripts/analysis-before-decomposition-proof.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/analysis/store.mjs, plugins/analysis/analysis.mjs, scripts/analysis-before-decomposition-proof.mjs"
+  }
 }

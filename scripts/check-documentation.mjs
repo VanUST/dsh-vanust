@@ -44,7 +44,7 @@
  *     reader requires the package name immediately before the `@`.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -60,6 +60,141 @@ function read(relative) {
   const path = join(KIT, relative)
   if (!existsSync(path)) return { missing: true, path }
   return { text: readFileSync(path, 'utf8'), path }
+}
+
+/*
+ * THE THREE-DOCUMENT RULE (documentation-owners, AC-1..AC-3).
+ *
+ * A document is a document while somebody maintains it. docs/ keeps exactly three: GUIDE,
+ * ARCHITECTURE, TERMINOLOGY; docs/cases/ and docs/analysis/ hold data, not prose. Any other
+ * markdown file is a fourth owner of the same knowledge and refuses here.
+ *
+ * A document also must not carry STATE: a version (`N.N.N`), a task number (`TASK-…`,
+ * `task-…`) or a counter (`N из M`). Those live in the journal and the analysis records and
+ * are true for a day; a document repeats them as if it were the owner.
+ *
+ * Every document states a REVIEW DATE (`Дата проверки: YYYY-MM-DD`). It must not be older than
+ * the files the document references, and not older than DOCUMENT_MAX_AGE_DAYS: a reader trusts a
+ * document about the code it describes, not about the code of a year ago.
+ *
+ * THE RULES RUN ON A FIXTURE ROOT TOO (`--documents-only --root <dir>`), so the test in
+ * check-documentation.test.mjs never depends on the live docs/ while they are being rewritten.
+ */
+export const DOCUMENT_ALLOWLIST = Object.freeze(['docs/GUIDE.md', 'docs/ARCHITECTURE.md', 'docs/TERMINOLOGY.md'])
+/** Data directories under docs/ that are not documentation. */
+export const DOCUMENT_EXEMPT_DIRS = Object.freeze(['docs/cases/', 'docs/analysis/'])
+/** The review date a document states. */
+export const DOCUMENT_DATE = /^\s*Дата проверки:\s*(\d{4}-\d{2}-\d{2})\s*$/m
+/** How old a review may be before the document is stale on its own. */
+export const DOCUMENT_MAX_AGE_DAYS = 180
+/** State a document must not carry: its owner is the journal (versions, task numbers, counters). */
+const DOCUMENT_STATE = [
+  { code: 'state_version', pattern: /\b\d+\.\d+\.\d+\b/, what: 'версия' },
+  { code: 'state_task_id', pattern: /\bTASK-\d+\b|\btask-[a-z0-9]{6,}-[a-z0-9]+\b/, what: 'номер задачи' },
+  { code: 'state_counter', pattern: /\b\d+\s+из\s+\d+\b/, what: 'счётчик' },
+]
+/** The files a document references, so its date can be compared with them. */
+const documentRefs = (text) => [...new Set([...text.matchAll(/\b[\w.\/-]+\.(?:mjs|js|json|md|ps1|sh)\b/g)].map((match) => match[0]))]
+const dayNumber = (date) => Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 86400000)
+/** A referenced file's date: its last commit when git can answer, else its mtime. */
+function documentRefDate(root, relative) {
+  try {
+    const committed = execFileSync('git', ['-C', root, 'log', '-1', '--format=%cs', '--', relative], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    if (committed !== '') return committed
+  } catch {
+    // not a git checkout, or git is unavailable: the file's mtime is the best date there is
+  }
+  try {
+    return statSync(join(root, relative)).mtime.toISOString().slice(0, 10)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Judge the documents under `root` with the three rules above.
+ * @param {string} root - a workspace root (the kit, or a fixture in a test).
+ * @param {Date} now - the reference day; a fixture passes a fixed one.
+ * @returns {{code: string, path: string, detail: string}[]} findings; empty means the rules hold.
+ */
+export function checkDocuments(root, now = new Date()) {
+  const findings = []
+  const markdown = []
+  const walk = (dir, prefix) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const rel = `${prefix}/${entry.name}`
+      if (entry.isDirectory()) {
+        if (DOCUMENT_EXEMPT_DIRS.some((exempt) => `${rel}/`.startsWith(exempt))) continue
+        walk(join(dir, entry.name), rel)
+        continue
+      }
+      if (entry.name.endsWith('.md')) markdown.push(rel)
+    }
+  }
+  walk(join(root, 'docs'), 'docs')
+  const allowed = new Set(DOCUMENT_ALLOWLIST)
+  for (const rel of markdown.sort()) {
+    if (allowed.has(rel)) continue
+    findings.push({ code: 'undeclared_document', path: rel, detail: `документ вне списка docs/GUIDE.md, docs/ARCHITECTURE.md, docs/TERMINOLOGY.md: ${rel}` })
+  }
+  for (const rel of DOCUMENT_ALLOWLIST) {
+    const path = join(root, rel)
+    if (!existsSync(path)) {
+      findings.push({ code: 'document_missing', path: rel, detail: `нет документа ${rel}` })
+      continue
+    }
+    const text = readFileSync(path, 'utf8')
+    // THE HARNESS PIN IS NOT STATE. The existing claim requires docs/GUIDE.md to name the
+    // `@deepseek-ai/dsh@<version>` pin its own check compares; the state ban targets a version
+    // used as prose ("работает на 0.2.2"), not the pin that has an owner and a check of its own.
+    // Any other `N.N.N` in a document is refused.
+    const withoutPin = text.replace(/@deepseek-ai\/dsh@([^\s"'`),;\\]+)/g, '@deepseek-ai/dsh@<pin>')
+    for (const rule of DOCUMENT_STATE) {
+      const match = (rule.code === 'state_version' ? withoutPin : text).match(rule.pattern)
+      if (match !== null) findings.push({ code: rule.code, path: rel, detail: `${rule.what} в документе ("${match[0]}"); состоянием владеет журнал, не документ` })
+    }
+    const dateMatch = text.match(DOCUMENT_DATE)
+    if (dateMatch === null) {
+      findings.push({ code: 'document_date_missing', path: rel, detail: `нет строки "Дата проверки: YYYY-MM-DD" в ${rel}` })
+      continue
+    }
+    const date = dateMatch[1]
+    const age = dayNumber(now) - dayNumber(new Date(`${date}T00:00:00Z`))
+    if (!Number.isFinite(age) || age > DOCUMENT_MAX_AGE_DAYS) {
+      findings.push({ code: 'document_stale', path: rel, detail: `дата проверки ${date} старше ${DOCUMENT_MAX_AGE_DAYS} дней` })
+    }
+    for (const ref of documentRefs(text)) {
+      const refDate = documentRefDate(root, ref)
+      if (refDate === null || refDate <= date) continue
+      findings.push({ code: 'document_stale', path: rel, detail: `дата проверки ${date} старше файла ${ref} (${refDate}): документ проверен до изменения, на которое ссылается` })
+    }
+  }
+  return findings
+}
+
+// FIXTURE MODE: judge only the document rules, on the tree the caller names. The live run below
+// judges the kit itself; a test passes `--documents-only --root <temp>` so it never depends on
+// docs/ while it is being rewritten.
+const argv = process.argv.slice(2)
+const flagValue = (name) => {
+  const at = argv.indexOf(name)
+  return at >= 0 && at + 1 < argv.length ? argv[at + 1] : ''
+}
+if (argv.includes('--documents-only')) {
+  const root = flagValue('--root') === '' ? KIT : resolve(flagValue('--root'))
+  for (const finding of checkDocuments(root)) claim(`${finding.code} ${finding.path}`, false, finding.detail)
+  if (failures.length === 0) process.stdout.write('documentation ok\n')
+  else {
+    for (const failure of failures) process.stderr.write(failure + '\n')
+    process.exit(1)
+  }
+  process.exit(0)
 }
 
 /**
@@ -382,6 +517,11 @@ if (policy.missing === true || guide.missing === true) {
   )
 }
 
+
+// The three-document rule, its state ban and its review dates, on the live tree.
+for (const finding of checkDocuments(KIT)) {
+  claim(`${finding.code} ${finding.path}`, false, finding.detail)
+}
 
 if (failures.length > 0) {
   process.stderr.write(`documentation claims FAILED\n${failures.map((entry) => `  - ${entry}`).join('\n')}\n`)

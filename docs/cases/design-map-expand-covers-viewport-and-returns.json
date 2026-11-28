@@ -4,7 +4,7 @@
   "title": "design-map-expand-covers-viewport-and-returns",
   "requirement": "AC-2 / FR1 / REQ-251: Expand makes the map cover the viewport, Exit/Esc returns, and the canvas is still editable while expanded. This case verifies the full-screen wiring and the editable frame contract; the viewport covering itself is the implementer's browser proof, not re-measured here.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "tests/designmap-instruments/panel-surface.mjs",
@@ -53,9 +53,9 @@
       "threshold": 0
     }
   ],
-  "revision": 5,
+  "revision": 6,
   "createdAt": "2026-11-27T09:47:07.712Z",
-  "updatedAt": "2026-11-27T09:53:58.525Z",
+  "updatedAt": "2026-11-28T11:43:29.530Z",
   "createdBy": "tester",
   "createdByKind": "agent",
   "history": [
@@ -86,6 +86,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:43:29.530Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/designmap/client/page-view.jsx"
     }
   ],
   "evidence": {},
@@ -309,5 +316,12 @@
       "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
       "taskId": "task-mwyr7f5u-b180jl"
     }
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.530Z",
+    "changedFiles": [
+      "plugins/designmap/client/page-view.jsx"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/designmap/client/page-view.jsx"
   }
 }

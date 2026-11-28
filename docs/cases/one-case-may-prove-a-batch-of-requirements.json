@@ -4,7 +4,7 @@
   "title": "One case may prove a batch of requirements",
   "requirement": "The case policy says one case per accepted behaviour and allows one verified run to prove several requirements while the case keeps its primary reqId; case_gate passes a task covering three reqIds behind one verified automated case and still blocks an unverified one, with the case schema unchanged.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/test-cases/test/batch-gate.test.mjs",
@@ -36,9 +36,9 @@
   "reqId": "REQ-120",
   "authorRole": "BACKEND",
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-18T13:00:18.871Z",
-  "updatedAt": "2026-11-18T13:00:28.041Z",
+  "updatedAt": "2026-11-28T11:43:29.587Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -55,6 +55,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:43:29.587Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/test-cases/test-cases.mjs, plugins/test-cases/test/batch-gate.test.mjs"
     }
   ],
   "evidence": {},
@@ -135,5 +142,13 @@
     "runId": "mwm4pw9e-x4sr5-1",
     "source": "runner",
     "commit": null
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.587Z",
+    "changedFiles": [
+      "plugins/test-cases/test-cases.mjs",
+      "plugins/test-cases/test/batch-gate.test.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/test-cases/test-cases.mjs, plugins/test-cases/test/batch-gate.test.mjs"
   }
 }

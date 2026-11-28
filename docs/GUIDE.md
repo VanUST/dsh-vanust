@@ -5,9 +5,12 @@ repository: what the kit is, where things live, which tools exist, how deploymen
 work, and the traps that already cost a retry. Everything here is a claim about the tree — when the
 tree disagrees, the tree wins and this page is the bug.
 
+Дата проверки: 2026-11-28
+
 Read next, in this order: `README.md` (what the kit is, per-plugin catalog), `rules/DEPLOYMENT.md`
 (the normative operating procedure: fresh machine, update, rollback, checks, rules),
-`docs/TERMINOLOGY.md` (the words a report must use). The rest of `docs/` owns one contract each
+`docs/ARCHITECTURE.md` (boundaries, contracts and the decisions that constrain work),
+`docs/TERMINOLOGY.md` (the words a report must use). Those three pages are the whole of `docs/`
 (see §2.3).
 
 ## 1. What dsh-kit is
@@ -42,9 +45,12 @@ is chosen, which is why `@cc/dsh-tool-families` (a host row with per-preset allo
 seam that can take them away from a role.
 
 The system prompt is assembled from sections each plugin registers (persona, project instructions
-from `AGENTS.md`, the root or child policy, the skill catalog, the state digest, the memory guide).
-The root policy is rendered per session and frozen for a turn — a prompt change needs a new session
-or a restart to be observed.
+from `AGENTS.md`, and the root or child policy). The project state feed is not a system-prompt
+section; it appends messages to the root session's history. See
+[section 2 of the architecture](ARCHITECTURE.md#2-запрос-к-модели-и-кэш) for where the other request
+inputs are assembled and what is visible in the provider's usage counters; the measured numbers
+stay in the analysis record that section cites. The root policy is rendered per
+session and frozen for a turn — a prompt change needs a new session or a restart to be observed.
 
 
 ## 2. Map of the repository
@@ -105,12 +111,9 @@ to the owner, not to a new page.**
 |---|---|---|
 | `README.md` | what the kit is, install, the per-plugin catalog, the doc map | procedures, proofs, dates |
 | `docs/GUIDE.md` (this) | how to work here: layout, commands, tools, presets, deployment/verification principles, traps | per-plugin specs, dated results |
-| `rules/DEPLOYMENT.md` | the normative operating procedure: fresh machine, update, rollback, checks, the rules of operating | per-plugin catalog |
+| `rules/DEPLOYMENT.md` | the normative operating procedure: fresh machine, update, rollback, the isolated checks of a candidate harness version, the command set, the rules of operating | per-plugin catalog |
 | `docs/TERMINOLOGY.md` | the words a report uses (Russian/English) | technical specs |
-| `docs/PRESET-PLAYBOOKS.md` | the per-preset playbook texts and the anti-pattern classes | deployment procedure |
-| `docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md` | the case library contract: record, run, red/green, gates, provenance | deployment procedure |
-| `docs/DESIGNMAP-V2.md` | the design map: page format, tools, panel, editing rules | plans and evidence |
-| `docs/PRESENTATION-TOOLCHAIN.md` | the presentation/dashboard/diagram toolchain and its contract | everything else |
+| `docs/ARCHITECTURE.md` | the subsystem boundaries and invariants, the order of the long-term results, the design map as a drawing, the presentation toolchain, the preset playbooks, the harness seam contract, the case library contract, the board journal decision and its proof boundary | layout, commands, procedures |
 | `docs/analysis/<initiative>.json` | the design record and evidence trail per initiative | general rules |
 | `docs/cases/<id>.json` | the observed acceptance cases | general rules |
 

@@ -2,28 +2,29 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (1)
+## open (3)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
+| TASK-445 | Прогонять тест проверки документации штатным гейтом | — | — | yes |
+| TASK-446 | Разобрать красный delegation-basis-proof | — | — | yes |
 
-## active (1)
+## active (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
+| TASK-447 | Коммит и установка: шов, вид плана, правила документации | — | — | yes |
 
-## review (4)
+## review (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-274 | Hindsight starts with dsh web; harness pin is enforced | — | 4/4 | yes |
-| TASK-288 | P1 fix: повторная атака на область записи и wrong-product red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
-| TASK-289 | P1 fix 2: целевое ревью W1 head/test и B1 junction | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
-| TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
+| TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
+| TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 
-## done (318)
+## done (348)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -216,6 +217,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
 | TASK-271 | Библиотека кейсов: правка и наблюдение доступны, каталог в доказательстве, запрет прибитых команд | REQ-179, REQ-180, REQ-181, REQ-182, REQ-183 | — | no |
 | TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
+| TASK-274 | Hindsight starts with dsh web; harness pin is enforced | — | 4/4 | yes |
 | TASK-275 | Запись анализа независимой проверки и карта дизайна | REQ-184, REQ-185, REQ-186, REQ-187, REQ-188, REQ-189, REQ-190, REQ-191, REQ-192, REQ-193 | 4/4 | no |
 | TASK-276 | P0: происхождение доказательства и условие приёмки без самопроверки | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | 8/8 | no |
 | TASK-277 | P0: независимое ревью происхождения доказательства | REQ-185, REQ-186, REQ-187, REQ-188, REQ-193 | — | no |
@@ -229,6 +231,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-285 | P1: независимое ревью пресета TESTER и реалистичного red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 | TASK-286 | P1: атака на запись TESTER и wrong-product red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 | TASK-287 | P1 fix: целевое ревью B1/W1/H2 | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-288 | P1 fix: повторная атака на область записи и wrong-product red | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
+| TASK-289 | P1 fix 2: целевое ревью W1 head/test и B1 junction | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 | TASK-290 | P1 fix 2: атака на W1 head/test и B1 junction | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 | TASK-291 | P1 fix 3: целевое ревью D1/D2/D3 | REQ-189, REQ-190, REQ-191, REQ-194 | — | no |
 | TASK-293 | P2: task contract, verification level, критерии и покрытие только для independent | REQ-184, REQ-192 | — | no |
@@ -345,6 +349,33 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-412 | One renderer: Excalidraw's own export, custom SVG writer deleted | REQ-250 | — | no |
 | TASK-413 | map_render: frame the page, do not crop it | REQ-250 | — | no |
 | TASK-414 | Pull the updated kit and verify it locally | — | 5/5 | yes |
+| TASK-415 | Ревью границ DSH kit и зависимости от харнесса | — | — | yes |
+| TASK-416 | Ревью префиксного кэширования и сжатия контекста | — | — | yes |
+| TASK-417 | Ревью требований, задач, кейсов и карты дизайна | — | — | yes |
+| TASK-418 | Проверить соответствие DSH kit установленной сборке | — | — | yes |
+| TASK-419 | Закрывать законно изменённые задачи без повторного сохранения | REQ-293, REQ-294 | — | no |
+| TASK-420 | Проверить закрытие задачи, прерванную запись и отказ при расхождении | — | — | yes |
+| TASK-421 | Нанести границы кита и харнесса на карту дизайна | — | — | yes |
+| TASK-422 | Собрать и прогнать проверки перед обновлением харнесса | — | — | yes |
+| TASK-425 | Измерить кэш провайдера на синтетических запросах к одному маршруту | — | — | yes |
+| TASK-426 | Уточнить владельцев документации и проверку кандидата харнесса | — | — | yes |
+| TASK-427 | Отделить счётчики кэша от выводов о цене и сроке хранения | — | — | yes |
+| TASK-428 | Проверить запись и восстановление таскборда после исправления | — | — | yes |
+| TASK-429 | Проверить кандидата таскборда 0.1.95 после независимых кейсов | — | — | yes |
+| TASK-430 | Проверить одинаковые условия закрытия и восстановление на следующем кандидате | — | — | yes |
+| TASK-431 | Записать целевую архитектуру DSH kit и порядок перехода | — | 3/3 | yes |
+| TASK-432 | Проверить постороннюю правку docs/GUIDE.md и восстановить файл | — | — | yes |
+| TASK-433 | Дать записи проверки оболочки путь к разрешению и верное авторство | — | — | yes |
+| TASK-434 | Приёмка записи проверки оболочки и повторный зелёный на 0.1.98 | REQ-295 | — | no |
+| TASK-435 | Поставить 0.1.98 и 0.1.11, перезапустить и проверить снаружи | — | — | yes |
+| TASK-436 | Вынести форму запуска субагента в шов харнесса | REQ-296 | — | no |
+| TASK-437 | Убрать двойного владельца порядка и состояния из документа дизайна | — | — | yes |
+| TASK-439 | Собрать пакет оркестратора 0.1.83 со швом | REQ-296 | — | no |
+| TASK-440 | Сократить документацию до трёх владельцев | REQ-297 | — | no |
+| TASK-441 | Сделать план сгенерированным видом журнала | REQ-297 | — | no |
+| TASK-442 | Проверка: документов ровно три и без состояния | REQ-297 | — | no |
+| TASK-443 | Вернуть удалённый вход сборки и доказать зелёный прогон | — | — | yes |
+| TASK-444 | Удалить лишний документ и назвать настоящий источник плейбуков | — | — | yes |
 
 ## blocked (1)
 
@@ -352,7 +383,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-372 | Задержка отправки и размер контекста: есть ли связь | — | — | yes |
 
-## cancelled (89)
+## cancelled (91)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -445,3 +476,5 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-350 | [проба] шаг-выход: выкатка версии | — | — | yes |
 | TASK-351 | [проба] шаг-вход: тест после выкатки | — | — | yes |
 | TASK-370 | Панель задач читает доску через сервер, а не устаревший файл | REQ-279 | — | no |
+| TASK-423 | Измерить влияние изменений запроса на кэш провайдера | — | — | yes |
+| TASK-424 | Прогнать замер кэша на одном маршруте модели | — | — | yes |

@@ -466,8 +466,9 @@ for (const preset of PRESETS) {
 
 
 // ── capability matrix: every task cites the sentence that implies it ─────────
-// "playbook" is docs/PRESET-PLAYBOOKS.md section 3.1 (the usual-taskload column);
-// "persona" is a fragment of the preset's prefix in profile/cordis.patch.yml.
+// "playbook" is a short label of the preset's usual taskload, carried into the report and compared
+// with nothing; the playbook block itself is the persona in profile/cordis.patch.yml.
+// "persona" is a fragment of that prefix.
 const MATRIX = {
   orchestrator: [
     { task: 'open, update and close a task', playbook: 'shapes the task, delegates, judges, closes', persona: 'Work flows through the taskboard: open the task', needs: ['task_create', 'task_update', 'task_close', 'task_get', 'task_list'] },

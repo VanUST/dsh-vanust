@@ -4,7 +4,7 @@
   "title": "dsh web on another port is not this port server",
   "requirement": "kit-update --check --json must answer two questions from one /proc scan: the profile's port is busy only when a dsh web declared that port (or answers HTTP there), and the pids offered to a restart are only that port's. Any dsh web on the machine still blocks a harness replacement, and the check's own process tree is never named.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "scripts/test/kit-update-server-scope.test.mjs",
@@ -44,9 +44,9 @@
   "trigger": "A dsh web server started with --port on a port other than the profile's, while kit-update --check --json runs with the profile's port.",
   "oracle": "The requirement: --port names one profile's port, so only that port's server may make it busy and only that port's pids may be stopped; the harness gate must stay machine-wide because a server of any port keeps its boot composition.",
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-27T13:04:51.171Z",
-  "updatedAt": "2026-11-27T13:05:08.514Z",
+  "updatedAt": "2026-11-28T11:43:29.560Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -63,6 +63,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:43:29.560Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: scripts/kit-update.mjs, scripts/test/kit-update-server-scope.test.mjs"
     }
   ],
   "evidence": {},
@@ -174,5 +181,13 @@
     },
     "cwd": "/home/iustimov/dsh-kit",
     "cwdRelative": "."
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.560Z",
+    "changedFiles": [
+      "scripts/kit-update.mjs",
+      "scripts/test/kit-update-server-scope.test.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: scripts/kit-update.mjs, scripts/test/kit-update-server-scope.test.mjs"
   }
 }

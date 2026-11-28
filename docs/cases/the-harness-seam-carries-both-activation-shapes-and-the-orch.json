@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "id": "the-harness-seam-carries-both-activation-shapes-and-the-orch",
+  "title": "The harness seam carries both activation shapes and the orchestrator carries none",
+  "requirement": "REQ-296: the harness seam is the only owner of the two subagent activation shapes. C01: plugins/orchestrator/orchestrator.mjs contains no activation-form fields (no spec.request, maxDepth, outputSchema or ...request) and calls the seam. C02: one input yields both forms, each read by its own reader; the form is chosen by name and an unknown form is an explicit refusal, not a silent fallback. C03: docs/HARNESS-CONTRACT.md lists the calls with their owner and check.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "test/harness-seam-acceptance.test.mjs",
+  "runCommand": "node --test test/harness-seam-acceptance.test.mjs",
+  "steps": [
+    "Build one delegation input (role, preset, prompt, parent) and call activationSpec with the default form: read spec.request.parent.id and spec.parent.id.",
+    "Call activationSpec with form 'request' and form 'flat': each carries only its own shape.",
+    "Call activationSpec with an unknown form: it throws, naming the known forms.",
+    "Read plugins/orchestrator/orchestrator.mjs: no spec.request, maxDepth, outputSchema or ...request; it calls activationSpec.",
+    "Read docs/HARNESS-CONTRACT.md: it names startActivation, harness-seam.mjs as the owner and the harness-seam test as the check."
+  ],
+  "expected": "One input yields both activation shapes (spec.request.parent.id and spec.parent.id); form 'request' carries only the nested shape and 'flat' only the flat one; an unknown form throws an explicit refusal; the orchestrator contains none of the shape markers and calls the seam; the contract names startActivation, the seam module and the check.",
+  "tags": [
+    "orchestrator",
+    "harness-seam",
+    "activation-forms",
+    "REQ-296",
+    "REQ-296-C01",
+    "REQ-296-C02",
+    "REQ-296-C03"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "90a16d0c2e5cd637bb85939807da9335ea6c27d7a785b7bcf354c46bd87a9320"
+    }
+  ],
+  "criterionId": "REQ-296-C01",
+  "reqId": "REQ-296",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+  "purpose": "acceptance",
+  "testHash": "eb9d838111376aa2efea2a8eb3d2ea6aeac25f285aa884af4d7a3ffb49f75200",
+  "failsWhen": "One reader cannot see its parent on the default input, a named form carries the other shape, an unknown form silently returns a spec, the orchestrator builds the activation shape itself, or the contract stops naming the call and its owner.",
+  "trigger": "A delegation is started through the seam; the two runtime readers read the same spec, a test asks for one form by name, an unknown form is requested, and the orchestrator and the contract are read as they are.",
+  "oracle": "REQ-296 criteria C01 (the orchestrator carries no activation-form fields), C02 (one input, both forms; form by name; unknown form is an explicit refusal) and C03 (docs/HARNESS-CONTRACT.md lists the calls and matches the code); the two readers are the shapes named in the contract: spec.request.* for dsh 0.2.1 and the flat spec for dsh 0.2.2-rc.3.",
+  "realism": "The runtime changed the activation request between the pinned versions; a kit that sends one shape breaks on the other with a runtime TypeError before a child exists. The seam is the one place that knows both shapes, and the acceptance drives it with a real delegation input (role, prompt, parent) and reads the same files the contract lists.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-28T12:58:00.000Z",
+  "revision": 5,
+  "createdAt": "2026-11-28T13:03:33.773Z",
+  "updatedAt": "2026-11-28T13:03:58.781Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:03:38.438Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:03:38.438Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The harness seam carries both activation shapes and the orchestrator carries none",
+        "requirement": "REQ-296: the harness seam is the only owner of the two subagent activation shapes. C01: plugins/orchestrator/orchestrator.mjs contains no activation-form fields (no spec.request, maxDepth, outputSchema or ...request) and calls the seam. C02: one input yields both forms, each read by its own reader; the form is chosen by name and an unknown form is an explicit refusal, not a silent fallback. C03: docs/HARNESS-CONTRACT.md lists the calls with their owner and check.",
+        "expected": "One input yields both activation shapes (spec.request.parent.id and spec.parent.id); form 'request' carries only the nested shape and 'flat' only the flat one; an unknown form throws an explicit refusal; the orchestrator contains none of the shape markers and calls the seam; the contract names startActivation, the seam module and the check.",
+        "steps": [
+          "Build one delegation input (role, preset, prompt, parent) and call activationSpec with the default form: read spec.request.parent.id and spec.parent.id.",
+          "Call activationSpec with form 'request' and form 'flat': each carries only its own shape.",
+          "Call activationSpec with an unknown form: it throws, naming the known forms.",
+          "Read plugins/orchestrator/orchestrator.mjs: no spec.request, maxDepth, outputSchema or ...request; it calls activationSpec.",
+          "Read docs/HARNESS-CONTRACT.md: it names startActivation, harness-seam.mjs as the owner and the harness-seam test as the check."
+        ],
+        "automated": true,
+        "testPath": "test/harness-seam-acceptance.test.mjs",
+        "runCommand": "node --test test/harness-seam-acceptance.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null,
+        "linkedTaskId": null
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T13:03:53.904Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T13:03:58.781Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0f8i67-zoo2v-1",
+      "at": "2026-11-28T13:03:38.436Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 131,
+      "commandSha256": "e88debc1b91d3c1bdfc0d37602cc7a205c41e450a41148a88796c9d324e36235",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "88e42df42a90026310d1bc75ac32cd9e64c8bb34",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8i67-zoo2v-1/stdout.log",
+      "stderr": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8i67-zoo2v-1/stderr.log",
+      "summary": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8i67-zoo2v-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0f8u4f-q0320-1",
+      "at": "2026-11-28T13:03:53.902Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 126,
+      "commandSha256": "e88debc1b91d3c1bdfc0d37602cc7a205c41e450a41148a88796c9d324e36235",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-harness-seam-88e42df",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-harness-seam-88e42df",
+      "head": "17748ee8ce8e7abefadc26d69e5e51f11353918e",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8u4f-q0320-1/stdout.log",
+      "stderr": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8u4f-q0320-1/stderr.log",
+      "summary": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8u4f-q0320-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0f8xvi-40kh6-1",
+      "at": "2026-11-28T13:03:58.780Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 128,
+      "commandSha256": "e88debc1b91d3c1bdfc0d37602cc7a205c41e450a41148a88796c9d324e36235",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "88e42df42a90026310d1bc75ac32cd9e64c8bb34",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8xvi-40kh6-1/stdout.log",
+      "stderr": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8xvi-40kh6-1/stderr.log",
+      "summary": "docs/cases/runs/the-harness-seam-carries-both-activation-shapes-and-the-orch/mx0f8xvi-40kh6-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-28T13:03:58.781Z",
+    "command": "node --test test/harness-seam-acceptance.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0f8xvi-40kh6-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": null
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "redFirst": {
+    "at": "2026-11-28T13:03:53.904Z",
+    "runId": "mx0f8u4f-q0320-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node --test test/harness-seam-acceptance.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-harness-seam-88e42df",
+    "head": "17748ee8ce8e7abefadc26d69e5e51f11353918e",
+    "dirty": true,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": null
+    }
+  }
+}

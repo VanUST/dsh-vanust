@@ -4,7 +4,7 @@
   "title": "design-map-has-no-read-edit-toggle-and-saves-first-drag",
   "requirement": "AC-7 / FR3 / REQ-253: the panel has no read/edit toggle; after opening the page the first drag on a node is saved to the page file and survives a reload. This case verifies the no-toggle/always-edit source contract and the save-to-file round trip the panel uses; the real pointer drag is the implementer's browser proof, not re-driven here.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "tests/designmap-instruments/panel-surface.mjs",
@@ -57,9 +57,9 @@
       "threshold": 0
     }
   ],
-  "revision": 5,
+  "revision": 6,
   "createdAt": "2026-11-27T09:47:20.994Z",
-  "updatedAt": "2026-11-27T09:54:26.411Z",
+  "updatedAt": "2026-11-28T11:43:29.536Z",
   "createdBy": "tester",
   "createdByKind": "agent",
   "history": [
@@ -90,6 +90,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:43:29.536Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/designmap/client/page-view.jsx"
     }
   ],
   "evidence": {},
@@ -313,5 +320,12 @@
       "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
       "taskId": "task-mwyr7f5u-b180jl"
     }
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.536Z",
+    "changedFiles": [
+      "plugins/designmap/client/page-view.jsx"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/designmap/client/page-view.jsx"
   }
 }

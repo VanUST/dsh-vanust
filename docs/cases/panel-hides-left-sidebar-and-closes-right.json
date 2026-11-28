@@ -4,7 +4,7 @@
   "title": "Panel hides left sidebar and closes right",
   "requirement": "The state panel offers a control that hides the left sidebar (layout.toggleSidebar()) and one that closes the right column (setExpanded(sessionId, false)).",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/taskboard/test/panel-navigation.test.mjs",
@@ -44,9 +44,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 6,
+  "revision": 7,
   "createdAt": "2026-11-18T12:06:18.697Z",
-  "updatedAt": "2026-11-18T12:46:21.788Z",
+  "updatedAt": "2026-11-28T11:43:29.600Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -84,6 +84,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T11:43:29.600Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/taskboard/client.js, plugins/project-state-panel/client.js"
     }
   ],
   "evidence": {},
@@ -302,5 +309,13 @@
     "runId": "mwm47r8n-za2w9-1",
     "source": "runner",
     "commit": null
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.600Z",
+    "changedFiles": [
+      "plugins/taskboard/client.js",
+      "plugins/project-state-panel/client.js"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/taskboard/client.js, plugins/project-state-panel/client.js"
   }
 }

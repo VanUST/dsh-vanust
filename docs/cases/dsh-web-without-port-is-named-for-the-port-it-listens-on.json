@@ -4,7 +4,7 @@
   "title": "dsh web without --port is named for the port it listens on",
   "requirement": "A dsh web started without --port (the composed port) is attributed to the TCP port it actually listens on, read from /proc/net/tcp and the process's own descriptors, so `dsh web --restart` can stop it. A portless process that listens nowhere is machine-wide evidence only and appears in no port's pid list; the check's own process tree is never named; the harness-replacement gate still sees every dsh web on the machine.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "scripts/test/kit-update-server-scope.test.mjs",
@@ -45,9 +45,9 @@
   "trigger": "The live dsh web server started as `dsh web` with no --port, while kit-update --check --json runs with that server's port.",
   "oracle": "The kernel's listening-socket table plus the process's descriptors name the port the process actually serves; the requirement is that a restart stops that server, and that no pid is attributed to a port the process does not listen on.",
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-27T13:08:57.167Z",
-  "updatedAt": "2026-11-27T13:09:16.170Z",
+  "updatedAt": "2026-11-28T11:43:29.565Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -64,6 +64,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:43:29.565Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: scripts/test/kit-update-server-scope.test.mjs"
     }
   ],
   "evidence": {},
@@ -175,5 +182,12 @@
     },
     "cwd": "/home/iustimov/dsh-kit",
     "cwdRelative": "."
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.565Z",
+    "changedFiles": [
+      "scripts/test/kit-update-server-scope.test.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: scripts/test/kit-update-server-scope.test.mjs"
   }
 }

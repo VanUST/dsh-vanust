@@ -7,9 +7,10 @@
  *   drops them without failing anything. This reader asserts their ANCHORS in the tree, so
  *   `make verify` refuses the loss.
  *
- *   IT ASSERTS ANCHORS, NOT WORDS. docs/PRESET-PLAYBOOKS.md is the one copy of the block text;
- *   this file must not become a second one, so it names the stable opening phrases and nothing
- *   that would have to be maintained twice.
+ *   IT ASSERTS ANCHORS, NOT WORDS. The block text has exactly one copy per role: the persona in
+ *   `profile/cordis.patch.yml`, plus the shared paragraph in `CHILD_POLICY` of
+ *   `plugins/orchestrator/orchestrator.mjs`; this file must not become a second one, so it names
+ *   the stable opening phrases and nothing that would have to be maintained twice.
  *
  * INPUTS
  *   None. Reads `profile/cordis.patch.yml` and `plugins/orchestrator/orchestrator.mjs`, and
@@ -24,7 +25,8 @@
  * WHAT IT CANNOT SEE
  *   Presence is not meaning: a block can keep both anchors and say something else. Whether the
  *   two directions are the RIGHT ones for the role is a review item, judged against the
- *   anti-pattern table in docs/PRESET-PLAYBOOKS.md.
+ *   playbook block in the role's persona and the two failure directions in §7 of
+ *   docs/ARCHITECTURE.md.
  *   It also cannot see the profile a server boots: it reads the kit's own
  *   `profile/cordis.patch.yml`, so a deployed copy that differs from it is outside this check.
  *

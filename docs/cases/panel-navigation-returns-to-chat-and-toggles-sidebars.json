@@ -4,7 +4,7 @@
   "title": "Panel navigation returns to chat and toggles sidebars",
   "requirement": "The state panel offers Back to chat, a left-sidebar toggle and a right-column reset, while the taskboard strip no longer declares sidebar.panellist.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/taskboard/test/panel-navigation.test.mjs",
@@ -42,9 +42,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 5,
+  "revision": 6,
   "createdAt": "2026-11-18T12:01:30.757Z",
-  "updatedAt": "2026-11-18T12:02:12.404Z",
+  "updatedAt": "2026-11-28T11:43:29.606Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -75,6 +75,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:43:29.606Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/taskboard/client.js, plugins/project-state-panel/client.js"
     }
   ],
   "evidence": {},
@@ -253,5 +260,13 @@
     "control": "expect-pre-fix",
     "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
     "source": "negative-control"
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.606Z",
+    "changedFiles": [
+      "plugins/taskboard/client.js",
+      "plugins/project-state-panel/client.js"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/taskboard/client.js, plugins/project-state-panel/client.js"
   }
 }

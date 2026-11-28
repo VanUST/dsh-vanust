@@ -279,11 +279,112 @@ export function renderDigest(model, { lastSeq = 0, limit = DIGEST_LIMIT_BYTES } 
   return truncateBytes(`${lines.join('\n')}\n`, limit)
 }
 
+/** Requirement statuses the analysis record uses for a CONFIRMED requirement. */
+const CONFIRMED_REQUIREMENT_STATUSES = new Set(['done', 'accepted', 'completed', 'implemented', 'verified', 'met', 'proven'])
+/** TASK statuses that are finished: everything else is open work. */
+const CLOSED_TASK_STATUSES = new Set(['done', 'cancelled', 'dropped', 'deprecated', 'superseded'])
+
+/** Stage order for the plan: work in flight first, the archive last. */
+const PLAN_STAGE_ORDER = ['active', 'in_progress', 'ready', 'draft', 'completed', 'done', 'dropped']
+const planStageRank = (status) => {
+  const index = PLAN_STAGE_ORDER.indexOf(String(status))
+  return index < 0 ? PLAN_STAGE_ORDER.length : index
+}
+/** A row stays one readable line: a long initiative title is cut, never wrapped. */
+const PLAN_TITLE_LIMIT = 90
+const shortTitle = (value) => {
+  const text = cell(value)
+  return text.length <= PLAN_TITLE_LIMIT ? text : `${text.slice(0, PLAN_TITLE_LIMIT - 1).trimEnd()}…`
+}
+/** At most four ids in a table cell; the rest of the work is listed under "Что осталось". */
+const idCell = (ids) => (ids.length === 0 ? '—' : ids.length <= 4 ? ids.join(', ') : `${ids.slice(0, 4).join(', ')} +${ids.length - 4}`)
+
+/**
+ * `plan.md`: the initiatives of the analysis records, their stage, what is confirmed, what is
+ * left, and which tasks are still open - ONE LINE PER INITIATIVE plus a short list of the work in
+ * flight. The aim is a new session's minute, not the archive: requirement TEXTS stay in the
+ * analysis records and are not copied here; the page carries their ids and statuses, and the open
+ * tasks with their title and status.
+ *
+ * WHY A VIEW AND NOT A HAND-WRITTEN FILE. The plan used to be docs/PROJECT-PLAN.md, which went
+ * stale between edits. The order and stage of an initiative are already in its analysis record
+ * (docs/analysis/<id>.json) and the task statuses are in the journal, so the page is derived from
+ * both: it cannot disagree with them, and it is regenerated with every other projection.
+ *
+ * DETERMINISM. Work in flight first, then the stage order, then id; requirements and tasks by id;
+ * no date, no wall clock and no absolute path reaches the text. One input, one byte sequence.
+ */
+export function renderPlan(initiatives = [], model = { tasks: [] }) {
+  const tasks = new Map((Array.isArray(model.tasks) ? model.tasks : []).map((task) => [task.id, task]))
+  const lines = [
+    '# План: инициативы журнала',
+    '',
+    'Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.',
+    '',
+  ]
+  const records = (Array.isArray(initiatives) ? initiatives : [])
+    .filter((record) => record !== null && typeof record === 'object' && typeof record.id === 'string')
+  if (records.length === 0) {
+    lines.push('Записей анализа нет.')
+    return lines.join('\n') + '\n'
+  }
+  const rows = records.map((record) => {
+    const requirements = (Array.isArray(record.requirements) ? record.requirements : [])
+      .filter((requirement) => requirement !== null && typeof requirement === 'object' && typeof requirement.id === 'string')
+      .sort(byId)
+    const confirmed = requirements.filter((requirement) => CONFIRMED_REQUIREMENT_STATUSES.has(String(requirement.status)))
+    const remaining = requirements.filter((requirement) => !CONFIRMED_REQUIREMENT_STATUSES.has(String(requirement.status)))
+    const traced = new Set()
+    for (const trace of Array.isArray(record.trace) ? record.trace : []) {
+      for (const link of Array.isArray(trace?.tasks) ? trace.tasks : []) {
+        if (typeof link?.taskId === 'string' && link.taskId !== '') traced.add(link.taskId)
+      }
+    }
+    // Only tasks the journal still has are actionable; a trace link to a task that no longer
+    // exists is a stale link in the analysis record, not open work on the board.
+    const openTasks = [...traced]
+      .sort()
+      .map((id) => tasks.get(id))
+      .filter((task) => task !== undefined && !CLOSED_TASK_STATUSES.has(String(task.status)))
+    return { record, requirements, confirmed, remaining, openTasks }
+  })
+  rows.sort((a, b) => planStageRank(a.record.status) - planStageRank(b.record.status) || byId(a.record, b.record))
+  // The section lists only work that is actionable NOW (an open task); a remaining requirement
+  // is visible in the table and its text stays in the analysis record.
+  const inFlight = rows.filter((row) => row.openTasks.length > 0)
+  const withRemaining = rows.filter((row) => row.remaining.length > 0)
+  lines.push(`Инициатив: ${rows.length}; с открытыми задачами: ${inFlight.length}; с несделанными требованиями: ${withRemaining.length}.`)
+  lines.push('')
+  lines.push('| Инициатива | Этап | Подтверждено | Осталось | Открытые задачи |')
+  lines.push('|---|---|---|---|---|')
+  for (const row of rows) {
+    lines.push(`| ${row.record.id} — ${shortTitle(row.record.title)} | ${String(row.record.status ?? 'unknown')} | ${row.confirmed.length} из ${row.requirements.length} | ${idCell(row.remaining.map((requirement) => requirement.id))} | ${idCell(row.openTasks.map((task) => task.id))} |`)
+  }
+  if (inFlight.length > 0) {
+    lines.push('', '## Открытые задачи')
+    for (const row of inFlight) {
+      lines.push('', `### ${row.record.id}`)
+      for (const task of row.openTasks) lines.push(`- ${task.id} (${String(task.status ?? 'unknown')}): ${shortTitle(task.title)}`)
+    }
+  }
+  // The journal's own open work, initiative or not: the question a new session asks first is
+  // "what is still running", and a task need not be traced from an analysis record to be open.
+  const openJournalTasks = (Array.isArray(model.tasks) ? model.tasks : [])
+    .filter((task) => task !== null && typeof task === 'object' && typeof task.id === 'string' && !CLOSED_TASK_STATUSES.has(String(task.status)))
+    .sort(byId)
+  if (openJournalTasks.length > 0) {
+    lines.push('', `## Открытые задачи журнала (${openJournalTasks.length})`)
+    for (const task of openJournalTasks) lines.push(`- ${task.id} (${String(task.status ?? 'unknown')}): ${shortTitle(task.title)}`)
+  }
+  lines.push('', 'Записи анализа: docs/analysis/<initiative>.json.')
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`
+}
+
 /**
  * Render every projection.
  *
  * @param {object} model - output of `buildModel`.
- * @param {{lastSeq?: number, digestLimit?: number, staleIds?: Set<string>}} [options]
+ * @param {{lastSeq?: number, digestLimit?: number, staleIds?: Set<string>, plan?: object[]}} [options]
  * @returns {{[relPath: string]: string}} files keyed by their path under `state/views/`.
  */
 export function renderViews(model, options = {}) {
@@ -294,6 +395,7 @@ export function renderViews(model, options = {}) {
     'board.md': renderBoard(model),
     'traceability.md': renderTraceability(model, options.staleIds ?? new Set()),
     'snapshot.md': renderSnapshot(model, { lastSeq }),
+    'plan.md': renderPlan(options.plan ?? [], model),
     ...renderMaps(model),
   }
 }

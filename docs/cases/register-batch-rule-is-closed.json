@@ -4,7 +4,7 @@
   "title": "register-batch-rule-is-closed",
   "requirement": "The batch rule is closed in the register, not only in the analysis record: state/req/REQ-103.md carries status done (the analysis mirror of project-state-ecosystem FR15) and state/task/TASK-226.md carries status done with REQ-103 in its reqIds, so the board row and the requirement agree.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/test-cases/test/register-closure.test.mjs",
@@ -49,9 +49,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-18T13:06:56.423Z",
-  "updatedAt": "2026-11-18T13:07:01.891Z",
+  "updatedAt": "2026-11-28T11:43:29.619Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -68,6 +68,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:43:29.619Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: state/task/TASK-226.md"
     }
   ],
   "evidence": {},
@@ -169,5 +176,12 @@
     "runId": "mwm4yc4p-jxkmw-1",
     "source": "runner",
     "commit": null
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.619Z",
+    "changedFiles": [
+      "state/task/TASK-226.md"
+    ],
+    "reason": "surface files changed since lastVerified: state/task/TASK-226.md"
   }
 }

@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "id": "dokumentov-rovno-tri-i-dokument-ne-neset-sostoyaniya",
+  "title": "Документов ровно три, и документ не несёт состояния",
+  "requirement": "Документация состоит из трёх файлов: docs/ держит GUIDE, ARCHITECTURE и TERMINOLOGY, каталоги cases/ и analysis/ — данные, а не документы. Документ не несёт версий, номеров задач и счётчиков «N из M» и называет дату проверки не старше файлов, на которые ссылается.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/check-documentation.test.mjs",
+  "runCommand": "node --test scripts/check-documentation.test.mjs",
+  "steps": [
+    "Собрать фикстуру во временном каталоге: три документа с датой проверки, кейс в docs/cases и данные в docs/analysis.",
+    "Прогнать node scripts/check-documentation.mjs --documents-only --root <фикстура> — законный набор должен пройти.",
+    "По одному добавлять нарушения: четвёртый markdown вне трёх, версия 0.2.2, TASK-419, «3 из 10», документ без даты, дата старше связанного файла scripts/x.mjs."
+  ],
+  "expected": "Законный набор печатает documentation ok и выходит 0. Каждое нарушение печатает свой код — undeclared_document, state_version, state_task_id, state_counter, document_date_missing, document_stale — и выходит 1.",
+  "tags": [
+    "documentation",
+    "three-documents",
+    "fixture"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/check-documentation.mjs",
+      "sha256": "fb2b02dd60d52d47cdb0c801b515db886d37e67a6ef873a8280dbe3589984b2f"
+    },
+    {
+      "path": "scripts/check-documentation.test.mjs",
+      "sha256": "750675812a06f833b3f636facf3208f61721d6b802efa8f2dd5e024b4f43810f"
+    }
+  ],
+  "linkedTaskId": "task-mx0fm2hf-x9jmfc",
+  "reqId": "REQ-297",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+  "purpose": "implementation",
+  "testHash": "750675812a06f833b3f636facf3208f61721d6b802efa8f2dd5e024b4f43810f",
+  "revision": 3,
+  "createdAt": "2026-11-28T13:22:12.589Z",
+  "updatedAt": "2026-11-28T13:22:37.205Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:22:32.696Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:22:37.205Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0fwszi-gdj04-1",
+      "at": "2026-11-28T13:22:32.694Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+        "taskId": "task-mx0fm2hf-x9jmfc"
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 643,
+      "commandSha256": "5fddbc8085ec54ffaf6bc6cb74e4d50dba01d71f9065c0568c9281363f79f07f",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\dsh-wrong-product-wt",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/dsh-wrong-product-wt",
+      "head": "1e6da999731d0c52d8bc83ec71051c3c2d2ae9c2",
+      "dirty": false,
+      "stdout": "docs/cases/runs/dokumentov-rovno-tri-i-dokument-ne-neset-sostoyaniya/mx0fwszi-gdj04-1/stdout.log",
+      "stderr": "docs/cases/runs/dokumentov-rovno-tri-i-dokument-ne-neset-sostoyaniya/mx0fwszi-gdj04-1/stderr.log",
+      "summary": "docs/cases/runs/dokumentov-rovno-tri-i-dokument-ne-neset-sostoyaniya/mx0fwszi-gdj04-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0fwwfj-to6zk-1",
+      "at": "2026-11-28T13:22:37.203Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+        "taskId": "task-mx0fm2hf-x9jmfc"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 678,
+      "commandSha256": "5fddbc8085ec54ffaf6bc6cb74e4d50dba01d71f9065c0568c9281363f79f07f",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "88e42df42a90026310d1bc75ac32cd9e64c8bb34",
+      "dirty": true,
+      "stdout": "docs/cases/runs/dokumentov-rovno-tri-i-dokument-ne-neset-sostoyaniya/mx0fwwfj-to6zk-1/stdout.log",
+      "stderr": "docs/cases/runs/dokumentov-rovno-tri-i-dokument-ne-neset-sostoyaniya/mx0fwwfj-to6zk-1/stderr.log",
+      "summary": "docs/cases/runs/dokumentov-rovno-tri-i-dokument-ne-neset-sostoyaniya/mx0fwwfj-to6zk-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T13:22:32.696Z",
+    "runId": "mx0fwszi-gdj04-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node --test scripts/check-documentation.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\dsh-wrong-product-wt",
+    "head": "1e6da999731d0c52d8bc83ec71051c3c2d2ae9c2",
+    "dirty": false,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+      "taskId": "task-mx0fm2hf-x9jmfc"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T13:22:37.205Z",
+    "command": "node --test scripts/check-documentation.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0fwwfj-to6zk-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+      "taskId": "task-mx0fm2hf-x9jmfc"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

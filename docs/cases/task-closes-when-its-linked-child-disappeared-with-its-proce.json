@@ -4,7 +4,7 @@
   "title": "task closes when its linked child disappeared with its process",
   "requirement": "A task whose linked child disappeared (its process died, the Host restarted, no subagent/end ever arrived) closes through the ordinary acceptance path: status done, result recorded, the child row marked settled, the role row freed, and the disappearance named - no force flag and no lost acceptance. The first read of a board in a process settles active rows whose children the runtime can prove it no longer holds.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/taskboard/test/dead-child-close.test.mjs",
@@ -35,9 +35,9 @@
   "linkedTaskId": "task-mwox49d1-p0sybd",
   "reqId": "REQ-173",
   "authorRole": "backend",
-  "revision": 5,
+  "revision": 6,
   "createdAt": "2026-11-20T12:03:02.709Z",
-  "updatedAt": "2026-11-20T12:25:32.029Z",
+  "updatedAt": "2026-11-28T11:43:29.644Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -83,6 +83,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:43:29.644Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs"
     }
   ],
   "evidence": {},
@@ -193,5 +200,12 @@
     "control": "expect-pre-fix",
     "command": "node --test plugins/taskboard/test/dead-child-close.test.mjs",
     "source": "negative-control"
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.644Z",
+    "changedFiles": [
+      "plugins/taskboard/taskboard.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs"
   }
 }

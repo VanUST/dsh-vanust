@@ -4,7 +4,7 @@
   "title": "gates-and-repacked-tarballs-match-the-tree",
   "requirement": "AC-8 / NFR1 / REQ-254: make verify and the designmap/project-state-panel test files pass, and each repacked tarball matches its tree.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "tests/designmap-instruments/gates-and-tarballs.mjs",
@@ -57,9 +57,9 @@
       "threshold": 0
     }
   ],
-  "revision": 12,
+  "revision": 13,
   "createdAt": "2026-11-27T09:47:23.441Z",
-  "updatedAt": "2026-11-27T10:14:39.639Z",
+  "updatedAt": "2026-11-28T11:43:29.570Z",
   "createdBy": "tester",
   "createdByKind": "agent",
   "history": [
@@ -202,6 +202,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-28T11:43:29.570Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: Makefile"
     }
   ],
   "evidence": {},
@@ -622,5 +629,12 @@
       "sessionId": "6e566b2b-f7cb-40f5-bd09-6f627650af83",
       "taskId": "task-mwyr7f5u-b180jl"
     }
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.570Z",
+    "changedFiles": [
+      "Makefile"
+    ],
+    "reason": "surface files changed since lastVerified: Makefile"
   }
 }

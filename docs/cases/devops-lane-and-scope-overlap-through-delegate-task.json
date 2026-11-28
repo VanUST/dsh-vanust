@@ -4,7 +4,7 @@
   "title": "devops lane and scope overlap through delegate_task",
   "requirement": "REQ-257 is primary: one live deployment task per chat - delegate_task refuses a second live devops task with devops_lane_busy naming the open one, while attaching to that task stays allowed. The same case also protects REQ-256 (profile declares preset-devops at order 35 with the required tool-todo `allowParallelInProgress`, and DEVOPS/DEPLOYMENT/OPS resolve to it), REQ-258 (ROOT_POLICY names the running deployment as a serialising resource, DEVOPS as its owner, and running children before a restart), REQ-259 (the preset composes from profile rows), REQ-260 (the shipped configuration and gates stay true), REQ-261/REQ-262 (High reasoning default in the profile and on the started child), REQ-263 (the Development rules block in the root policy), and REQ-264 (the scope-overlap guard): an active task's path claim refuses a second task whose scope names the same file or a containing directory (scope_overlap), while review rows, disjoint files, prose and attaches are allowed. The case does NOT claim the make verify/make test/tarball criteria of REQ-259/REQ-260 or the documentation criteria of REQ-262 - those were not run here.",
   "kind": "scenario",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "tests/devops-lane/driver.mjs",
@@ -101,9 +101,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 9,
+  "revision": 10,
   "createdAt": "2026-11-27T11:16:43.037Z",
-  "updatedAt": "2026-11-27T11:20:39.292Z",
+  "updatedAt": "2026-11-28T11:43:29.554Z",
   "createdBy": "tester",
   "createdByKind": "agent",
   "history": [
@@ -298,6 +298,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T11:43:29.554Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: profile/cordis.patch.yml, plugins/orchestrator/orchestrator.mjs"
     }
   ],
   "evidence": {},
@@ -1034,5 +1041,13 @@
     },
     "cwd": "/home/iustimov/dsh-kit",
     "cwdRelative": "."
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.554Z",
+    "changedFiles": [
+      "profile/cordis.patch.yml",
+      "plugins/orchestrator/orchestrator.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: profile/cordis.patch.yml, plugins/orchestrator/orchestrator.mjs"
   }
 }

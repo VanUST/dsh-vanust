@@ -4,7 +4,7 @@
   "title": "Tool-families proof stays under its budget",
   "requirement": "A benchmark run must be gated on its metric, not only its exit code: the preset tool-family proof completes within 60 s with no failing check, and a regression is detected from the measured duration and pass counts.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "testPath": "docs/cases/drivers/tool-families-benchmark.mjs",
@@ -31,9 +31,9 @@
       "sha256": "c716c30bdf4cdaf30fbf8e3a249328fff4bc3f390e8045b69ac1310db2a12271"
     }
   ],
-  "revision": 6,
+  "revision": 7,
   "createdAt": "2026-11-16T15:03:29.134Z",
-  "updatedAt": "2026-11-16T15:05:40.897Z",
+  "updatedAt": "2026-11-28T11:43:29.652Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -85,6 +85,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T11:43:29.652Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: scripts/tool-families-proof.mjs"
     }
   ],
   "evidence": {},
@@ -366,5 +373,12 @@
     "control": "break-budget",
     "command": "node docs/cases/drivers/tool-families-benchmark.mjs",
     "source": "negative-control"
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.652Z",
+    "changedFiles": [
+      "scripts/tool-families-proof.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: scripts/tool-families-proof.mjs"
   }
 }

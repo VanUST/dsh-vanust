@@ -4,7 +4,7 @@
   "title": "Колода и доска рендерятся в один автономный документ",
   "requirement": "presentation и dashboard превращают JSON-спецификацию в один автономный HTML-файл: восемь типов слайдов и пять тем, фрагменты и счёт чисел, четыре SVG-графика, печать одного слайда на страницу, никаких внешних ссылок, а испорченная спецификация — это ошибка, а не исключение. Покрывает REQ-155, REQ-156, REQ-157, REQ-158, REQ-159, REQ-160, REQ-161, REQ-162 и REQ-163; первичное — REQ-160.",
   "kind": "acceptance",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "testPath": "scripts/presentation-proof.mjs",
@@ -53,9 +53,9 @@
     }
   ],
   "linkedTaskId": "task-mworlwqz-1dpoqw",
-  "revision": 7,
+  "revision": 8,
   "createdAt": "2026-11-20T09:59:00.000Z",
-  "updatedAt": "2026-11-20T16:45:52.995Z",
+  "updatedAt": "2026-11-28T11:43:29.611Z",
   "createdBy": "agent",
   "createdByKind": "agent",
   "history": [
@@ -106,6 +106,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T11:43:29.611Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/presentation/theme.css"
     }
   ],
   "runs": [
@@ -313,5 +320,12 @@
     "runId": "mwp7n69p-2ugh7-1",
     "source": "runner",
     "commit": null
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.611Z",
+    "changedFiles": [
+      "plugins/presentation/theme.css"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/presentation/theme.css"
   }
 }

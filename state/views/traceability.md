@@ -284,6 +284,12 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-290 | done | — | — | — | no |
 | REQ-291 | done | — | — | — | no |
 | REQ-292 | done | — | — | — | no |
+| REQ-293 | done | — | TEST-105 | — | no |
+| REQ-294 | done | — | TEST-106, TEST-107 | — | no |
+| REQ-295 | done | — | TEST-108 | — | no |
+| REQ-296 | proposed | — | TEST-109 | — | no |
+| REQ-297 | done | — | TEST-110, TEST-111 | — | no |
+| REQ-298 | proposed | — | — | — | no |
 
 ## Tests
 
@@ -393,3 +399,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-102 | REQ-273 | unverified | — |
 | TEST-103 | AC-1 | unverified | — |
 | TEST-104 | AC-1 | unverified | — |
+| TEST-105 | REQ-293 | verified | — |
+| TEST-106 | REQ-294 | verified | — |
+| TEST-107 | REQ-294 | verified | — |
+| TEST-108 | REQ-295 | verified | — |
+| TEST-109 | REQ-296 | verified | — |
+| TEST-110 | REQ-297 | unverified | — |
+| TEST-111 | REQ-297 | verified | — |

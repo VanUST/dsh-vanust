@@ -93,7 +93,7 @@
 # `theme.css`; the animation engine is CSS plus `requestAnimationFrame` — a
 # vendored library would put ~190 KB of `motion` into every deck for the same
 # 150–320 ms ease-out, and `openmotion` is a Next.js runtime that cannot run in a
-# static page (the survey and the numbers are in docs/PRESENTATION-TOOLCHAIN.md).
+# static page (the decision is in docs/ARCHITECTURE.md; the survey and numbers are in git history).
 # The host half registers the tools for the `presenter` and `ux` seats only; the
 # tool-families row is the second gate.
 - insert:

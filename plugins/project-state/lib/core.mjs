@@ -138,6 +138,30 @@ export function entityPath(kind, id) {
  * @param {{warn?: Function}} [options.logger]
  * @returns the service object; see README for the API.
  */
+/**
+ * The analysis records the plan view reads: docs/analysis/<initiative>.json, in id order.
+ * A missing directory or an unreadable record is skipped, never guessed at; the plan then names
+ * only initiatives the workspace can prove.
+ */
+async function loadInitiatives(cwd) {
+  let names
+  try {
+    names = await readdir(join(cwd, 'docs', 'analysis'))
+  } catch {
+    return []
+  }
+  const records = []
+  for (const name of names.filter((entry) => entry.endsWith('.json')).sort()) {
+    try {
+      const parsed = JSON.parse(await readFile(join(cwd, 'docs', 'analysis', name), 'utf8'))
+      if (parsed !== null && typeof parsed === 'object' && typeof parsed.id === 'string') records.push(parsed)
+    } catch {
+      // skipped: an unreadable record is not a plan entry
+    }
+  }
+  return records.sort((a, b) => String(a.id).localeCompare(String(b.id)))
+}
+
 export function createStateService(options = {}) {
   const cwd = options.cwd ?? process.cwd()
   const root = join(cwd, typeof options.stateDir === 'string' && options.stateDir !== '' ? options.stateDir : 'state')
@@ -761,7 +785,10 @@ export function createStateService(options = {}) {
         }
         // The counter, not the whole journal: the projections only need the highest seq.
         const lastSeq = await journalLastSeq()
-        const files = renderViews(model, { lastSeq, staleIds })
+        // The plan view reads the analysis records beside the journal: same renderer, same
+        // manifest, one owner of state/views/.
+        const plan = await loadInitiatives(cwd)
+        const files = renderViews(model, { lastSeq, staleIds, plan })
         const viewsDir = join(root, VIEW_DIR)
         await mkdir(viewsDir, { recursive: true })
         // Remove a map subgraph whose REQ is gone, so a rename never leaves an orphan projection.

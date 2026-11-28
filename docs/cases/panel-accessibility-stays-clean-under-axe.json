@@ -4,7 +4,7 @@
   "title": "Panel accessibility stays clean under axe",
   "requirement": "A UX/UI accessibility check must be a measured number rather than an opinion: the case fixture page keeps zero axe violations and zero serious/critical violations, measured in the kit's pinned Chromium, with the axe report and a screenshot kept as artifacts.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "testPath": "docs/cases/drivers/panel-a11y.mjs",
@@ -32,9 +32,9 @@
       "sha256": "6046dabdd0a7d2592926abb772a9d2d761fb647a1985588cc544617b1081ed44"
     }
   ],
-  "revision": 7,
+  "revision": 8,
   "createdAt": "2026-11-16T15:03:25.017Z",
-  "updatedAt": "2026-11-16T15:05:15.809Z",
+  "updatedAt": "2026-11-28T11:43:29.597Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -93,6 +93,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T11:43:29.597Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: docs/cases/fixtures/a11y-page.html"
     }
   ],
   "evidence": {},
@@ -411,5 +418,12 @@
     "control": "break-a11y",
     "command": "node docs/cases/drivers/panel-a11y.mjs",
     "source": "negative-control"
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.597Z",
+    "changedFiles": [
+      "docs/cases/fixtures/a11y-page.html"
+    ],
+    "reason": "surface files changed since lastVerified: docs/cases/fixtures/a11y-page.html"
   }
 }

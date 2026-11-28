@@ -4,7 +4,7 @@
   "title": "Case surface per role matches the README table",
   "requirement": "The owner of a case can repair it and the observer can record an observation: backend gets case_update and case_verify, reviewer gets case_verify but never case_update, and the README table plus the role's prompt section name exactly the verbs its policy row carries (REQ-179, REQ-182).",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/test-cases/test/policy-docs.test.mjs",
@@ -35,9 +35,9 @@
   "reqId": "REQ-179",
   "authorRole": "backend",
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-20T14:57:38.919Z",
-  "updatedAt": "2026-11-20T14:58:02.876Z",
+  "updatedAt": "2026-11-28T11:43:29.505Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -54,6 +54,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:43:29.505Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/test-cases/test-cases.mjs, plugins/test-cases/README.md"
     }
   ],
   "evidence": {},
@@ -134,5 +141,13 @@
     "runId": "mwp3stcc-omfwx-1",
     "source": "runner",
     "commit": null
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.505Z",
+    "changedFiles": [
+      "plugins/test-cases/test-cases.mjs",
+      "plugins/test-cases/README.md"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/test-cases/test-cases.mjs, plugins/test-cases/README.md"
   }
 }

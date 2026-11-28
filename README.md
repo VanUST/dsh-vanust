@@ -12,9 +12,9 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 | work in the repository: layout, tools, presets, deployment, verification, traps | [docs/GUIDE.md](docs/GUIDE.md) |
 | install, update, roll back or operate a machine | [rules/DEPLOYMENT.md](rules/DEPLOYMENT.md) |
 | write a report or a task in the project's words | [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md) |
-| know what a preset is supposed to prove | [docs/PRESET-PLAYBOOKS.md](docs/PRESET-PLAYBOOKS.md) |
-| record or run an acceptance case | [docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md](docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md) |
-| draw or read the system design map | [docs/DESIGNMAP-V2.md](docs/DESIGNMAP-V2.md) |
+| know what a preset is supposed to prove | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §7 |
+| record or run an acceptance case | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §9, [docs/cases/README.md](docs/cases/README.md) |
+| draw or read the system design map | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §5 |
 
 New machine in one line: `./install.sh` then `./start.sh`. Before the first change in this
 repository, read `docs/GUIDE.md` §8-9: where the working rules live, and the traps that already
@@ -56,7 +56,7 @@ cost a retry.
   (`ember`, `graphite`, `aurora`, `mono`, `paper`); the motion is CSS plus
   `requestAnimationFrame` — 150–320 ms ease-out, fragments on advance, count-up numbers,
   drawn chart lines — because a vendored animation library would add ~190 KB to every deck
-  for the same effect (`docs/PRESENTATION-TOOLCHAIN.md` has the survey). The deck player
+  for the same effect (`docs/ARCHITECTURE.md` §6 has the decision; the survey is in git history). The deck player
   gives arrows/space, full screen, an overview grid, speaker notes and one printed slide
   per page; a click advances the slide, which is also how the previewed frame takes the
   keyboard.
@@ -396,7 +396,7 @@ dsh-kit/
 ├── scripts/check-portability.mjs  # platform, packaging and inventory checks
 ├── scripts/check-documentation.mjs # the pin, the named scripts and the plugin set
 ├── docs/GUIDE.md              # how to work here: layout, tools, presets, deployment, verification, traps
-└── docs/                      # durable contracts (TERMINOLOGY, PRESET-PLAYBOOKS, CASE-LIBRARY, DESIGNMAP-V2)
+└── docs/                      # durable contracts (GUIDE, ARCHITECTURE, TERMINOLOGY)
 ```
 
 **Machine-local, never synced:** `$DSH_HOME/sessions`, `$DSH_HOME/storages`,
@@ -442,11 +442,9 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
 - **Working guide** — [docs/GUIDE.md](docs/GUIDE.md): the repository map, the 29 plugins and the
   12 presets with their tool sets, the deployment and verification principles, the working rules
   and the traps measured here. It is the page a session reads before changing anything.
-- **Durable contracts** — `docs/TERMINOLOGY.md` (the words), `docs/PRESET-PLAYBOOKS.md` (what each
-  preset must prove), `docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md` (how an acceptance case is recorded
-  and closed), `docs/DESIGNMAP-V2.md` (the design map), `docs/PRESENTATION-TOOLCHAIN.md` (the
-  visualisation tools). `docs/analysis/` holds the design record per initiative and `docs/cases/`
-  the observed acceptance cases. Runtime records (dated audits, handoffs, proofs, plans) are not
+- **Durable contracts** — `docs/ARCHITECTURE.md` (boundaries, invariants and the decisions that
+  constrain work), `docs/TERMINOLOGY.md` (the words). `docs/analysis/` holds the design record per
+  initiative and `docs/cases/` the observed acceptance cases. Runtime records (dated audits, handoffs, proofs, plans) are not
   kept in `docs/`: their evidence lives in those two stores, in `reports/`, or in git history.
 - **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
   inventory) and `node scripts/check-documentation.mjs` (the pin, the named scripts, the

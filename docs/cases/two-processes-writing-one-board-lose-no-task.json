@@ -4,7 +4,7 @@
   "title": "two processes writing one board lose no task",
   "requirement": "The board file has one writer at a time across processes: the read-modify-write holds a directory lock with a wait and a stale takeover, so two processes that create tasks into the same .dsh/taskboard.json both land every row, and no lock is left behind.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/taskboard/test/board-lock.test.mjs",
@@ -38,9 +38,9 @@
   "linkedTaskId": "task-mwox49d1-p0sybd",
   "reqId": "REQ-174",
   "authorRole": "backend",
-  "revision": 5,
+  "revision": 6,
   "createdAt": "2026-11-20T12:03:03.272Z",
-  "updatedAt": "2026-11-20T12:25:34.506Z",
+  "updatedAt": "2026-11-28T11:43:29.655Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -85,6 +85,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:43:29.655Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs"
     }
   ],
   "evidence": {},
@@ -195,5 +202,12 @@
     "control": "expect-pre-fix",
     "command": "node --test plugins/taskboard/test/board-lock.test.mjs",
     "source": "negative-control"
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.655Z",
+    "changedFiles": [
+      "plugins/taskboard/taskboard.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs"
   }
 }

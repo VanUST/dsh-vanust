@@ -4,7 +4,7 @@
   "title": "A run records the directory it happened in",
   "requirement": "A recorded red names the tree it was observed in: case_run takes cwd (absolute or workspace-relative, default the session workspace) and stores cwd and cwdRelative with the run, case_verify records the directory of the observation, and case_get shows both (REQ-180).",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/test-cases/test/run-cwd-pinned.test.mjs",
@@ -34,9 +34,9 @@
   "reqId": "REQ-180",
   "authorRole": "backend",
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-20T14:57:39.547Z",
-  "updatedAt": "2026-11-20T14:58:04.987Z",
+  "updatedAt": "2026-11-28T11:43:29.455Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -53,6 +53,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:43:29.455Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/test-cases/test-cases.mjs, plugins/test-cases/lib/runner.mjs"
     }
   ],
   "evidence": {},
@@ -133,5 +140,13 @@
     "runId": "mwp3suh0-l2emt-1",
     "source": "runner",
     "commit": null
+  },
+  "needsReverification": {
+    "at": "2026-11-28T11:43:29.455Z",
+    "changedFiles": [
+      "plugins/test-cases/test-cases.mjs",
+      "plugins/test-cases/lib/runner.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/test-cases/test-cases.mjs, plugins/test-cases/lib/runner.mjs"
   }
 }
