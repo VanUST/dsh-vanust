@@ -1,0 +1,319 @@
+{
+  "schemaVersion": 1,
+  "id": "a-shell-audit-record-stops-refusing-when-the-file-returns-an",
+  "title": "A shell-audit record stops refusing when the file returns, and every close door checks it",
+  "requirement": "REQ-295: a shell-audit record must not refuse forever after the product file is back at its previous content, the owner of the area must be able to take a false record off with a reason, and no close path may skip the check. C01: the record keeps the file's SHA-256 and refuses only while the file matches. C02: the area owner resolves a false record with a reason; a surviving edit still refuses. C03: the acceptance is not softened and close, closeMany and task_batch all apply the check.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "test/proof-guard-resolution.test.mjs",
+  "runCommand": "node --test test/proof-guard-resolution.test.mjs",
+  "steps": [
+    "Create a task in review and a shell-audit record for session root with the SHA-256 of the edited product file.",
+    "With the file still edited, close, closeMany and applyMany (task_batch): each refuses with product_shell_violation and the row stays review.",
+    "Put the file back at HEAD content and close: accepted, the row is done.",
+    "With a record that has no hashes (the previous format) and the file already reverted: the close refuses; the BACKEND owner resolves with a reason, the record carries resolved.by and the reason, and the close accepts.",
+    "Resolve with no reason and with the wrong area (DOCS for a plugins/ file): both refused by name."
+  ],
+  "expected": "A hashed record stops refusing once the file is back at HEAD (the close accepts); a surviving product edit is refused by close, closeMany and task_batch with product_shell_violation; the BACKEND owner resolves a false record with a reason that lands in the record (resolved.by, resolved.reason) and the close then accepts; a reasonless or foreign-area resolve is refused.",
+  "tags": [
+    "taskboard",
+    "proof-guard",
+    "shell-audit",
+    "REQ-295",
+    "REQ-295-C01",
+    "REQ-295-C02",
+    "REQ-295-C03",
+    "close-paths"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "81c47aacf5806b26db02e9fa3d75365cab7cb3cba769cd687618799a02498873"
+    },
+    {
+      "path": "plugins/proof-guard/proof-guard.mjs",
+      "sha256": "5db1a555ed566eac7932fc1a5f5cff5001a4a5c3fe2c27c518b600df9993529f"
+    }
+  ],
+  "criterionId": "REQ-295-C01",
+  "reqId": "REQ-295",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+  "purpose": "acceptance",
+  "testHash": "2267db538ae1e9d80c180c2c1ca70b5c5cb60e0c2ed9610e03a7b44e53d3e407",
+  "failsWhen": "A shell-audit record keeps refusing after the file was reverted to HEAD, a false record cannot be resolved by its area owner with a reason, a surviving product edit closes through close, closeMany or task_batch, or the resolve call accepts a reasonless/foreign-area request.",
+  "trigger": "A shell command leaves a product-file edit recorded by the guard; the orchestrator tries to accept the row before and after reverting the file, and the batch tool tries the same close.",
+  "oracle": "REQ-295 criteria C01 (AC-1: the record stores the SHA-256 after the command, refusal only while the file matches, return to HEAD removes it), C02 (AC-2: the area owner resolves a false record with a reason; a surviving edit still refuses) and C03 (AC-3: no close path bypasses the check), canonical brief hash a6cbca2ca783c65da3f6601d08b3490af8cf7c3819fcd05a95551a43d4b837c5; product.dsh record written by proof-guard.",
+  "realism": "The recorded defect: a shell changed a product file, the guard recorded it, and after the file was reverted the row could never be closed; the false record could not be taken off; and closeMany skipped the shell gate. The scenario drives the same public service the orchestrator and the batch tool use, with the record file the guard writes.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-28T12:48:00.000Z",
+  "revision": 7,
+  "createdAt": "2026-11-28T12:49:37.368Z",
+  "updatedAt": "2026-11-28T12:51:48.827Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T12:49:41.606Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T12:49:44.983Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T12:49:44.983Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A shell-audit record stops refusing when the file returns, and every close door checks it",
+        "requirement": "REQ-295: a shell-audit record must not refuse forever after the product file is back at its previous content, the owner of the area must be able to take a false record off with a reason, and no close path may skip the check. C01: the record keeps the file's SHA-256 and refuses only while the file matches. C02: the area owner resolves a false record with a reason; a surviving edit still refuses. C03: the acceptance is not softened and close, closeMany and task_batch all apply the check.",
+        "expected": "A hashed record stops refusing once the file is back at HEAD (the close accepts); a surviving product edit is refused by close, closeMany and task_batch with product_shell_violation; the BACKEND owner resolves a false record with a reason that lands in the record (resolved.by, resolved.reason) and the close then accepts; a reasonless or foreign-area resolve is refused.",
+        "steps": [
+          "Create a task in review and a shell-audit record for session root with the SHA-256 of the edited product file.",
+          "With the file still edited, close, closeMany and applyMany (task_batch): each refuses with product_shell_violation and the row stays review.",
+          "Put the file back at HEAD content and close: accepted, the row is done.",
+          "With a record that has no hashes (the previous format) and the file already reverted: the close refuses; the BACKEND owner resolves with a reason, the record carries resolved.by and the reason, and the close accepts.",
+          "Resolve with no reason and with the wrong area (DOCS for a plugins/ file): both refused by name."
+        ],
+        "automated": true,
+        "testPath": "test/proof-guard-resolution.test.mjs",
+        "runCommand": "node --test test/proof-guard-resolution.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": null,
+        "linkedTaskId": null
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T12:51:17.076Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T12:51:17.076Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A shell-audit record stops refusing when the file returns, and every close door checks it",
+        "requirement": "REQ-295: a shell-audit record must not refuse forever after the product file is back at its previous content, the owner of the area must be able to take a false record off with a reason, and no close path may skip the check. C01: the record keeps the file's SHA-256 and refuses only while the file matches. C02: the area owner resolves a false record with a reason; a surviving edit still refuses. C03: the acceptance is not softened and close, closeMany and task_batch all apply the check.",
+        "expected": "A hashed record stops refusing once the file is back at HEAD (the close accepts); a surviving product edit is refused by close, closeMany and task_batch with product_shell_violation; the BACKEND owner resolves a false record with a reason that lands in the record (resolved.by, resolved.reason) and the close then accepts; a reasonless or foreign-area resolve is refused.",
+        "steps": [
+          "Create a task in review and a shell-audit record for session root with the SHA-256 of the edited product file.",
+          "With the file still edited, close, closeMany and applyMany (task_batch): each refuses with product_shell_violation and the row stays review.",
+          "Put the file back at HEAD content and close: accepted, the row is done.",
+          "With a record that has no hashes (the previous format) and the file already reverted: the close refuses; the BACKEND owner resolves with a reason, the record carries resolved.by and the reason, and the close accepts.",
+          "Resolve with no reason and with the wrong area (DOCS for a plugins/ file): both refused by name."
+        ],
+        "automated": true,
+        "testPath": "test/proof-guard-resolution.test.mjs",
+        "runCommand": "node --test test/proof-guard-resolution.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": null,
+        "linkedTaskId": "task-mx0eon9l-bg9br5"
+      }
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T12:51:48.827Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0eqkff-0w3rg-1",
+      "at": "2026-11-28T12:49:41.605Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "control": "",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 198,
+      "commandSha256": "25ef07c6525e8d681a753ec220af4142173f8b2c557753661c5e119a2b56b5b8",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-proof-guard-4237e82",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-proof-guard-4237e82",
+      "head": "5d333613c55ea5fb43d706b2fb67bc34b41e607d",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0eqkff-0w3rg-1/stdout.log",
+      "stderr": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0eqkff-0w3rg-1/stderr.log",
+      "summary": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0eqkff-0w3rg-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0eqn0t-5j7hj-1",
+      "at": "2026-11-28T12:49:44.982Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": null
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 205,
+      "commandSha256": "25ef07c6525e8d681a753ec220af4142173f8b2c557753661c5e119a2b56b5b8",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0eqn0t-5j7hj-1/stdout.log",
+      "stderr": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0eqn0t-5j7hj-1/stderr.log",
+      "summary": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0eqn0t-5j7hj-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0esm2e-llfey-1",
+      "at": "2026-11-28T12:51:17.075Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0eon9l-bg9br5"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 217,
+      "commandSha256": "25ef07c6525e8d681a753ec220af4142173f8b2c557753661c5e119a2b56b5b8",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0esm2e-llfey-1/stdout.log",
+      "stderr": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0esm2e-llfey-1/stderr.log",
+      "summary": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0esm2e-llfey-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0etai2-3efed-1",
+      "at": "2026-11-28T12:51:48.825Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0eon9l-bg9br5"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 273,
+      "commandSha256": "25ef07c6525e8d681a753ec220af4142173f8b2c557753661c5e119a2b56b5b8",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0etai2-3efed-1/stdout.log",
+      "stderr": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0etai2-3efed-1/stderr.log",
+      "summary": "docs/cases/runs/a-shell-audit-record-stops-refusing-when-the-file-returns-an/mx0etai2-3efed-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T12:49:41.606Z",
+    "runId": "mx0eqkff-0w3rg-1",
+    "exitCode": 1,
+    "control": "",
+    "command": "node --test test/proof-guard-resolution.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-proof-guard-4237e82",
+    "head": "5d333613c55ea5fb43d706b2fb67bc34b41e607d",
+    "dirty": true,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": null
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T12:51:48.827Z",
+    "command": "node --test test/proof-guard-resolution.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0etai2-3efed-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": "task-mx0eon9l-bg9br5"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "linkedTaskId": "task-mx0eon9l-bg9br5"
+}

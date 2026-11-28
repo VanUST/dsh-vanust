@@ -14,6 +14,7 @@ Production path: plugins/taskboard/taskboard.mjs (VERIFICATION_LEVELS, criteriaO
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -223,4 +224,97 @@ test('a record that mixes the ledger with a product file still refuses, naming o
   assert.equal(closed.ok, false, 'a product edit recorded beside a ledger append was accepted')
   assert.equal(closed.code, 'product_shell_violation', JSON.stringify(closed))
   assert.deepEqual(closed.files, ['src/app.mjs'])
+})
+
+/*
+PROOF: a recorded product edit refuses only while its content is still there, and the area owner can
+resolve a false record with a reason.
+Behavior: the record stores the sha256 each file had after the command (proof-guard.mjs). The close
+  refuses while the file still carries it; a file reverted to HEAD stops matching and stops
+  refusing, with no manual edit of the record. The owner of the file area (DOCS for docs/, BACKEND
+  for plugins/) resolves a false record with a reason; the resolution (who, when, why) stays in the
+  violation ledger, and a resolved record never refuses. A surviving product edit still refuses in
+  every close path: close, closeMany and applyMany (task_batch).
+Fails when: a reverted file keeps the row refused; a resolved record still refuses; a foreign role
+  resolves another area; or a surviving edit closes through a batch door.
+*/
+const sha256 = (text) => createHash('sha256').update(text).digest('hex')
+
+/** A board row in review plus a violation ledger whose entry carries real files and their hashes. */
+function shellHashHarness({ files, recordFiles, sessionId = 'sess-tester' }) {
+  const dir = mkdtempSync(join(tmpdir(), 'taskboard-shell-hash-'))
+  mkdirSync(join(dir, '.dsh'), { recursive: true })
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(dir, path.split('/').slice(0, -1).join('/')), { recursive: true })
+    writeFileSync(join(dir, path), text)
+  }
+  const hashes = {}
+  for (const path of recordFiles) {
+    try {
+      hashes[path] = sha256(readFileSync(join(dir, path)))
+    } catch {
+      hashes[path] = null
+    }
+  }
+  const boardPath = join(dir, 'taskboard.json')
+  writeFileSync(boardPath, JSON.stringify({ version: 1, revision: 3, tasks: [{ id: 'task-shell', revision: 1, title: 'shell', status: 'review', priority: 'normal', chatId: 'chat-1', role: 'BACKEND', preset: 'backend', caseIds: [], createdAt: now, updatedAt: now }] }, null, 2) + '\n')
+  const recordPath = join(dir, '.dsh', 'proof-guard-violations.json')
+  writeFileSync(recordPath, JSON.stringify([{ at: now, sessionId, preset: 'tester', tool: 'pwsh', files: recordFiles, hashes }], null, 2) + '\n')
+  const registry = new Map()
+  const ctx = {
+    logger: { warn() {}, info() {} },
+    provide(name, service) { registry.set(name, service); return service },
+    effect(fn) { fn(); return () => {} },
+    on() {},
+    get() { return undefined },
+    tools: { register() { return () => {} } },
+    commands: { register() { return () => {} } },
+  }
+  apply(ctx, { file: boardPath, linksFile: join(dir, 'links.json'), lockWaitMs: 1000 })
+  return { dir, service: registry.get('taskboard'), recordPath, hashes }
+}
+
+const closeShell = (dir, service, extra = {}) => service.close(dir, { id: 'task-shell', chatId: 'chat-1', parentSessionId: 'sess-tester', result: { summary: 'accepted', evidence: ['node x'] }, ...extra })
+
+test('a recorded edit refuses while its content is there and stops refusing once the file is back', () => {
+  const file = 'docs/adr/CHANGE.md'
+  const { dir, service } = shellHashHarness({ files: { [file]: 'written by another process during the window' }, recordFiles: [file] })
+  const refused = closeShell(dir, service)
+  assert.equal(refused.ok, false, 'a surviving recorded edit was closed')
+  assert.equal(refused.code, 'product_shell_violation', JSON.stringify(refused))
+  assert.deepEqual(refused.files, [file])
+  // The file returns to its committed content: the record cannot name an edit that is gone.
+  writeFileSync(join(dir, file), 'the committed content\n')
+  const closed = closeShell(dir, service)
+  assert.equal(closed.ok, true, `a reverted file still refused the close: ${JSON.stringify(closed)}`)
+})
+
+test('the area owner resolves a false record with a reason, and the resolution stays recorded', () => {
+  const file = 'docs/adr/BOARD-JOURNAL-AND-SNAPSHOT.md'
+  const { dir, service, recordPath } = shellHashHarness({ files: { [file]: 'the orchestrator wrote this' }, recordFiles: [file] })
+  const foreign = service.resolveShellViolation(dir, { sessionId: 'sess-tester', files: [file], role: 'BACKEND', reason: 'not my area' })
+  assert.equal(foreign.ok, false, 'a foreign role resolved another area')
+  assert.equal(foreign.code, 'area_not_owned', JSON.stringify(foreign))
+  const resolved = service.resolveShellViolation(dir, { sessionId: 'sess-tester', files: [file], role: 'DOCS', reason: 'the orchestrator edited the ADR in the same window; the tester never touched it' })
+  assert.equal(resolved.ok, true, JSON.stringify(resolved))
+  assert.equal(resolved.resolved, 1)
+  const ledger = JSON.parse(readFileSync(recordPath, 'utf8'))
+  assert.equal(ledger[0].resolved.by, 'DOCS')
+  assert.match(ledger[0].resolved.reason, /orchestrator/)
+  assert.equal(typeof ledger[0].resolved.at, 'string')
+  const closed = closeShell(dir, service)
+  assert.equal(closed.ok, true, `a resolved record still refused the close: ${JSON.stringify(closed)}`)
+})
+
+test('a surviving product edit still refuses close, closeMany and applyMany', () => {
+  const file = 'plugins/app/src.mjs'
+  const { dir, service } = shellHashHarness({ files: { [file]: 'edited by the role shell' }, recordFiles: [file] })
+  const single = closeShell(dir, service)
+  assert.equal(single.ok, false, 'close accepted a surviving product edit')
+  const many = service.closeMany(dir, { ids: ['task-shell'], chatId: 'chat-1', parentSessionId: 'sess-tester', result: { summary: 'accepted', evidence: ['node x'] } })
+  assert.equal(many.ok, false, 'closeMany accepted a surviving product edit')
+  assert.equal(many.results[0].code, 'product_shell_violation', JSON.stringify(many.results[0]))
+  const batch = service.applyMany(dir, [{ op: 'close', id: 'task-shell', resultSummary: 'accepted', resultEvidence: ['node x'] }], 'orchestrator', 'sess-tester')
+  assert.equal(batch.ok, false, 'applyMany accepted a surviving product edit')
+  assert.equal(batch.results[0].code, 'product_shell_violation', JSON.stringify(batch.results[0]))
 })

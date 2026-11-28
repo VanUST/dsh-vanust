@@ -63,7 +63,7 @@ const linksPath = join(dir, 'links.json')
 writeFileSync(boardPath, JSON.stringify({ version: 1, revision: 1, tasks: [], agents: [] }, null, 2) + '\n')
 
 const { apply } = await import(pathToFileURL(taskboardModule).href)
-const { appendRowEvent } = await import(pathToFileURL(join(dirname(taskboardModule), 'lib', 'journal.mjs')).href)
+const { createStore } = await import(pathToFileURL(join(dirname(taskboardModule), 'lib', 'store.mjs')).href)
 const orchestrator = await import(pathToFileURL(orchestratorModule).href)
 
 const results = []
@@ -72,8 +72,26 @@ const check = (name, ok, detail) => {
   const suffix = detail === undefined ? '' : '  ' + JSON.stringify(detail)
   process.stdout.write((ok ? 'PASS' : 'FAIL') + '  ' + name + suffix + '\n')
 }
+const store = createStore({ boardPath, logger: { warn() {} } })
 const readBoard = () => JSON.parse(readFileSync(boardPath, 'utf8'))
-const writeBoard = (board) => { writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n'); for (const row of board.tasks ?? []) appendRowEvent(dir, 'update', row) }
+/**
+ * Write the fixture board by hand and RECORD it the way the service does: one event in the change
+ * journal carrying every row and its verification hash (lib/store.mjs). The fixture used to append
+ * one line per row to the legacy row journal; the change and its verification are one record now.
+ */
+const writeBoard = (board) => {
+  writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n')
+  const state = store.load()
+  const fresh = state.source === 'export' || state.source === 'empty'
+  store.append({
+    at: new Date().toISOString(),
+    op: fresh ? 'genesis' : 'update',
+    ...(fresh ? { version: 1 } : {}),
+    revision: Number.isSafeInteger(board.revision) ? board.revision : 0,
+    rows: board.tasks ?? [],
+    removed: [],
+  })
+}
 
 function harness() {
   const root = { id: 'root', session: { header: { cwd: dir } } }

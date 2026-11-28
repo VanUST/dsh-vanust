@@ -128,10 +128,11 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createHash } from 'node:crypto'
 import { mirrorTask, registerStatus } from './mirror.mjs'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
-import { appendRowEvent, checkRow as checkJournalRow } from './lib/journal.mjs'
-import { createStore, SNAPSHOT_EVERY } from './lib/store.mjs'
+import { checkRow as checkJournalRow } from './lib/journal.mjs'
+import { createStore, exportText, SNAPSHOT_EVERY } from './lib/store.mjs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -646,8 +647,9 @@ function storeFor(path) {
 }
 
 /**
- * A board read through the store: snapshot plus journal tail, or the export when the workspace
- * has neither (an old board keeps reading as it always did).
+ * A board read through the store: snapshot plus journal tail. The export is DERIVED and may lag,
+ * so it never decides the row a close verifies or the row a caller reads; a workspace with
+ * neither snapshot nor journal still reads its export exactly as before (store.mjs readExport).
  *
  * @param path - Absolute ledger path.
  * @returns The folded board.
@@ -655,12 +657,11 @@ function storeFor(path) {
 function readBoard(path) {
   let parsed
   try {
-    // A board under EXPORT_LIVE_LIMIT is still written whole on every operation, so its export
-    // IS the current board and it is read exactly as before - the panel, the mirror and the
-    // hash-chained row journal all keep seeing the file they saw. A larger board is read from
-    // the snapshot plus the journal tail, where its export is derived and may lag.
-    const live = existsSync(path) && statSync(path).size <= EXPORT_LIVE_LIMIT
-    parsed = live ? JSON.parse(readFileSync(path, 'utf8')) : storeFor(path).load().board
+    // THE JOURNAL, NOT THE EXPORT, IS THE STATE. Reading the small export because it happens to be
+    // fresh made a lagging export resurrect a row that the journal had already changed (observed:
+    // a close after a rollback would write the old title back). The export is checked against the
+    // journal by the close (exportState), never trusted in its place.
+    parsed = storeFor(path).load().board
   } catch (error) {
     throw new Error(`taskboard: ${path} is not readable: ${error.message}`)
   }
@@ -797,10 +798,13 @@ function writeBoard(path, board, options = {}) {
     } catch {
       known = []
     }
-    writeBoardNow(path, board)
     const rows = Array.isArray(board?.tasks) ? board.tasks : []
     const ids = new Set(rows.map((task) => task?.id))
     const genesis = !existsSync(store.paths.events) || statSync(store.paths.events).size === 0
+    // THE RECORD GOES IN BEFORE THE DERIVED EXPORT. Publishing the export first meant a refused
+    // append left an export that ran ahead of the journal, and every later close refused a board
+    // that was never written. A failed export write after a written record is only a lagging
+    // projection, which the close accepts.
     store.append({
       at: now(),
       op: genesis ? 'genesis' : 'board',
@@ -810,10 +814,107 @@ function writeBoard(path, board, options = {}) {
       removed: known.filter((id) => !ids.has(id)),
       agents: Array.isArray(board?.agents) ? board.agents : [],
     })
+    writeBoardNow(path, board)
     store.writeSnapshot(board)
     store.adopt({ version: BOARD_VERSION, revision: Number.isSafeInteger(board?.revision) ? board.revision : 0, tasks: rows, agents: Array.isArray(board?.agents) ? board.agents : [] })
     scheduleRows(path, board)
   }, options)
+}
+
+/**
+ * What the derived export says about the confirmed board, without trusting it in the journal's
+ * place. 'missing' and 'lagging' are harmless (the export is derived); 'ahead' means a recorded
+ * change is missing from the journal, and 'differs' means the export holds a different row at the
+ * confirmed revision - both are refused by the close instead of being confirmed again.
+ */
+function exportState(path, board) {
+  if (!existsSync(path)) return { kind: 'missing', revision: null }
+  let parsed
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return { kind: 'unreadable', revision: null }
+  }
+  if (parsed === null || typeof parsed !== 'object') return { kind: 'unreadable', revision: null }
+  const revision = Number.isSafeInteger(parsed.revision) ? parsed.revision : 0
+  if (revision > board.revision) return { kind: 'ahead', revision }
+  if (revision < board.revision) return { kind: 'lagging', revision }
+  return { kind: exportText(parsed) === exportText(board) ? 'ok' : 'differs', revision }
+}
+
+/**
+ * The close's journal gate for ONE row: a damaged record, a broken chain, an export ahead of the
+ * journal or different at the same revision, or a row that changed after its last record all
+ * refuse. `frameOwnsRow` is true when the open batch changed the row: its record is written when
+ * the frame closes, so it is accepted on that pending record. Shared with closeMany, which closes
+ * rows through closeOne inside one frame and must not skip the gate.
+ * @returns The refusal message, or null.
+ */
+function closeRowRefusal(cwd, path, row, frameOwnsRow) {
+  const journalStore = storeFor(path)
+  const state = journalStore.load()
+  if (state.damaged) return state.damageDetail
+  if (state.chainOk === false) return state.chainDetail
+  // The export is DERIVED. Behind the journal it is a harmless lagging projection; at the
+  // journal's revision with different bytes, or ahead of it, it was not written from the
+  // confirmed board. An open batch has written nothing yet, so its in-memory changes do not make
+  // the on-disk export stale: the comparison is valid for every close, batch or single.
+  const derived = exportState(path, state.board)
+  if (derived.kind === 'ahead') return `the derived export is at revision ${derived.revision} but the confirmed journal is at ${state.board.revision}; a recorded change is missing from the journal`
+  if (derived.kind === 'differs') return `the derived export holds a different board at revision ${derived.revision}, the revision the confirmed journal is at; the row was changed by hand`
+  if (derived.kind === 'unreadable') return 'the derived export is not readable, so it cannot be compared with the confirmed journal'
+  if (frameOwnsRow) return null
+  const verdict = journalStore.verify(row)
+  if (verdict.status === 'mismatch' || verdict.status === 'broken') return verdict.detail ?? 'the task does not match its journal'
+  if (verdict.status === 'none') {
+    const legacy = checkJournalRow(cwd, row)
+    if (legacy.status === 'mismatch' || legacy.status === 'broken') return legacy.detail ?? 'the task does not match its journal'
+  }
+  return null
+}
+
+/** sha256 of a workspace file, or null when it is gone (the edit is gone with it). */
+function fileHash(cwd, file) {
+  try {
+    return createHash('sha256').update(readFileSync(join(cwd, file))).digest('hex')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The shell-audit gate for one close. A record of a product edit left by a shell refuses while
+ * the file still carries the content the command left: the record stores the sha256 after the
+ * command (proof-guard.mjs), so a file reverted to HEAD stops matching and stops refusing
+ * (proof-guard-resolution AC-1). A record without hashes predates that format and is judged as
+ * before, so a real edit stays refused. A record the area owner resolved no longer refuses (AC-2).
+ * Shared by close and closeMany: no close path may skip it.
+ * @returns `{entry, files}` when refused, null otherwise.
+ */
+function shellViolationRefusal(cwd, row, child) {
+  let violations = []
+  try {
+    const parsed = JSON.parse(readFileSync(join(cwd, '.dsh', 'proof-guard-violations.json'), 'utf8'))
+    if (Array.isArray(parsed)) violations = parsed
+  } catch {
+    violations = []
+  }
+  const sessions = new Set(Array.isArray(row?.childSessionIds) ? row.childSessionIds.filter((value) => typeof value === 'string') : [])
+  if (child !== '') sessions.add(child)
+  if (typeof row?.parentSessionId === 'string' && row.parentSessionId !== '') sessions.add(row.parentSessionId)
+  const productFiles = (entry) => (Array.isArray(entry.files) ? entry.files.filter((file) => typeof file === 'string' && !RUNTIME_ROOTS.some((root) => file === root.replace(/\/$/, '') || file.startsWith(root))) : [])
+  for (const entry of violations) {
+    if (entry === null || typeof entry !== 'object' || !sessions.has(entry.sessionId)) continue
+    if (entry.resolved !== undefined && entry.resolved !== null) continue
+    const files = productFiles(entry)
+    if (files.length === 0) continue
+    const still = entry.hashes === null || entry.hashes === undefined || typeof entry.hashes !== 'object'
+      ? files
+      : files.filter((file) => typeof entry.hashes[file] === 'string' && entry.hashes[file] === fileHash(cwd, file))
+    if (still.length === 0) continue
+    return { entry, files: still }
+  }
+  return null
 }
 
 /** A role row untouched for this long is a tombstone, not an active specialist. */
@@ -1142,6 +1243,15 @@ function trackBoard(board) {
   })
 
   /** What the callback changed, as the event carries it: full rows, removed ids, agents, order. */
+  /** The ids this frame changed: rows written through the view, plus rows it added. */
+  const changedIds = () => {
+    const ids = new Set(dirty)
+    for (const task of board.tasks) {
+      if (task !== null && typeof task === 'object' && typeof task.id === 'string' && !beforeSet.has(task.id)) ids.add(task.id)
+    }
+    return ids
+  }
+
   const delta = (after) => {
     const ids = after.tasks.map((task) => task?.id)
     const afterSet = new Set(ids)
@@ -1162,7 +1272,7 @@ function trackBoard(board) {
     }
   }
 
-  return { view, delta }
+  return { view, delta, changedIds }
 }
 
 /**
@@ -1260,6 +1370,10 @@ function createService(config, logger, hooks = {}) {
       // file itself is not rewritten (lib/store.mjs migrate()).
       store.migrate()
       const board = readBoard(path)
+      // THE LOADED BOARD IS PRIVATE FROM HERE. The cache serves reads; this operation changes the
+      // board in place, and a write that throws after the change must not leave the changed board
+      // cached for the next operation. adopt() re-caches on success.
+      store.forget()
       const before = board.revision
       const tracker = trackBoard(board)
       const frame = { path, tracker, changed: false }
@@ -1274,9 +1388,16 @@ function createService(config, logger, hooks = {}) {
       if (changed) {
         board.revision = before + 1
         const delta = tracker.delta(board)
+        // THE FIRST CHANGE OF A FRESH BOARD IS ITS GENESIS. Without it the journal alone cannot
+        // rebuild the board: a genesis is what replayAll folds from, and a fresh board has no
+        // export to migrate from. An OLD journal without a genesis is not a fresh board: it is
+        // left as it is (read through its snapshot or its export), never rewritten with a genesis
+        // that would claim the export's rows as confirmed.
+        const fresh = !existsSync(store.paths.events) || statSync(store.paths.events).size === 0
         store.append({
           at: now(),
-          op: 'update',
+          op: fresh ? 'genesis' : 'update',
+          ...(fresh ? { version: BOARD_VERSION } : {}),
           revision: board.revision,
           rows: delta.rows,
           removed: delta.removed,
@@ -1289,7 +1410,10 @@ function createService(config, logger, hooks = {}) {
         // threshold, or on the first write of a workspace: that is the 13 MB write an operation
         // must not pay (measured: 295 ms against 9.9 ms for one event).
         const due = store.tailLength() >= SNAPSHOT_EVERY
-        if (due || !store.hasSnapshot()) store.writeSnapshot(board)
+        // A lost journal starts a new one with this write; the old snapshot covered records that
+        // no longer exist, so it must be replaced or the next cold load would find its offset
+        // beyond the new journal.
+        if (due || fresh || !store.hasSnapshot()) store.writeSnapshot(board)
         if (due || !store.hasSnapshot() || store.exportSize() <= EXPORT_LIVE_LIMIT) store.writeExport(board)
         store.adopt(board)
         // The panel's small projection, refreshed at most once per window. A small board also
@@ -1407,6 +1531,17 @@ function createService(config, logger, hooks = {}) {
       const lease = leaseOf(board, childId)
       if (lease !== '' && lease !== task.id) {
         skipped.push({ childId, taskId: lease })
+        continue
+      }
+      // THE ROW ALREADY RECORDS THE RUNTIME'S END. childEnded marks the child sleeping with an
+      // endedAt when subagent/end arrives; that child has no running turn, so a close without the
+      // subagent service (a restarted Host, a proof, a second process) must not be refused as
+      // interrupt_failed. linkChild resets the row to active, so a re-linked child is interrupted
+      // as before.
+      const known = (Array.isArray(task.children) ? task.children : []).find((entry) => entry?.sessionId === childId)
+      const settled = known !== undefined && known.status !== 'active' && known.status !== 'paused' && (known.endedAt !== undefined && known.endedAt !== null)
+      if (settled) {
+        gone.push({ childId, state: 'settled' })
         continue
       }
       let live
@@ -1923,7 +2058,8 @@ function createService(config, logger, hooks = {}) {
         return { changed: true, value: task }
       })
       if (created !== undefined && created?.ok !== false) {
-        appendRowEvent(cwd, 'create', created)
+        // The create's own record carries the row's verification hash (lib/store.mjs checkOf):
+        // no second journal is written for a new change.
         hooks.mirror?.(cwd, created)
       }
       return created
@@ -2073,7 +2209,6 @@ function createService(config, logger, hooks = {}) {
         return { changed: true, value: { ok: true, task } }
       })
       if (updated !== undefined && updated?.ok !== false) {
-        appendRowEvent(cwd, 'update', updated.task)
         hooks.mirror?.(cwd, updated.task)
       }
       return updated
@@ -2374,40 +2509,15 @@ function createService(config, logger, hooks = {}) {
       // between them - the close's own write is the `mutate` below, which re-reads under the file
       // lock and still checks the revision (CAS), so this snapshot decides only the REFUSALS.
       const boardSnapshot = readBoard(pathFor(cwd))
-      {
-        let violations = []
-        try {
-          const parsed = JSON.parse(readFileSync(join(cwd, '.dsh', 'proof-guard-violations.json'), 'utf8'))
-          if (Array.isArray(parsed)) violations = parsed
-        } catch {
-          violations = []
-        }
-        const row = boardSnapshot.tasks.find((entry) => entry.id === id)
-        const sessions = new Set(Array.isArray(row?.childSessionIds) ? row.childSessionIds.filter((value) => typeof value === 'string') : [])
-        if (child !== '') sessions.add(child)
-        if (typeof row?.parentSessionId === 'string' && row.parentSessionId !== '') sessions.add(row.parentSessionId)
-        // The project ledger and the session scratch directory are written by the runtime while a
-        // shell runs, not by the role: a record naming only those is not an edit the role made and
-        // must not refuse the row. Same two roots as the proof-guard manifest (RUNTIME_ROOTS in
-        // plugins/proof-guard/proof-guard.mjs); reports/ and docs/ stay in the product surface.
-        const productFiles = (entry) => (Array.isArray(entry.files) ? entry.files.filter((file) => typeof file === 'string' && !RUNTIME_ROOTS.some((root) => file === root.replace(/\/$/, '') || file.startsWith(root))) : [])
-        let hit
-        let hitFiles = []
-        for (const entry of violations) {
-          if (entry === null || typeof entry !== 'object' || !sessions.has(entry.sessionId)) continue
-          const files = productFiles(entry)
-          if (files.length === 0) continue
-          hit = entry
-          hitFiles = files
-          break
-        }
-        if (hit !== undefined) {
-          return {
-            ok: false,
-            code: 'product_shell_violation',
-            message: `the shell driven by session ${hit.sessionId} changed product file(s) that this role may not edit (${hitFiles.slice(0, 5).join(', ')}); the change is recorded in .dsh/proof-guard-violations.json and the row cannot be accepted on the tester's word - revert it or have the owning role redo it`,
-            files: hitFiles,
-          }
+      // THE SHELL-AUDIT GATE, hashed: it refuses while the file still carries the content the
+      // command left, and stops refusing once the file is back (proof-guard-resolution AC-1).
+      const shell = shellViolationRefusal(cwd, boardSnapshot.tasks.find((entry) => entry.id === id), child)
+      if (shell !== null) {
+        return {
+          ok: false,
+          code: 'product_shell_violation',
+          message: `the shell driven by session ${shell.entry.sessionId} left product file(s) that this role may not edit (${shell.files.slice(0, 5).join(', ')}) and the content is still there; revert it to HEAD, or the owner of the area (DOCS for docs/, BACKEND for plugins/) resolves the record with a reason - the row cannot be accepted on the tester's word`,
+          files: shell.files,
         }
       }
       if (child !== '' && id !== '') {
@@ -2430,28 +2540,29 @@ function createService(config, logger, hooks = {}) {
       // legacy close. A linked AUTOMATED case that is not verified stops the acceptance, and the
       // refusal names it, so a red case cannot be closed away.
       // THE JOURNAL, WHEN THE BOARD HAS ONE. A row the journal has seen must still be the row it
-      // saw; a row with no event is legacy (an older tool, a fixture) and closes normally.
-      // INSIDE AN OPEN FRAME the board on disk is one batch behind by design: an operation
-      // earlier in the same batch updated this row and journaled it, and the file is written
-      // only when the outermost frame closes. Read the row from the open frame then, so a close
-      // after an update in one `task_batch` is compared with the row the journal actually saw
-      // instead of with the pre-batch file (observed 2026-11-27: update then close in one batch
-      // was refused TASK_JOURNAL_MISMATCH while the same two calls one by one succeeded).
+      // saw. The verification record is the change event itself (lib/store.mjs): every legitimate
+      // write - child completion, link, note, pause, owner status - carries its row's hash and the
+      // chain, so a row a child completion changed is not mistaken for a hand edit. A row with no
+      // record in the change journal falls back to the legacy row journal, and a row with neither
+      // is legacy and closes normally. A damaged complete record or a broken chain refuses.
+      // INSIDE AN OPEN FRAME the journal on disk is one batch behind by design: the row this frame
+      // changed gets its record when the outermost frame closes, so it is accepted on that pending
+      // record while every other row is still compared with the journal (observed 2026-11-27:
+      // update then close in one batch was refused while the same two calls one by one succeeded).
+      const boardPath = pathFor(cwd)
+      const journalStore = storeFor(boardPath)
+      const journalState = journalStore.load()
+      const insideFrame = openFrame !== null && openFrame.path === boardPath
       let journalRow
-      if (openFrame !== null && openFrame.path === pathFor(cwd)) {
+      if (insideFrame) {
         journalRow = openFrame.tracker.view.tasks.find((entry) => entry.id === id)
       } else {
-        try {
-          journalRow = boardSnapshot.tasks.find((entry) => entry.id === id)
-        } catch {
-          journalRow = undefined
-        }
+        journalRow = boardSnapshot.tasks.find((entry) => entry.id === id)
       }
       if (journalRow !== undefined) {
-        const journal = checkJournalRow(cwd, journalRow)
-        if (journal.status === 'mismatch' || journal.status === 'broken') {
-          return { ok: false, code: 'TASK_JOURNAL_MISMATCH', message: journal.detail ?? 'the task does not match its journal' }
-        }
+        const frameOwnsRow = insideFrame && openFrame.tracker.changedIds().has(id)
+        const refusal = closeRowRefusal(cwd, boardPath, journalRow, frameOwnsRow)
+        if (refusal !== null) return { ok: false, code: 'TASK_JOURNAL_MISMATCH', message: refusal }
       }
       const gate = typeof hooks.beforeClose === 'function' ? hooks.beforeClose(cwd, id) : undefined
       if (gate !== undefined && gate !== null && gate.ok === false) return gate
@@ -2484,7 +2595,6 @@ function createService(config, logger, hooks = {}) {
         }
       })
       if (closed?.ok === true) {
-        appendRowEvent(cwd, 'close', closed.task)
         mirrorTasks(cwd, [closed.task])
       }
       return closed
@@ -2584,6 +2694,19 @@ function createService(config, logger, hooks = {}) {
         for (const id of ids) {
           const task = board.tasks.find((entry) => entry.id === id)
           if (task === undefined) { items.push({ id, ok: false, code: 'not_found' }); continue }
+          // THE JOURNAL GATE IS NOT close()'s ALONE. This batch closes through closeOne inside one
+          // frame; without this check a hand-edited row (or a damaged record) was closed here while
+          // the single close refused it.
+          const frameOwnsRow = openFrame !== null && openFrame.path === pathFor(cwd) && openFrame.tracker.changedIds().has(id)
+          const refusal = closeRowRefusal(cwd, pathFor(cwd), task, frameOwnsRow)
+          if (refusal !== null) { items.push({ id, ok: false, code: 'TASK_JOURNAL_MISMATCH', message: refusal }); continue }
+          // THE SHELL-AUDIT GATE IS NOT close()'s ALONE: this batch closes through closeOne inside
+          // one frame, so a surviving product edit must refuse here too.
+          const shell = shellViolationRefusal(cwd, task, typeof input?.parentSessionId === 'string' ? input.parentSessionId : '')
+          if (shell !== null) {
+            items.push({ id, ok: false, code: 'product_shell_violation', files: shell.files, message: `the shell driven by session ${shell.entry.sessionId} left product file(s) that this role may not edit (${shell.files.slice(0, 5).join(', ')}) and the content is still there` })
+            continue
+          }
           const gate = typeof hooks.beforeClose === 'function' ? hooks.beforeClose(cwd, id) : undefined
           if (gate !== undefined && gate !== null && gate.ok === false) {
             items.push({ id, ok: false, code: gate.code ?? 'cases_not_green', message: gate.message, ...(Array.isArray(gate.blockers) ? { blockers: gate.blockers } : {}) })
@@ -2612,6 +2735,65 @@ function createService(config, logger, hooks = {}) {
       if (batch?.ok === true) mirrorByIds(cwd, batch.results.filter((entry) => entry.ok === true).map((entry) => entry.id))
       return batch
     },
+    /**
+     * RESOLVE A FALSE SHELL-AUDIT RECORD.
+     *
+     * The shell audit sees the COMMAND WINDOW, not the author: a file another process wrote while
+     * a role's shell ran is recorded against the role's session, even though the role never wrote
+     * it (measured: the orchestrator's edit of docs/adr/BOARD-JOURNAL-AND-SNAPSHOT.md landed in
+     * the tester's record). Nothing removed such a record, so the row could never be closed again.
+     *
+     * The owner of the file's area removes it: DOCS for docs/, BACKEND for plugins/. The reason
+     * and who resolved it are written into the record itself, which is the violation ledger
+     * (.dsh/proof-guard-violations.json), and a resolved record never refuses. A file that still
+     * carries the recorded edit is NOT resolved by this call: it keeps refusing until it is
+     * reverted to HEAD (the record's hash no longer matches, proof-guard-resolution AC-1), or the
+     * owner decides the edit belongs to another role - which is exactly this call, with a reason.
+     *
+     * @returns `{ok, resolved, files}` or a refusal code: reason_required, invalid, area_not_owned,
+     *   not_found.
+     */
+    resolveShellViolation(cwd, input) {
+      const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : ''
+      const reason = typeof input?.reason === 'string' ? input.reason.trim() : ''
+      const role = typeof input?.role === 'string' ? input.role.trim().toUpperCase() : ''
+      const files = Array.isArray(input?.files) ? input.files.filter((file) => typeof file === 'string' && file !== '') : []
+      const ownerOf = (file) => (file.startsWith('docs/') ? 'DOCS' : file.startsWith('plugins/') ? 'BACKEND' : '')
+      if (reason === '') return { ok: false, code: 'reason_required', message: 'resolving a shell-audit record needs a reason' }
+      if (sessionId === '' || files.length === 0) return { ok: false, code: 'invalid', message: 'pass sessionId and the files to resolve' }
+      const foreign = files.filter((file) => ownerOf(file) !== role)
+      if (foreign.length > 0 || (role !== 'DOCS' && role !== 'BACKEND')) {
+        return {
+          ok: false,
+          code: 'area_not_owned',
+          files: foreign,
+          message: 'a shell-audit record is resolved by the owner of the file area: DOCS for docs/, BACKEND for plugins/',
+        }
+      }
+      const path = join(cwd, '.dsh', 'proof-guard-violations.json')
+      let records
+      try {
+        records = JSON.parse(readFileSync(path, 'utf8'))
+      } catch {
+        return { ok: false, code: 'not_found', message: 'no shell-audit record file' }
+      }
+      if (!Array.isArray(records)) return { ok: false, code: 'not_found', message: 'the shell-audit record file is not a list' }
+      const at = now()
+      let resolved = 0
+      for (const entry of records) {
+        if (entry === null || typeof entry !== 'object' || entry.sessionId !== sessionId) continue
+        if (entry.resolved !== undefined && entry.resolved !== null) continue
+        const overlap = (Array.isArray(entry.files) ? entry.files : []).filter((file) => files.includes(file))
+        if (overlap.length === 0) continue
+        entry.resolved = { at, by: role, reason: reason.slice(0, 500), files: overlap }
+        resolved += 1
+      }
+      if (resolved === 0) return { ok: false, code: 'not_found', message: 'no open record for that session names those files' }
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, JSON.stringify(records, null, 2) + '\n')
+      return { ok: true, resolved, files }
+    },
+
     /**
      * Force-stop linked children without changing a task's lifecycle.
      *

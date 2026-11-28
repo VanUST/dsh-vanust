@@ -1,0 +1,1146 @@
+{
+  "schemaVersion": 1,
+  "id": "a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo",
+  "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+  "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "test/write-integrity.test.mjs",
+  "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+  "steps": [
+    "Create a task, update its title to 'second title', and move it to review with a result: confirmed records, whole, with newlines.",
+    "Copy the whole ledger, run the same title update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+    "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed state.",
+    "Restart, read the row through the service (the confirmed row with status review), repeat the allowed update, close, reopen, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+    "Make the change journal read-only, close a task in review, restore it: the call must not report success; the row stays review before and after the next successful update; no close entry is recorded.",
+    "On a fresh board, move a task to review, write the snapshot with the product's own writeSnapshot, damage a complete record that lies BEFORE the snapshot offset (newline kept), reopen and close: the close must refuse with TASK_JOURNAL_MISMATCH and change nothing on disk.",
+    "On another fresh board, damage the last complete record in the tail the same way and close: refused with TASK_JOURNAL_MISMATCH."
+  ],
+  "expected": "The reopened service reads the confirmed row while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads it from the journal. A close whose append fails reports no success, the row stays review before AND after the next successful write, and no close is recorded. A complete record damaged in place is refused with TASK_JOURNAL_MISMATCH whether it lies in the tail or under the product's own snapshot, and the refused close changes nothing on disk.",
+  "tags": [
+    "taskboard",
+    "write-integrity",
+    "interrupted-write",
+    "recovery",
+    "REQ-294"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "81c47aacf5806b26db02e9fa3d75365cab7cb3cba769cd687618799a02498873"
+    },
+    {
+      "path": "plugins/taskboard/lib/journal.mjs",
+      "sha256": "b6dbfdc0ae690a90c3037b09b69062cc44f1a6d2ffd05f076a0af441ea4d1a92"
+    },
+    {
+      "path": "plugins/taskboard/lib/store.mjs",
+      "sha256": "1fe011fcc76064a5e4a1c70893a6829bc42083e549c37568aed76c3a2833b40b"
+    }
+  ],
+  "linkedTaskId": "task-mx0azs5x-m90gyp",
+  "criterionId": "AC-2",
+  "reqId": "REQ-294",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+  "purpose": "acceptance",
+  "testHash": "30d02d1c2805a0d9b0ed5e5e2ff2d1eb0908e447b77a00a377ee8ecb763cf62a",
+  "failsWhen": "An unconfirmed tail is presented as the confirmed row (or a damaged complete record is silently dropped), so the confirmed state is lost or a broken record passes.",
+  "trigger": "A real update runs on a separate copy of the board; only half of its journal record reaches the original ledger, whose export stays at the confirmed state. The workspace restarts, reads the row through the service, repeats the allowed change, closes, and the derived files are removed to read the change back from the journal. Separately, one complete journal line is damaged in place.",
+  "oracle": "REQ-294 and AC-2 in the analysis record taskboard-write-integrity: after an incomplete last write the last confirmed row is visible, a repeated allowed change is saved and reopening sees it.",
+  "realism": "The interrupted write the analysis names: the row change and its verification data were two separate writes, so a process dying between them leaves an incomplete verification record. The orchestrator confirmed the realism of the criteria.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-28T11:04:53.000Z",
+  "negativeControl": "expect-refusal",
+  "revision": 29,
+  "createdAt": "2026-11-28T11:09:35.766Z",
+  "updatedAt": "2026-11-28T12:49:50.925Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T11:10:19.142Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T11:10:19.142Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A torn last record keeps the confirmed row and the next allowed change",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record, after a restart the last confirmed row is visible; a repeated allowed change is saved and reopening sees it; damage to a complete record is not silently rolled back.",
+        "expected": "After the restart the last confirmed row is readable (title \"second title\"), the repeated update succeeds, the close returns ok, and a further read sees the row done with \"third title\".",
+        "steps": [
+          "Create a task and update its title to 'second title' (a legal write).",
+          "Truncate the last line of the .dsh journal that recorded the task to half its bytes: the process died mid-append.",
+          "Start a second plugin instance on a copy of the ledger and read the row.",
+          "Repeat the allowed update with title 'third title'.",
+          "Close the task and read the row again from another copy of the ledger."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:17:11.567Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "After the restart the service reads the last confirmed row (\"second title\"), not the unconfirmed board copy; the repeated update succeeds, the close returns ok, and reopening reads the row done with \"third title\". Separately, a complete record damaged in place with its newline kept makes the close refuse with TASK_JOURNAL_MISMATCH.",
+        "steps": [
+          "Create a task and update its title to 'second title': confirmed records, whole, with newlines.",
+          "Write a separate copy of the board whose row has the unconfirmed title 'unconfirmed title' as the export, and append only the first half of its new event line to the events journal (no newline).",
+          "Start a second plugin instance on a copy of the ledger and read the row through the service.",
+          "Repeat the allowed update with title 'third title', close the task and read the row again from another copy.",
+          "On a fresh board, damage the last complete event line in place keeping its newline, then close: the close must refuse with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T11:17:25.461Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:17:25.461Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "After the restart the service reads the last confirmed row (\"second title\"), not the unconfirmed board copy; the repeated update succeeds, the close returns ok, and reopening reads the row done with \"third title\". Separately, a complete record damaged in place with its newline kept makes the close refuse with TASK_JOURNAL_MISMATCH.",
+        "steps": [
+          "Create a task and update its title to 'second title': confirmed records, whole, with newlines.",
+          "Write a separate copy of the board whose row has the unconfirmed title 'unconfirmed title' as the export, and append only the first half of its new event line to the events journal (no newline).",
+          "Start a second plugin instance on a copy of the ledger and read the row through the service.",
+          "Repeat the allowed update with title 'third title', close the task and read the row again from another copy.",
+          "On a fresh board, damage the last complete event line in place keeping its newline, then close: the close must refuse with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T11:22:58.953Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T11:22:58.953Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row (\"second title\") while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads \"third title\" done from the journal. A complete record damaged in place with its newline kept makes the close refuse with TASK_JOURNAL_MISMATCH.",
+        "steps": [
+          "Create a task and update its title to 'second title': confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed 'second title' (a lagging projection, no hand-written row).",
+          "Start a second plugin instance on a copy of the ledger and read the row through the service: the last confirmed row, not the attempted change.",
+          "Repeat the allowed update with title 'third title', close the task, read it again from another copy, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "On a fresh board, damage the last complete event line in place keeping its newline, then close: the close must refuse with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-28T11:28:17.572Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T11:28:17.572Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row (\"second title\") while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads \"third title\" done from the journal. A complete record damaged in place with its newline kept makes the close refuse with TASK_JOURNAL_MISMATCH.",
+        "steps": [
+          "Create a task and update its title to 'second title': confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed 'second title' (a lagging projection, no hand-written row).",
+          "Start a second plugin instance on a copy of the ledger and read the row through the service: the last confirmed row, not the attempted change.",
+          "Repeat the allowed update with title 'third title', close the task, read it again from another copy, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "On a fresh board, damage the last complete event line in place keeping its newline, then close: the close must refuse with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T11:31:43.236Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-28T11:41:36.334Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-28T11:41:36.334Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row (\"second title\") while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads \"third title\" done from the journal. A complete record damaged in place with its newline kept makes the close refuse with TASK_JOURNAL_MISMATCH.",
+        "steps": [
+          "Create a task, update its title to 'second title', and move it to review with a result: confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same title update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed state (a lagging projection, no hand-written row).",
+          "Start a second plugin instance on a copy of the ledger and read the row through the service: the last confirmed row with status review, not the attempted change.",
+          "Repeat the allowed title update with 'third title', close the task, read it again from another copy, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "On a fresh board, move a task to review, damage the last complete event line in place keeping its newline, then close: the close must refuse with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-28T11:55:56.153Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-28T11:55:56.153Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row (\"second title\") while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads \"third title\" done from the journal. A complete record damaged in place with its newline kept makes the close refuse with TASK_JOURNAL_MISMATCH.",
+        "steps": [
+          "Create a task, update its title to 'second title', and move it to review with a result: confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same title update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed state (a lagging projection, no hand-written row).",
+          "Start a second plugin instance on a copy of the ledger and read the row through the service: the last confirmed row with status review, not the attempted change.",
+          "Repeat the allowed title update with 'third title', close the task, read it again from another copy, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "Make the change journal read-only, close a task in review, and restore it: the call must not report success, the row must stay review, and the confirmed row must be readable after a restart.",
+          "On a fresh board, move a task to review, write the snapshot with the product's own writeSnapshot, damage a complete record that lies BEFORE the snapshot offset (newline kept), reopen and close: the damage must refuse with TASK_JOURNAL_MISMATCH, not be hidden by the snapshot.",
+          "On another fresh board, damage the last complete record in the tail the same way and close: refused with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "stale",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-28T11:58:22.397Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-28T11:58:22.397Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads it from the journal. A close whose append fails reports no success, the row stays review before AND after the next successful write, and no close is recorded. A complete record damaged in place is refused with TASK_JOURNAL_MISMATCH whether it lies in the tail or under the product's own snapshot, and the refused close changes nothing on disk.",
+        "steps": [
+          "Create a task, update its title to 'second title', and move it to review with a result: confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same title update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed state.",
+          "Restart, read the row through the service (the confirmed row with status review), repeat the allowed update, close, reopen, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "Make the change journal read-only, close a task in review, restore it: the call must not report success; the row stays review before and after the next successful update; no close entry is recorded.",
+          "On a fresh board, move a task to review, write the snapshot with the product's own writeSnapshot, damage a complete record that lies BEFORE the snapshot offset (newline kept), reopen and close: the close must refuse with TASK_JOURNAL_MISMATCH and change nothing on disk.",
+          "On another fresh board, damage the last complete record in the tail the same way and close: refused with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "stale",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-28T12:04:14.297Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-28T12:04:14.297Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads it from the journal. A close whose append fails reports no success, the row stays review before AND after the next successful write, and no close is recorded. A complete record damaged in place is refused with TASK_JOURNAL_MISMATCH whether it lies in the tail or under the product's own snapshot, and the refused close changes nothing on disk.",
+        "steps": [
+          "Create a task, update its title to 'second title', and move it to review with a result: confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same title update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed state.",
+          "Restart, read the row through the service (the confirmed row with status review), repeat the allowed update, close, reopen, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "Make the change journal read-only, close a task in review, restore it: the call must not report success; the row stays review before and after the next successful update; no close entry is recorded.",
+          "On a fresh board, move a task to review, write the snapshot with the product's own writeSnapshot, damage a complete record that lies BEFORE the snapshot offset (newline kept), reopen and close: the close must refuse with TASK_JOURNAL_MISMATCH and change nothing on disk.",
+          "On another fresh board, damage the last complete record in the tail the same way and close: refused with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-28T12:12:39.702Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-28T12:12:39.702Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads it from the journal. A close whose append fails reports no success, the row stays review before AND after the next successful write, and no close is recorded. A complete record damaged in place is refused with TASK_JOURNAL_MISMATCH whether it lies in the tail or under the product's own snapshot, and the refused close changes nothing on disk.",
+        "steps": [
+          "Create a task, update its title to 'second title', and move it to review with a result: confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same title update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed state.",
+          "Restart, read the row through the service (the confirmed row with status review), repeat the allowed update, close, reopen, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "Make the change journal read-only, close a task in review, restore it: the call must not report success; the row stays review before and after the next successful update; no close entry is recorded.",
+          "On a fresh board, move a task to review, write the snapshot with the product's own writeSnapshot, damage a complete record that lies BEFORE the snapshot offset (newline kept), reopen and close: the close must refuse with TASK_JOURNAL_MISMATCH and change nothing on disk.",
+          "On another fresh board, damage the last complete record in the tail the same way and close: refused with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "stale",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 21,
+      "at": "2026-11-28T12:16:37.813Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 22,
+      "at": "2026-11-28T12:16:37.813Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "An unconfirmed tail keeps the confirmed row and a damaged complete record is refused",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-2: with an incomplete last record the confirmed record stays whole; after a restart the last confirmed row is visible through the service, a repeated allowed change is saved and reopening sees it; damage to a complete record is refused, not rolled back in silence.",
+        "expected": "The reopened service reads the confirmed row while the export is lagging; the repeated update succeeds, the close returns ok, reopening reads \"third title\" done, and a copy without the export and snapshot still reads it from the journal. A close whose append fails reports no success, the row stays review before AND after the next successful write, and no close is recorded. A complete record damaged in place is refused with TASK_JOURNAL_MISMATCH whether it lies in the tail or under the product's own snapshot, and the refused close changes nothing on disk.",
+        "steps": [
+          "Create a task, update its title to 'second title', and move it to review with a result: confirmed records, whole, with newlines.",
+          "Copy the whole ledger, run the same title update through the service on the copy with title 'unconfirmed title', and take the one journal record that update added.",
+          "Append only the strict prefix of that record (half the line, no newline) to the original journal; the original export stays at the confirmed state.",
+          "Restart, read the row through the service (the confirmed row with status review), repeat the allowed update, close, reopen, then delete the export and the snapshot in a further copy and read the row rebuilt from the journal alone.",
+          "Make the change journal read-only, close a task in review, restore it: the call must not report success; the row stays review before and after the next successful update; no close entry is recorded.",
+          "On a fresh board, move a task to review, write the snapshot with the product's own writeSnapshot, damage a complete record that lies BEFORE the snapshot offset (newline kept), reopen and close: the close must refuse with TASK_JOURNAL_MISMATCH and change nothing on disk.",
+          "On another fresh board, damage the last complete record in the tail the same way and close: refused with TASK_JOURNAL_MISMATCH."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+        "status": "stale",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 23,
+      "at": "2026-11-28T12:18:47.945Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 24,
+      "at": "2026-11-28T12:20:36.748Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 25,
+      "at": "2026-11-28T12:35:04.694Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 26,
+      "at": "2026-11-28T12:35:22.550Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 27,
+      "at": "2026-11-28T12:35:30.826Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 28,
+      "at": "2026-11-28T12:49:50.925Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0b6rro-99qms-1",
+      "at": "2026-11-28T11:10:19.139Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 183,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0b6rro-99qms-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0b6rro-99qms-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0b6rro-99qms-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0bfwq7-1f66y-1",
+      "at": "2026-11-28T11:17:25.460Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 176,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0bfwq7-1f66y-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0bfwq7-1f66y-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0bfwq7-1f66y-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0bn21o-2t1h0-1",
+      "at": "2026-11-28T11:22:58.951Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 187,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0bn21o-2t1h0-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0bn21o-2t1h0-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0bn21o-2t1h0-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0btvvp-uf5wp-1",
+      "at": "2026-11-28T11:28:17.570Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 196,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0btvvp-uf5wp-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0btvvp-uf5wp-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0btvvp-uf5wp-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0byakv-k91cq-1",
+      "at": "2026-11-28T11:31:43.234Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 196,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0byakv-k91cq-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0byakv-k91cq-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0byakv-k91cq-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0cb06t-eptzn-1",
+      "at": "2026-11-28T11:41:36.333Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 214,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0cb06t-eptzn-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0cb06t-eptzn-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0cb06t-eptzn-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0ctfly-7rlhd-1",
+      "at": "2026-11-28T11:55:56.151Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 254,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "77433236d30dc9a635ce27007a2c79b486645895",
+      "dirty": false,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0ctfly-7rlhd-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0ctfly-7rlhd-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0ctfly-7rlhd-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0cwkg9-fy7h1-1",
+      "at": "2026-11-28T11:58:22.396Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 261,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "77433236d30dc9a635ce27007a2c79b486645895",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0cwkg9-fy7h1-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0cwkg9-fy7h1-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0cwkg9-fy7h1-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0d43xw-09fw7-1",
+      "at": "2026-11-28T12:04:14.295Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 288,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0d43xw-09fw7-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0d43xw-09fw7-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0d43xw-09fw7-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0dexyp-hy350-1",
+      "at": "2026-11-28T12:12:39.701Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 227,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-d14bc29",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-d14bc29",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dexyp-hy350-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dexyp-hy350-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dexyp-hy350-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0dk1oq-r0he0-1",
+      "at": "2026-11-28T12:16:37.811Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 240,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-d14bc29",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-d14bc29",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dk1oq-r0he0-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dk1oq-r0he0-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dk1oq-r0he0-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0dmu4v-sh68p-1",
+      "at": "2026-11-28T12:18:47.943Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 200,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dmu4v-sh68p-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dmu4v-sh68p-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dmu4v-sh68p-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0dp62i-dvnjx-1",
+      "at": "2026-11-28T12:20:36.745Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 203,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dp62i-dvnjx-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dp62i-dvnjx-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0dp62i-dvnjx-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e7rot-k0uy7-1",
+      "at": "2026-11-28T12:35:04.692Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 326,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e7rot-k0uy7-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e7rot-k0uy7-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e7rot-k0uy7-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e85kr-dpenq-1",
+      "at": "2026-11-28T12:35:22.549Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 188,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e85kr-dpenq-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e85kr-dpenq-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e85kr-dpenq-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e8but-87jcq-1",
+      "at": "2026-11-28T12:35:30.825Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 322,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e8but-87jcq-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e8but-87jcq-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0e8but-87jcq-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0eqrjd-wief2-1",
+      "at": "2026-11-28T12:49:50.924Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 293,
+      "commandSha256": "0d0b6f9c98bf8cfe184f7557feb7c5f856d3db25c3992b575f63d1ff46abe4a3",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0eqrjd-wief2-1/stdout.log",
+      "stderr": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0eqrjd-wief2-1/stderr.log",
+      "summary": "docs/cases/runs/a-torn-last-record-keeps-the-confirmed-row-and-the-next-allo/mx0eqrjd-wief2-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-28T12:49:50.925Z",
+    "command": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0eqrjd-wief2-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": "task-mx0azs5x-m90gyp"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "degraded": false,
+  "redFirst": {
+    "at": "2026-11-28T12:35:22.550Z",
+    "runId": "mx0e85kr-dpenq-1",
+    "exitCode": 1,
+    "control": "expect-refusal",
+    "command": "node --test --test-name-pattern=AC-2 test/write-integrity.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+    "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+    "dirty": true,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": "task-mx0azs5x-m90gyp"
+    }
+  }
+}

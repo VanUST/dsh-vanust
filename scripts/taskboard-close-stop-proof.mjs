@@ -56,7 +56,7 @@ const linksPath = join(dir, 'links.json')
 writeFileSync(boardPath, JSON.stringify({ version: 1, revision: 1, tasks: [], agents: [] }, null, 2) + '\n')
 
 const { apply } = await import(pathToFileURL(taskboardModule).href)
-const { appendRowEvent } = await import(pathToFileURL(join(dirname(taskboardModule), 'lib', 'journal.mjs')).href)
+const { createStore } = await import(pathToFileURL(join(dirname(taskboardModule), 'lib', 'store.mjs')).href)
 
 const results = []
 const check = (name, ok, detail) => {
@@ -64,19 +64,35 @@ const check = (name, ok, detail) => {
   const suffix = detail === undefined ? '' : '  ' + JSON.stringify(detail)
   process.stdout.write((ok ? 'PASS' : 'FAIL') + '  ' + name + suffix + '\n')
 }
+const store = createStore({ boardPath, logger: { warn() {} } })
 const readBoard = () => JSON.parse(readFileSync(boardPath, 'utf8'))
-const writeBoard = (board) => writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n')
 /**
- * Move a row by hand and RECORD the write, the way the service does: a hand edit that leaves no
- * journal event is what the close refuses, so a setup that needs the row in another status must
- * state that it made the change.
+ * Write the fixture board by hand and RECORD it the way the service does: one event in the change
+ * journal carrying every row and its verification hash (lib/store.mjs). A hand edit that leaves no
+ * record is what the close refuses, so every setup write states that it made the change.
+ */
+const writeBoard = (board) => {
+  writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n')
+  const state = store.load()
+  const fresh = state.source === 'export' || state.source === 'empty'
+  store.append({
+    at: new Date().toISOString(),
+    op: fresh ? 'genesis' : 'update',
+    ...(fresh ? { version: 1 } : {}),
+    revision: Number.isSafeInteger(board.revision) ? board.revision : 0,
+    rows: board.tasks ?? [],
+    removed: [],
+  })
+}
+/**
+ * Move a row by hand and RECORD the write, the way the service does: the row's new status reaches
+ * the journal in the same event, so the close compares the row with a record that has it.
  */
 const setStatus = (id, status) => {
   const board = readBoard()
   const task = board.tasks.find((entry) => entry.id === id)
   if (task !== undefined) task.status = status
   writeBoard(board)
-  if (task !== undefined) appendRowEvent(dir, 'update', task)
 }
 
 function harness() {

@@ -1,18 +1,23 @@
 /*
-PROOF: a task row edited by hand after the journal saw it is refused, and an old row still closes
-Behavior: every create/update/close appends a chained event to .dsh/taskboard-journal.ndjson
-  ({ts, kind, id, payloadHash, prevHash, hash}); the close verifies the chain and the row's last
-  event, and a row EDITED after its last event is TASK_JOURNAL_MISMATCH. A row with no event at all
-  (a board written before the journal, a fixture) is legacy and closes normally. Tamper-EVIDENT,
-  not a signature.
-Fails when: an edited row still closes, a legacy row is refused, or a second write does not chain.
-Production path: plugins/taskboard/lib/journal.mjs (appendRowEvent, checkRow) and taskboard.mjs
-  (create/update/close).
+PROOF: a task row edited by hand after the journal saw it is refused, an old row still closes, and
+no second row journal is written for new changes.
+Behavior: every change writes ONE event to the change journal beside the board
+  (taskboard.events.ndjson): {at, op, revision, rows, removed, check:{prev, hash, rows}} where
+  check.rows maps each written row to its sha256, check.hash covers the event and check.prev chains
+  it to the previous event. The close verifies the row against that record (and against the legacy
+  .dsh/taskboard-journal.ndjson for a row it never wrote). A row EDITED after its last event is
+  TASK_JOURNAL_MISMATCH. A row with no event at all (a board written before both journals, a
+  fixture) is legacy and closes normally. The legacy journal receives no new events: the change and
+  its verification data are one record, not two that can fall out of step.
+Fails when: an edited row still closes, a legacy row is refused, a write does not chain, or a new
+  change is appended to the legacy row journal again.
+Production path: plugins/taskboard/lib/store.mjs (the event and its check), lib/journal.mjs (the
+  legacy reader) and taskboard.mjs (close, readBoard).
 */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../taskboard.mjs'
@@ -36,38 +41,41 @@ function harness(board) {
   }
   apply(ctx, { file: boardPath, linksFile: join(cwd, 'links.json'), lockWaitMs: 1000 })
   const service = registry.get('taskboard')
-  const journal = () => {
-    try {
-      return readFileSync(join(cwd, '.dsh', 'taskboard-journal.ndjson'), 'utf8').trim().split('\n').filter((line) => line !== '').map((line) => JSON.parse(line))
-    } catch {
-      return []
-    }
-  }
   const editRow = (id, change) => {
     const boardNow = JSON.parse(readFileSync(boardPath, 'utf8'))
     const row = boardNow.tasks.find((task) => task.id === id)
     Object.assign(row, change)
     writeFileSync(boardPath, JSON.stringify(boardNow, null, 2) + '\n')
   }
-  return { cwd, service, journal, editRow }
+  return { cwd, service, editRow }
+}
+
+/** The change journal beside the configured board file (lib/store.mjs pathsFor). */
+const journal = (cwd) => {
+  const path = join(cwd, 'taskboard.events.ndjson')
+  if (!existsSync(path)) return []
+  return readFileSync(path, 'utf8').trim().split('\n').filter((line) => line !== '').map((line) => JSON.parse(line))
 }
 
 const closeArgs = (cwd, id) => ({ id, chatId: 'chat-1', parentSessionId: 'root', result: { summary: 'done', evidence: ['node x'] } })
 
-test('each write appends one chained event', () => {
-  const { cwd, service, journal } = harness()
+test('each write appends one chained event to the change journal', () => {
+  const { cwd, service } = harness()
   const created = service.create(cwd, { title: 'The row', role: 'BACKEND', preset: 'backend', chatId: 'chat-1' })
   assert.equal(typeof created.id, 'string', JSON.stringify(created))
-  const events = journal()
+  const events = journal(cwd)
   assert.equal(events.length, 1)
-  assert.equal(events[0].kind, 'create')
-  assert.equal(events[0].prevHash, 'genesis')
+  assert.equal(events[0].op, 'genesis')
+  assert.equal(events[0].check.prev, 'genesis')
+  assert.equal(typeof events[0].check.rows[created.id], 'string')
   const second = service.create(cwd, { title: 'The second row', role: 'BACKEND', preset: 'backend', chatId: 'chat-1' })
   assert.equal(typeof second.id, 'string', JSON.stringify(second))
-  const after = journal()
+  const after = journal(cwd)
   assert.equal(after.length, 2)
-  assert.equal(after[1].prevHash, after[0].hash)
-  assert.notEqual(after[1].hash, after[0].hash)
+  assert.equal(after[1].check.prev, after[0].check.hash)
+  assert.notEqual(after[1].check.hash, after[0].check.hash)
+  // One record carries the change and its verification; the legacy row journal gets no new event.
+  assert.equal(existsSync(join(cwd, '.dsh', 'taskboard-journal.ndjson')), false)
 })
 
 test('a row edited after its last event is refused by the close', () => {

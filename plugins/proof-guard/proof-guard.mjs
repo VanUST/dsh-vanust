@@ -382,10 +382,19 @@ export function apply(ctx, config = {}) {
     const before = manifests.get(exec)
     if (before === undefined) return next()
     manifests.delete(exec)
-    const changed = manifestDiff(before.manifest, productManifest(before.cwd))
+    const after = productManifest(before.cwd)
+    const changed = manifestDiff(before.manifest, after)
     if (changed.length === 0) return next()
     const sessionId = exec.agent?.session?.header?.id ?? exec.agent?.id ?? 'unknown'
-    recordViolation(before.cwd, { at: new Date().toISOString(), sessionId, preset: presetOf(ctx, exec.agent), tool: exec.name, files: changed })
+    // THE RECORD KEEPS THE HASH THE COMMAND LEFT, not just the path: the audit window is the
+    // command, not the author, so a file another process wrote in that window is recorded here
+    // too. The close refuses only while the file still carries exactly this content; a file
+    // reverted to HEAD stops matching and stops refusing (proof-guard-resolution AC-1).
+    const hashes = {}
+    for (const file of changed) {
+      if (after !== null && typeof after[file] === 'string') hashes[file] = after[file]
+    }
+    recordViolation(before.cwd, { at: new Date().toISOString(), sessionId, preset: presetOf(ctx, exec.agent), tool: exec.name, files: changed, hashes })
     ctx.logger.warn('proof-guard: the ' + presetOf(ctx, exec.agent) + ' shell changed ' + changed.length + ' product file(s): ' + changed.slice(0, 5).join(', ') + ' (recorded, not blocked)')
     return next()
   })

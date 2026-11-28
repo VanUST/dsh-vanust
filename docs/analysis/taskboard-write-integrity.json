@@ -1,0 +1,419 @@
+{
+  "schemaVersion": 1,
+  "id": "taskboard-write-integrity",
+  "rev": 25,
+  "status": "completed",
+  "createdAt": "2026-11-28T11:04:31.721Z",
+  "updatedAt": "2026-11-28T12:39:36.853Z",
+  "updatedBy": "agent",
+  "title": "Доска задач: запись строки и её проверка при закрытии",
+  "requestedSolution": "Устранить ложный отказ при закрытии после завершения субагента; проверить отказ и восстановление после прерванной записи.",
+  "businessOutcome": {
+    "problem": "Доска сохраняет строку при изменениях субагента, но журнал проверки учитывает не каждое изменение. При закрытии доска принимает законное изменение за ручную правку.",
+    "outcome": "Оркестратор закрывает принятую задачу без лишнего сохранения; прерванная запись не теряет ранее подтверждённое состояние и не скрывает ручные правки.",
+    "successMetrics": [
+      "Закрытие после завершения субагента не требует task_update.",
+      "Подтверждённое изменение читается после повторного открытия.",
+      "Одиночная правка строки или целой записи журнала не проходит закрытие."
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Закрытие задачи",
+        "actors": [
+          "оркестратор",
+          "доска задач"
+        ],
+        "steps": [
+          "Субагент завершает работу.",
+          "Доска пишет строку и отдельно обновляет журнал проверки.",
+          "Закрытие видит старую запись журнала и отказывает."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Запись и закрытие задачи",
+        "actors": [
+          "оркестратор",
+          "доска задач"
+        ],
+        "steps": [
+          "Законное изменение проходит через одну точку записи под блокировкой.",
+          "Изменение и сведения для проверки сохраняются вместе.",
+          "После повторного открытия доска читает полные записи; закрытие отклоняет расхождение."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Законное завершение субагента и закрытие задачи не требуют сохранения для обновления журнала.",
+      "acceptance": [
+        "AC-1: Создать задачу, привязать субагента, получить результат через событие завершения и закрыть с результатом и доказательством без дополнительного task_update; после открытия задача остаётся закрытой."
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Подтверждённые изменения доски сохраняются после прерванной записи; закрытие не пропускает ручные правки.",
+      "acceptance": [
+        "AC-2: При неполной записи последнего события после перезапуска видна последняя подтверждённая строка; повтор разрешённого изменения сохраняется и повторное открытие его видит. Повреждение полной записи не откатывается молча.",
+        "AC-3: После законного изменения строки закрытие отклоняет одиночную правку строки или целого события журнала; существующие согласованные записи и старые строки без журнала не требуют массовой перезаписи."
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-BOARD",
+        "name": "доска задач",
+        "responsibility": "Владеет изменением, сохранением и проверкой строки задачи.",
+        "owner": "BACKEND",
+        "owns": [
+          "D-BOARD",
+          "D-EVENTS"
+        ],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-BOARD",
+      "name": "строки доски задач",
+      "owner": "kit",
+      "ownerComponentId": "C-BOARD",
+      "description": "Состояние, результат и история задач; экспорт и снимок не подтверждают сами себя."
+    },
+    {
+      "id": "D-EVENTS",
+      "name": "журнал записей доски задач",
+      "owner": "kit",
+      "ownerComponentId": "C-BOARD",
+      "description": "Полные подтверждённые изменения строк и данные их проверки; старый журнал сохраняется для проверки перехода."
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-BOARD",
+      "name": "Запись и закрытие задачи",
+      "between": [
+        "C-BOARD"
+      ],
+      "change": "additive",
+      "description": "Сигнатуры инструментов не меняются; изменение и сведения для проверки фиксируются одной записью в существующем хранилище; отказ при расхождении остаётся."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "I-COMMIT",
+      "text": "Подтверждение изменения требует полной записи; сведения для проверки записываются вместе с изменением под существующей блокировкой.",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-ONE",
+      "decision": "Хранить сведения для проверки в той же записи, что изменение строки; не вести второй журнал новых изменений.",
+      "rationale": "Отдельные записи расходятся при сбое; вызовы по месту уже пропустили часть изменений.",
+      "alternatives": [
+        "Дописать вызовы в каждую операцию",
+        "Принять текущую строку без проверки"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Формат записи, восстановление и параллельные изменения"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-28T11:04:31.721Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "goal-918169bf-a935-4dfc-81db-0c22533fcecc",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-BOARD",
+      "contractIds": [
+        "CT-BOARD"
+      ],
+      "dataIds": [
+        "D-BOARD",
+        "D-EVENTS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mx0azs5z-s65jom",
+          "role": "TESTER",
+          "at": "2026-11-28T11:06:11.108Z",
+          "evidence": [
+            "TEST-105 rev 21: зелёный mx0e8ay1-os5ph-1 (exit 0) после красного mx0e84l6-n92on-1 на d14bc29 (exit 1); поверхность 81fa00f3/b6dbfdc0/1fe011fc, драйвер 30d02d1c.",
+            "Негативный контроль: mx0e3aze-6v8ts-1 — при expect-refusal продукт вернул ok:true, exit 1."
+          ]
+        },
+        {
+          "taskId": "task-mx0azs5x-m90gyp",
+          "role": "BACKEND",
+          "at": "2026-11-28T11:20:04.234Z",
+          "evidence": [
+            "Пакет 0.1.97: cc-dsh-taskboard-0.1.97.tgz sha256 8cbbbe63349fb3b91936d700734dcf977cebf973233d17e9cde599a578f4fb9b (102668 Б).",
+            "Байты в пакете и дереве: taskboard.mjs 81FA00F3, lib/store.mjs 1FE011FC, lib/journal.mjs B6DBFDC0 — совпадают с измеренными."
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-BOARD",
+      "contractIds": [
+        "CT-BOARD"
+      ],
+      "dataIds": [
+        "D-BOARD",
+        "D-EVENTS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mx0azs5z-s65jom",
+          "role": "TESTER",
+          "at": "2026-11-28T11:06:11.108Z",
+          "evidence": [
+            "TEST-106 rev 28: зелёный mx0e8but-87jcq-1, exit 0; TEST-107 rev 26: зелёный mx0e8d11-wu6tx-1, exit 0; оба после красных mx0e85kr-dpenq-1 и mx0e86js-8bf5o-1 на b7e358b4.",
+            "Красные на неверном продукте до правки: mx0dmu4v-sh68p-1 (пакетное закрытие при потерянном журнале) и mx0dmvc2-9nqq3-1 (правка строки записью без сведений проверки), exit 1."
+          ]
+        },
+        {
+          "taskId": "task-mx0azs5x-m90gyp",
+          "role": "BACKEND",
+          "at": "2026-11-28T11:20:04.234Z",
+          "evidence": [
+            "Независимое ревью TASK-430 на тех же байтах: обе находки закрыты, восстановление после сбоя экспорта и старый журнал без genesis проходят, время записи 8,32 мс против 8,39 мс (.tmp/review-197-probes.txt, .tmp/review-197-baseline.txt)."
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "b644159b67046cee5d9ebf65be26e046c5f5ea282c257a77a3a4f0d91c44d550",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T11:04:31.721Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T11:04:34.430Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:06:11.108Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T11:20:04.234Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5x-m90gyp -> FR1, FR2"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:22:00.057Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T11:26:56.275Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T11:30:17.129Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5x-m90gyp -> FR1, FR2"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-28T11:31:08.402Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T11:41:24.363Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T11:54:55.309Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-28T11:57:49.388Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-28T11:59:02.585Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5x-m90gyp -> FR1, FR2"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-28T12:03:33.517Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-28T12:10:41.675Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR2"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-28T12:15:03.392Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5x-m90gyp -> FR2"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-28T12:15:24.191Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR2"
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-28T12:17:39.433Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR2"
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-28T12:19:57.216Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5x-m90gyp -> FR2"
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-28T12:20:15.542Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-28T12:30:17.087Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5x-m90gyp -> FR1, FR2"
+    },
+    {
+      "revision": 21,
+      "at": "2026-11-28T12:31:04.648Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1"
+    },
+    {
+      "revision": 22,
+      "at": "2026-11-28T12:34:42.369Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0azs5z-s65jom -> FR1, FR2"
+    },
+    {
+      "revision": 23,
+      "at": "2026-11-28T12:35:47.443Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 24,
+      "at": "2026-11-28T12:36:01.084Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 25,
+      "at": "2026-11-28T12:39:36.853Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

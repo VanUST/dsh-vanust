@@ -1,0 +1,1079 @@
+{
+  "schemaVersion": 1,
+  "id": "the-close-accepts-a-legal-change-and-refuses-a-lone-edit",
+  "title": "The close accepts a legal change and refuses a lone edit",
+  "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "test/write-integrity.test.mjs",
+  "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+  "steps": [
+    "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+    "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+    "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+    "On a fresh board move a task to review with a result, save the export, update the title, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+    "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+  ],
+  "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+  "tags": [
+    "taskboard",
+    "write-integrity",
+    "tamper",
+    "journal",
+    "REQ-294"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "81c47aacf5806b26db02e9fa3d75365cab7cb3cba769cd687618799a02498873"
+    },
+    {
+      "path": "plugins/taskboard/lib/journal.mjs",
+      "sha256": "b6dbfdc0ae690a90c3037b09b69062cc44f1a6d2ffd05f076a0af441ea4d1a92"
+    },
+    {
+      "path": "plugins/taskboard/lib/store.mjs",
+      "sha256": "1fe011fcc76064a5e4a1c70893a6829bc42083e549c37568aed76c3a2833b40b"
+    }
+  ],
+  "linkedTaskId": "task-mx0azs5x-m90gyp",
+  "criterionId": "AC-3",
+  "reqId": "REQ-294",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+  "purpose": "acceptance",
+  "testHash": "30d02d1c2805a0d9b0ed5e5e2ff2d1eb0908e447b77a00a377ee8ecb763cf62a",
+  "failsWhen": "The close takes a legitimate non-update change (a child completion) for a manual row edit and refuses it; after the change is stored in one record the close would also miss a hand-edited row or a deleted whole journal event.",
+  "trigger": "A legal child-completion change is closed; then on fresh boards it is followed by one hand edit of the row, by removing one whole journal event, by a lagging export, and by an old consistent row with the previous journal.",
+  "oracle": "REQ-294 and AC-3 in the analysis record taskboard-write-integrity: the close refuses a lone edit of the row or of a whole journal event, and old rows without a journal need no mass rewrite.",
+  "realism": "The analysis business problem: a legitimate board change is taken for a manual edit; and the protection the fix must keep while it stores the change and its verification data in one record. The orchestrator confirmed the realism of the criteria.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-28T11:04:53.000Z",
+  "negativeControl": "expect-refusal",
+  "revision": 27,
+  "createdAt": "2026-11-28T11:09:41.937Z",
+  "updatedAt": "2026-11-28T12:49:52.370Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T11:10:20.389Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T11:10:20.389Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; existing consistent records and old rows without a journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; the same board with one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a board whose row's whole last journal event was removed is refused with TASK_JOURNAL_MISMATCH; a row with no journal at all closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event.",
+          "Close the task with a result and evidence: the close must be accepted.",
+          "On a fresh board repeat the same path, then change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, then remove one whole journal event line of that row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board write a row no journal ever saw and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:17:12.702Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board update the row, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T11:17:26.776Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:17:26.776Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board update the row, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T11:23:00.215Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T11:23:00.215Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board update the row, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-28T11:28:18.925Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T11:28:18.925Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board update the row, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T11:31:44.549Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-28T11:41:37.631Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-28T11:41:37.631Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board move a task to review with a result, save the export, update the title, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-28T12:04:15.851Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-28T12:04:48.011Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-28T12:05:01.597Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-28T12:05:01.597Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board move a task to review with a result, save the export, update the title, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-28T12:12:31.895Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-28T12:12:31.895Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board move a task to review with a result, save the export, update the title, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "stale",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-28T12:16:28.209Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-28T12:16:28.209Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "The close accepts a legal change and refuses a lone edit",
+        "requirement": "REQ-294: confirmed board changes survive an interrupted write and the close does not let manual edits through. AC-3: after a legal row change the close refuses a lone edit of the row or of a whole journal event; a lagging export is not tampering; existing consistent records and old rows with the previous journal need no mass rewrite.",
+        "expected": "The legal child-completion close is accepted; one hand-edited row is refused with TASK_JOURNAL_MISMATCH; a removed whole event record is refused with TASK_JOURNAL_MISMATCH; a lagging export is accepted and the confirmed journal change is read after reopening; an old consistent row with the previous journal layout closes.",
+        "steps": [
+          "Create a task, link a subagent and deliver its completion event, then close: the close must be accepted.",
+          "On a fresh board repeat the same path, change the row title by hand and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board repeat the same path, remove one whole event record of the row and close: refused with TASK_JOURNAL_MISMATCH.",
+          "On a fresh board move a task to review with a result, save the export, update the title, then put back the older export (a lagging export): the close must be accepted and the confirmed journal change read after reopening.",
+          "On a fresh board write a row with a consistent event in the previous journal layout and close it: accepted."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+        "status": "stale",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 21,
+      "at": "2026-11-28T12:18:49.528Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 22,
+      "at": "2026-11-28T12:20:38.275Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 23,
+      "at": "2026-11-28T12:35:06.217Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 24,
+      "at": "2026-11-28T12:35:23.806Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 25,
+      "at": "2026-11-28T12:35:32.310Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 26,
+      "at": "2026-11-28T12:49:52.370Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0b6sqg-zzeo8-1",
+      "at": "2026-11-28T11:10:20.388Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 181,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0b6sqg-zzeo8-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0b6sqg-zzeo8-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0b6sqg-zzeo8-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0bfxqv-z7mo1-1",
+      "at": "2026-11-28T11:17:26.774Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 170,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bfxqv-z7mo1-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bfxqv-z7mo1-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bfxqv-z7mo1-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0bn30x-ks7t0-1",
+      "at": "2026-11-28T11:23:00.213Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 172,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bn30x-ks7t0-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bn30x-ks7t0-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bn30x-ks7t0-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0btwym-soi67-1",
+      "at": "2026-11-28T11:28:18.923Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 161,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0btwym-soi67-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0btwym-soi67-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0btwym-soi67-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0bybm0-ysmci-1",
+      "at": "2026-11-28T11:31:44.548Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 165,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bybm0-ysmci-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bybm0-ysmci-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0bybm0-ysmci-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0cb16o-bha34-1",
+      "at": "2026-11-28T11:41:37.629Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 212,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0cb16o-bha34-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0cb16o-bha34-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0cb16o-bha34-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0d4561-nuspr-1",
+      "at": "2026-11-28T12:04:15.849Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 250,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d4561-nuspr-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d4561-nuspr-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d4561-nuspr-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0d4u28-nhf3e-1",
+      "at": "2026-11-28T12:04:48.010Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 168,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-d14bc29",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-d14bc29",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d4u28-nhf3e-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d4u28-nhf3e-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d4u28-nhf3e-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0d54g1-j2qvp-1",
+      "at": "2026-11-28T12:05:01.595Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 261,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d54g1-j2qvp-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d54g1-j2qvp-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0d54g1-j2qvp-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0derym-afc8c-1",
+      "at": "2026-11-28T12:12:31.894Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 193,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": false,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0derym-afc8c-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0derym-afc8c-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0derym-afc8c-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0djubj-4ky4j-1",
+      "at": "2026-11-28T12:16:28.207Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 186,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0djubj-4ky4j-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0djubj-4ky4j-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0djubj-4ky4j-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0dmvc2-9nqq3-1",
+      "at": "2026-11-28T12:18:49.526Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 214,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0dmvc2-9nqq3-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0dmvc2-9nqq3-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0dmvc2-9nqq3-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0dp79m-x44vm-1",
+      "at": "2026-11-28T12:20:38.273Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 194,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0dp79m-x44vm-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0dp79m-x44vm-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0dp79m-x44vm-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e7swm-cid33-1",
+      "at": "2026-11-28T12:35:06.215Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 273,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e7swm-cid33-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e7swm-cid33-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e7swm-cid33-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e86js-8bf5o-1",
+      "at": "2026-11-28T12:35:23.805Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 186,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e86js-8bf5o-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e86js-8bf5o-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e86js-8bf5o-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e8d11-wu6tx-1",
+      "at": "2026-11-28T12:35:32.309Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 280,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e8d11-wu6tx-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e8d11-wu6tx-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0e8d11-wu6tx-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0eqso3-nvd4b-1",
+      "at": "2026-11-28T12:49:52.368Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 269,
+      "commandSha256": "bacd1457c9975d70e1d579381bfc8eef3a0eb3ff95d9dd4e91347cfcbfefa752",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0eqso3-nvd4b-1/stdout.log",
+      "stderr": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0eqso3-nvd4b-1/stderr.log",
+      "summary": "docs/cases/runs/the-close-accepts-a-legal-change-and-refuses-a-lone-edit/mx0eqso3-nvd4b-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-28T12:49:52.370Z",
+    "command": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0eqso3-nvd4b-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": "task-mx0azs5x-m90gyp"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "degraded": false,
+  "redFirst": {
+    "at": "2026-11-28T12:35:23.806Z",
+    "runId": "mx0e86js-8bf5o-1",
+    "exitCode": 1,
+    "control": "expect-refusal",
+    "command": "node --test --test-name-pattern=AC-3 test/write-integrity.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+    "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+    "dirty": true,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": "task-mx0azs5x-m90gyp"
+    }
+  }
+}

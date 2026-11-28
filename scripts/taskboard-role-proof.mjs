@@ -37,7 +37,7 @@
  *     a failure is recorded, never thrown, so one defect does not hide the others.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -63,7 +63,22 @@ const check = (name, ok, detail) => {
   process.stdout.write(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === undefined ? '' : `  ${JSON.stringify(detail)}`}\n`)
 }
 const boardPath = join(dir, 'taskboard.json')
-const reset = (agents = []) => writeFileSync(boardPath, `${JSON.stringify({ version: 1, revision: 1, tasks: [], agents }, null, 2)}\n`)
+/**
+ * Replace the fixture state. The hand-written export IS the state of this fixture, so the change
+ * journal and snapshot that recorded the previous fixture are removed with it: the store reads
+ * the journal first, and a leftover journal would shadow the board just written.
+ */
+const resetBoard = (board) => {
+  for (const name of ['taskboard.events.ndjson', 'taskboard.snapshot.json']) {
+    try {
+      rmSync(join(dir, name))
+    } catch {
+      // nothing to remove on the first reset
+    }
+  }
+  writeFileSync(boardPath, `${JSON.stringify(board, null, 2)}\n`)
+}
+const reset = (agents = []) => resetBoard({ version: 1, revision: 1, tasks: [], agents })
 reset()
 const svc = createService({ file: boardPath, linksFile: join(dir, 'links.json') }, { warn() {} }, {})
 const cwd = dir
@@ -121,7 +136,7 @@ const staleRow = raw.tasks.find((task) => task.id === stale.id)
 staleRow.status = 'active'
 delete staleRow.reason
 raw.tasks.find((task) => task.id === running.id).status = 'active'
-writeFileSync(boardPath, JSON.stringify(raw))
+resetBoard(raw)
 const reconciled = typeof svc.reconcile === 'function' ? svc.reconcile(cwd) : { missing: true }
 check('reconcile settles the stale row', svc.get(cwd, stale.id)?.status === 'blocked', { now: svc.get(cwd, stale.id)?.status, reconciled })
 check('reconcile never touches a running child', svc.get(cwd, running.id)?.status === 'active', { now: svc.get(cwd, running.id)?.status, running: reconciled.running })

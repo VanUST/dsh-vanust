@@ -1,0 +1,915 @@
+{
+  "schemaVersion": 1,
+  "id": "a-task-closes-on-its-child-completion-event-without-an-extra",
+  "title": "A task closes on its child completion event without an extra save",
+  "requirement": "REQ-293: a legal subagent finish and the task close need no save just to refresh the verification record. AC-1: create a task, link a subagent, receive its result through the completion event and close with a result and evidence without an extra task_update; after reopening the task stays closed.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "test/write-integrity.test.mjs",
+  "runCommand": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+  "steps": [
+    "Create a task on a fresh temporary board (chat-1, role BACKEND).",
+    "Link one subagent session to the task with linkChild.",
+    "Deliver the runtime's subagent/end event for that child with stopReason success.",
+    "Close the task with a result summary and evidence, with no task_update in between.",
+    "Start a second plugin instance on a copy of the ledger and read the row."
+  ],
+  "expected": "The close returns ok, the row is done with the given result and evidence, and a second plugin instance reading the same ledger still reads the row as done with that result.",
+  "tags": [
+    "taskboard",
+    "write-integrity",
+    "close",
+    "child-completion",
+    "REQ-293"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "81c47aacf5806b26db02e9fa3d75365cab7cb3cba769cd687618799a02498873"
+    },
+    {
+      "path": "plugins/taskboard/lib/journal.mjs",
+      "sha256": "b6dbfdc0ae690a90c3037b09b69062cc44f1a6d2ffd05f076a0af441ea4d1a92"
+    },
+    {
+      "path": "plugins/taskboard/lib/store.mjs",
+      "sha256": "1fe011fcc76064a5e4a1c70893a6829bc42083e549c37568aed76c3a2833b40b"
+    }
+  ],
+  "linkedTaskId": "task-mx0azs5x-m90gyp",
+  "criterionId": "AC-1",
+  "reqId": "REQ-293",
+  "authorRole": "tester",
+  "authorPreset": "tester",
+  "authorSessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+  "purpose": "acceptance",
+  "testHash": "30d02d1c2805a0d9b0ed5e5e2ff2d1eb0908e447b77a00a377ee8ecb763cf62a",
+  "failsWhen": "The close refuses a row that a child completion legitimately changed (TASK_JOURNAL_MISMATCH), so the orchestrator must save the task a second time before it can accept it.",
+  "trigger": "A producer creates a task, links a subagent, sends the subagent/end completion event, and the orchestrator closes the task with a result and evidence - with no task_update between the completion event and the close.",
+  "oracle": "REQ-293 and AC-1 in the analysis record taskboard-write-integrity (business outcome: closing after a subagent finishes needs no task_update).",
+  "realism": "The false refusal reported in the analysis: the row journal records create/update/close only, so a real delegated task whose child finished is refused at close until a redundant save. The orchestrator confirmed the realism of the criteria.",
+  "realismReviewedBy": "orchestrator",
+  "realismReviewedAt": "2026-11-28T11:04:53.000Z",
+  "negativeControl": "expect-refusal",
+  "revision": 22,
+  "createdAt": "2026-11-28T11:09:29.624Z",
+  "updatedAt": "2026-11-28T12:49:49.693Z",
+  "createdBy": "tester",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T11:10:17.579Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T11:10:17.579Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A task closes on its child completion event without an extra save",
+        "requirement": "REQ-293: a legal subagent finish and the task close need no save just to refresh the verification record. AC-1: create a task, link a subagent, receive its result through the completion event and close with a result and evidence without an extra task_update; after reopening the task stays closed.",
+        "expected": "The close returns ok, the row is done with the given result and evidence, and a second plugin instance reading the same ledger still reads the row as done with that result.",
+        "steps": [
+          "Create a task on a fresh temporary board (chat-1, role BACKEND).",
+          "Link one subagent session to the task with linkChild.",
+          "Deliver the runtime's subagent/end event for that child with stopReason success.",
+          "Close the task with a result summary and evidence, with no task_update in between.",
+          "Start a second plugin instance on a copy of the ledger and read the row."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T11:17:16.815Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T11:17:16.815Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A task closes on its child completion event without an extra save",
+        "requirement": "REQ-293: a legal subagent finish and the task close need no save just to refresh the verification record. AC-1: create a task, link a subagent, receive its result through the completion event and close with a result and evidence without an extra task_update; after reopening the task stays closed.",
+        "expected": "The close returns ok, the row is done with the given result and evidence, and a second plugin instance reading the same ledger still reads the row as done with that result.",
+        "steps": [
+          "Create a task on a fresh temporary board (chat-1, role BACKEND).",
+          "Link one subagent session to the task with linkChild.",
+          "Deliver the runtime's subagent/end event for that child with stopReason success.",
+          "Close the task with a result summary and evidence, with no task_update in between.",
+          "Start a second plugin instance on a copy of the ledger and read the row."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T11:22:57.740Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T11:22:57.740Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A task closes on its child completion event without an extra save",
+        "requirement": "REQ-293: a legal subagent finish and the task close need no save just to refresh the verification record. AC-1: create a task, link a subagent, receive its result through the completion event and close with a result and evidence without an extra task_update; after reopening the task stays closed.",
+        "expected": "The close returns ok, the row is done with the given result and evidence, and a second plugin instance reading the same ledger still reads the row as done with that result.",
+        "steps": [
+          "Create a task on a fresh temporary board (chat-1, role BACKEND).",
+          "Link one subagent session to the task with linkChild.",
+          "Deliver the runtime's subagent/end event for that child with stopReason success.",
+          "Close the task with a result summary and evidence, with no task_update in between.",
+          "Start a second plugin instance on a copy of the ledger and read the row."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-28T11:28:16.289Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-28T11:28:16.289Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A task closes on its child completion event without an extra save",
+        "requirement": "REQ-293: a legal subagent finish and the task close need no save just to refresh the verification record. AC-1: create a task, link a subagent, receive its result through the completion event and close with a result and evidence without an extra task_update; after reopening the task stays closed.",
+        "expected": "The close returns ok, the row is done with the given result and evidence, and a second plugin instance reading the same ledger still reads the row as done with that result.",
+        "steps": [
+          "Create a task on a fresh temporary board (chat-1, role BACKEND).",
+          "Link one subagent session to the task with linkChild.",
+          "Deliver the runtime's subagent/end event for that child with stopReason success.",
+          "Close the task with a result summary and evidence, with no task_update in between.",
+          "Start a second plugin instance on a copy of the ledger and read the row."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-28T11:31:42.048Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-28T11:41:35.170Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-28T11:41:35.170Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A task closes on its child completion event without an extra save",
+        "requirement": "REQ-293: a legal subagent finish and the task close need no save just to refresh the verification record. AC-1: create a task, link a subagent, receive its result through the completion event and close with a result and evidence without an extra task_update; after reopening the task stays closed.",
+        "expected": "The close returns ok, the row is done with the given result and evidence, and a second plugin instance reading the same ledger still reads the row as done with that result.",
+        "steps": [
+          "Create a task on a fresh temporary board (chat-1, role BACKEND).",
+          "Link one subagent session to the task with linkChild.",
+          "Deliver the runtime's subagent/end event for that child with stopReason success.",
+          "Close the task with a result summary and evidence, with no task_update in between.",
+          "Start a second plugin instance on a copy of the ledger and read the row."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-28T12:04:12.625Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-28T12:04:46.535Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-28T12:05:00.104Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-28T12:05:00.104Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "A task closes on its child completion event without an extra save",
+        "requirement": "REQ-293: a legal subagent finish and the task close need no save just to refresh the verification record. AC-1: create a task, link a subagent, receive its result through the completion event and close with a result and evidence without an extra task_update; after reopening the task stays closed.",
+        "expected": "The close returns ok, the row is done with the given result and evidence, and a second plugin instance reading the same ledger still reads the row as done with that result.",
+        "steps": [
+          "Create a task on a fresh temporary board (chat-1, role BACKEND).",
+          "Link one subagent session to the task with linkChild.",
+          "Deliver the runtime's subagent/end event for that child with stopReason success.",
+          "Close the task with a result summary and evidence, with no task_update in between.",
+          "Start a second plugin instance on a copy of the ledger and read the row."
+        ],
+        "automated": true,
+        "testPath": "test/write-integrity.test.mjs",
+        "runCommand": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+        "status": "verified",
+        "checks": [],
+        "negativeControl": "expect-refusal",
+        "linkedTaskId": "task-mx0azs5x-m90gyp"
+      }
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-28T12:31:31.120Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-28T12:31:36.301Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-28T12:35:03.235Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-28T12:35:21.239Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-refusal\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-28T12:35:29.513Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 21,
+      "at": "2026-11-28T12:49:49.693Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0b6qkb-6i8w8-1",
+      "at": "2026-11-28T11:10:17.575Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 181,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0b6qkb-6i8w8-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0b6qkb-6i8w8-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0b6qkb-6i8w8-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0bfq1f-g7hf0-1",
+      "at": "2026-11-28T11:17:16.812Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 187,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0bfq1f-g7hf0-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0bfq1f-g7hf0-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0bfq1f-g7hf0-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0bn14k-51350-1",
+      "at": "2026-11-28T11:22:57.739Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 167,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0bn14k-51350-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0bn14k-51350-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0bn14k-51350-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0btux8-ul9dm-1",
+      "at": "2026-11-28T11:28:16.286Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 159,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0btux8-ul9dm-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0btux8-ul9dm-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0btux8-ul9dm-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0by9oz-zearv-1",
+      "at": "2026-11-28T11:31:42.046Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 158,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-git",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-git",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0by9oz-zearv-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0by9oz-zearv-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0by9oz-zearv-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0cazbm-3xh2m-1",
+      "at": "2026-11-28T11:41:35.166Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 176,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0cazbm-3xh2m-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0cazbm-3xh2m-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0cazbm-3xh2m-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0d42q2-ka2e3-1",
+      "at": "2026-11-28T12:04:12.623Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 197,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d42q2-ka2e3-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d42q2-ka2e3-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d42q2-ka2e3-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0d4svi-9uadi-1",
+      "at": "2026-11-28T12:04:46.534Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 193,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-d14bc29",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-d14bc29",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d4svi-9uadi-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d4svi-9uadi-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d4svi-9uadi-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0d53cz-410po-1",
+      "at": "2026-11-28T12:05:00.102Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 191,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d53cz-410po-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d53cz-410po-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0d53cz-410po-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e3701-7r1p5-1",
+      "at": "2026-11-28T12:31:31.118Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 188,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-d14bc29",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-d14bc29",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e3701-7r1p5-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e3701-7r1p5-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e3701-7r1p5-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e3aze-6v8ts-1",
+      "at": "2026-11-28T12:31:36.299Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 205,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-write-integrity-0195",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-write-integrity-0195",
+      "head": "b7e358b4d9e7a33fcfaf54ac358f0e80020b69d8",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e3aze-6v8ts-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e3aze-6v8ts-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e3aze-6v8ts-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e7qo7-kt1lm-1",
+      "at": "2026-11-28T12:35:03.233Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 185,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e7qo7-kt1lm-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e7qo7-kt1lm-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e7qo7-kt1lm-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e84l6-n92on-1",
+      "at": "2026-11-28T12:35:21.237Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "control": "expect-refusal",
+      "redSource": "wrong-product",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 172,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-d14bc29",
+      "cwdRelative": "../Users/1/AppData/Local/Temp/red-first-write-integrity-d14bc29",
+      "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e84l6-n92on-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e84l6-n92on-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e84l6-n92on-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0e8ay1-os5ph-1",
+      "at": "2026-11-28T12:35:29.512Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 181,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e8ay1-os5ph-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e8ay1-os5ph-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0e8ay1-os5ph-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0eqqoc-ldfnn-1",
+      "at": "2026-11-28T12:49:49.692Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "tester",
+        "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+        "taskId": "task-mx0azs5x-m90gyp"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 176,
+      "commandSha256": "d3208aeabd662bfb8a902c4803e179607eb158b0e72670e487ce0f770748a323",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "4237e82b1b2b7ad086f02cac2a359b590c21a6b5",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0eqqoc-ldfnn-1/stdout.log",
+      "stderr": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0eqqoc-ldfnn-1/stderr.log",
+      "summary": "docs/cases/runs/a-task-closes-on-its-child-completion-event-without-an-extra/mx0eqqoc-ldfnn-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-28T12:49:49.693Z",
+    "command": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0eqqoc-ldfnn-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": "task-mx0azs5x-m90gyp"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  },
+  "degraded": false,
+  "redFirst": {
+    "at": "2026-11-28T12:35:21.239Z",
+    "runId": "mx0e84l6-n92on-1",
+    "exitCode": 1,
+    "control": "expect-refusal",
+    "command": "node --test --test-name-pattern=AC-1 test/write-integrity.test.mjs",
+    "source": "wrong-product",
+    "redSource": "runner",
+    "cwd": "C:\\Users\\1\\AppData\\Local\\Temp\\red-first-write-integrity-d14bc29",
+    "head": "d14bc290238aa4bc9d0f33384ed813e19892edab",
+    "dirty": true,
+    "runBy": {
+      "preset": "tester",
+      "sessionId": "e3081072-4b62-40c3-857f-01ec790401ac",
+      "taskId": "task-mx0azs5x-m90gyp"
+    }
+  }
+}
