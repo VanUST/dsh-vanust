@@ -13,7 +13,9 @@ Fails when: the scan stops filtering by declared port (any `dsh web` makes `runn
   reading the port-filtered list instead of the machine-wide one.
 Production path: scripts/kit-update.mjs (`linuxWebServers`, `profileServer`,
   `serverView`, `convergeHarness`), exercised through the real CLI. scripts/test-all.mjs
-  runs this file through `node --test`.
+  runs this file through `node --test`. The /proc scan is Linux-only production code, so
+  the tests that depend on it are skipped on Windows; there one test covers the HTTP half
+  (busy port true, no pid guessed), which is the half Windows runs.
 */
 
 import { test, before, after } from 'node:test'
@@ -28,6 +30,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const KIT_UPDATE = join(KIT, 'scripts', 'kit-update.mjs')
 const control = process.env.CASE_NEGATIVE_CONTROL ?? ''
+const windows = process.platform === 'win32'
+// `kit-update` reads /proc only on Linux; on Windows it answers from the HTTP probe alone
+// (scripts/kit-update.mjs says so where linuxWebServers is defined). The tests that
+// synthesise a process through /proc cannot run here, so they are named as skipped and the
+// Windows half gets its own test at the bottom instead of a file that silently runs zero.
+const linuxOnly = windows ? 'Linux /proc scan; Windows exercises the HTTP probe instead' : false
 
 let work
 let home
@@ -144,7 +152,7 @@ after(() => {
   if (work) rmSync(work, { recursive: true, force: true })
 })
 
-test('negative control expect-pre-fix reports a foreign-port server as this port', async () => {
+test('negative control expect-pre-fix reports a foreign-port server as this port', { skip: linuxOnly }, async () => {
   if (control !== 'expect-pre-fix') return
   // The pre-fix shape: every `dsh web` on the machine makes `server.running` true,
   // whatever port it declared. This assertion must FAIL on the fixed script.
@@ -156,7 +164,7 @@ test('negative control expect-pre-fix reports a foreign-port server as this port
   assert.equal(json.server.running, true, 'pre-fix: any dsh web counted as this port server')
 })
 
-test('a dsh web on another port does not make this profile port look busy (AC-1)', async () => {
+test('a dsh web on another port does not make this profile port look busy (AC-1)', { skip: linuxOnly }, async () => {
   const bin = writeSleeperBin(join(work, 'foreign'))
   const foreignPort = await freePort()
   const checkedPort = await freePort()
@@ -175,7 +183,7 @@ test('a dsh web on another port does not make this profile port look busy (AC-1)
   assert.ok(own.server.pids.includes(foreign.pid), 'pid ' + foreign.pid + ' missing from its own port list: ' + JSON.stringify(own.server.pids))
 })
 
-test('the check own process and its ancestors are never named (AC-3)', async () => {
+test('the check own process and its ancestors are never named (AC-3)', { skip: linuxOnly }, async () => {
   const parentBin = writeSleeperBin(join(work, 'parent'), PARENT_BIN)
   const parentPort = await freePort()
   const sibling = await startWeb(writeSleeperBin(join(work, 'sibling')), ['web', '--port', String(parentPort)], checkEnv)
@@ -199,7 +207,7 @@ test('the check own process and its ancestors are never named (AC-3)', async () 
   assert.equal(json.server.pids.includes(process.pid), false, 'the test process itself is an ancestor and must not be named')
 })
 
-test('the harness gate still sees any dsh web on the machine (AC-2)', async () => {
+test('the harness gate still sees any dsh web on the machine (AC-2)', { skip: linuxOnly }, async () => {
   const module = await import(pathToFileURL(KIT_UPDATE).href)
   const bin = writeSleeperBin(join(work, 'other-home'))
   const otherHome = join(work, 'another-machine-home')
@@ -222,7 +230,7 @@ test('the harness gate still sees any dsh web on the machine (AC-2)', async () =
   assert.equal(blocked.reason, 'web-server-running')
 })
 
-test('the gate is a gate, not a wall: no dsh web on the machine lets the replacement run (AC-2 control)', async () => {
+test('the gate is a gate, not a wall: no dsh web on the machine lets the replacement run (AC-2 control)', { skip: linuxOnly }, async () => {
   // Safety: the gate must resolve npm through the shim before it is ever allowed to call
   // it, or a regression there would run a real global install on this machine.
   const resolved = spawnSync('npm', ['root', '-g'], { encoding: 'utf8', env: checkEnv })
@@ -231,7 +239,7 @@ test('the gate is a gate, not a wall: no dsh web on the machine lets the replace
   const result = await module.convergeHarness({ want: '0.0.0-scope-test-newer', enabled: true, server: null, machine: [] })
   assert.equal(result.action, 'failed', 'the shim refuses the install, so the gate let it through and the step failed')
 })
-test('a dsh web started without --port is attributed to the port it listens on (AC-1)', async () => {
+test('a dsh web started without --port is attributed to the port it listens on (AC-1)', { skip: linuxOnly }, async () => {
   // The live :3080 server is started without --port, so its command line names no port.
   // The socket table plus the process's own descriptors are what say which port it serves.
   const listenerBin = writeSleeperBin(join(work, 'portless'), [
@@ -256,7 +264,7 @@ test('a dsh web started without --port is attributed to the port it listens on (
   for (const key of ['port', 'running', 'http', 'pids']) assert.ok(key in other.server, 'server keeps ' + key)
 })
 
-test('a dsh web without --port and without a listening socket is in no port list (AC-2)', async () => {
+test('a dsh web without --port and without a listening socket is in no port list (AC-2)', { skip: linuxOnly }, async () => {
   const silent = await startWeb(writeSleeperBin(join(work, 'silent')), ['web'], checkEnv)
   const port = await freePort()
   const json = runCheck(port)
@@ -265,4 +273,24 @@ test('a dsh web without --port and without a listening socket is in no port list
   const module = await import(pathToFileURL(KIT_UPDATE).href)
   const machine = module.linuxWebServers()
   assert.ok(machine.some((row) => row.pid === silent.pid && row.port === null), 'a portless silent process stays machine-wide evidence only: ' + JSON.stringify(machine))
+})
+
+// The half Windows actually runs: no /proc scan exists, so the HTTP answer alone decides
+// `running`, and `pids` stays empty rather than guessing a process to send TERM to.
+test('Windows: the HTTP answer names the port busy, and no pid is guessed without /proc', { skip: windows ? false : 'Windows-only; the /proc tests above cover Linux' }, async () => {
+  const served = await freePort()
+  const idle = await freePort()
+  const listener = spawn(
+    process.execPath,
+    ['-e', "require('node:http').createServer((request, response) => response.end('ok')).listen(Number(process.env.SCOPE_LISTEN_PORT), '127.0.0.1')"],
+    { stdio: ['ignore', 'ignore', 'ignore'], env: { ...checkEnv, SCOPE_LISTEN_PORT: String(served) } },
+  )
+  children.push(listener)
+  await waitForPort(served)
+  const busy = runCheck(served)
+  assert.equal(busy.server.running, true, 'the HTTP answer must make the port busy on Windows')
+  assert.equal(busy.server.http.running, true, 'the HTTP detail must report the answer')
+  assert.deepEqual(busy.server.pids, [], 'no /proc on Windows, so no pid may be offered for TERM')
+  const free = runCheck(idle)
+  assert.equal(free.server.running, false, 'a free port must not look busy')
 })

@@ -278,6 +278,22 @@ try {
   const call = (name, args) => a.call(root.tools, name, args, root.agent)
   const delegate = (args) => a.delegate(root.tools, root.agent, args)
 
+  /**
+   * The board ceiling (BOARD_WIP_LIMIT, 10 unclosed tasks in one chat) is production
+   * behaviour newer than this proof: the refusal fixtures stay open on purpose, and
+   * section 26's first delegation is the eleventh. An orchestrator over the ceiling closes
+   * the rows it no longer needs before starting new work; the proof does the same so each
+   * block that creates tasks starts below the ceiling. `keep` names a row a later block
+   * still attaches to.
+   */
+  const settleProofBoard = (keep = []) => {
+    const keepIds = new Set(keep.filter((id) => typeof id === 'string' && id !== ''))
+    for (const row of a.taskboard.list(dir, { chatId: root.agent.id })) {
+      if (row.status === 'done' || row.status === 'cancelled' || keepIds.has(row.id)) continue
+      a.taskboard.cancel(dir, { id: row.id, chatId: root.agent.id, reason: 'proof fixture settled before the next section' })
+    }
+  }
+
   // ── 36. Strict nested schema, aggregate findings, canonical ownership ───────
   const schemaInit = await call('analysis_upsert', { initiative: 'schema-proof', patch: readyRecord({ status: 'ready', title: 'Schema proof' }) })
   check('the schema fixture is ready', schemaInit?.ok === true, { code: schemaInit?.code, findings: schemaInit?.findings })
@@ -859,6 +875,7 @@ try {
   check('goal completion fails closed when the linked record is malformed', malformedGoalInit?.ok === true && malformedGoal?.ok === false && /analysis/i.test(malformedGoal?.message ?? ''), { code: malformedGoal?.code, message: malformedGoal?.message })
 
   // ── 26. Multi-task requirement: only the last outstanding close is blocked ─
+  settleProofBoard([freshTask?.id ?? freshTask?.task?.id])
   const multiInit = await call('analysis_upsert', { initiative: 'multi-proof', patch: readyRecord({ status: 'ready', title: 'Multi task proof' }) })
   const multiOne = await delegate({ title: 'multi task one', role: 'BACKEND', objective: 'implement REQ-1', changeClass: 'L1', analysisId: 'multi-proof', requirementIds: ['REQ-1'], cwd: dir })
   const multiTwo = await delegate({ title: 'multi task two', role: 'BACKEND', objective: 'implement REQ-1 more', changeClass: 'L1', analysisId: 'multi-proof', requirementIds: ['REQ-1'], cwd: dir })
@@ -896,6 +913,7 @@ try {
   check('linkTask refuses a stale expectedRev', linkInit?.ok === true && staleLink?.ok === false && staleLink?.code === 'stale', { code: staleLink?.code, message: staleLink?.message })
 
   // ── 30. A trace-only upsert cannot remove a task link from a ready record ──
+  settleProofBoard([freshTask?.id ?? freshTask?.task?.id])
   const unlinkInit = await call('analysis_upsert', { initiative: 'unlink-proof', patch: readyRecord({ status: 'ready', title: 'Trace unlink proof' }) })
   const unlinkTask = await delegate({ title: 'trace unlink task', role: 'BACKEND', objective: 'implement REQ-1', changeClass: 'L1', analysisId: 'unlink-proof', requirementIds: ['REQ-1'], cwd: dir })
   const unlinkRead = await call('analysis_read', { initiative: 'unlink-proof' })
@@ -951,6 +969,7 @@ try {
   check('the mapping change is visible in the semantic fingerprint', mappingRead?.fingerprintMatches === true, { fingerprintMatches: mappingRead?.fingerprintMatches })
 
   // ── 33. Task links cannot be erased from a draft record either ─────────────
+  settleProofBoard([freshTask?.id ?? freshTask?.task?.id])
   const draftUnlinkInit = await call('analysis_upsert', { initiative: 'draft-unlink', patch: readyRecord({ status: 'ready', title: 'Draft unlink proof' }) })
   const draftUnlinkTask = await delegate({ title: 'draft unlink task', role: 'BACKEND', objective: 'implement REQ-1', changeClass: 'L1', analysisId: 'draft-unlink', requirementIds: ['REQ-1'], cwd: dir })
   const draftUnlinkRead = await call('analysis_read', { initiative: 'draft-unlink' })
@@ -965,12 +984,14 @@ try {
   check('removing a traced task from a draft record is also refused', draftUnlinkInit?.ok === true && draftUnlinkTask?.ok !== false && toDraft?.ok === true && draftRemoval?.ok === false && draftRemoval?.code === 'trace_task_removal', { code: draftRemoval?.code, message: draftRemoval?.message })
 
   // ── 34. legacyAttach is explicit; an explicit class still opts back in ─────
+  settleProofBoard([freshTask?.id ?? freshTask?.task?.id])
   const explicitLegacy = await delegate({ title: 'explicit legacy fresh', role: 'BACKEND', objective: 'fresh work', taskId: freshTask?.id ?? freshTask?.task?.id, legacyAttach: true, cwd: dir })
   check('legacyAttach:true is an explicit escape hatch', explicitLegacy?.ok !== false && explicitLegacy?.childId !== undefined, { code: explicitLegacy?.code, message: explicitLegacy?.message })
   const legacyOptIn = await delegate({ title: 'legacy opt-in', role: 'BACKEND', objective: 'fresh work with a class', taskId: freshTask?.id ?? freshTask?.task?.id, legacyAttach: true, changeClass: 'L1', analysisId: 'missing-initiative', requirementIds: ['REQ-1'], cwd: dir })
   check('an explicit class overrides legacyAttach', legacyOptIn?.ok === false && legacyOptIn?.code === 'analysis_required', { code: legacyOptIn?.code, message: legacyOptIn?.message })
 
   // ── 31. A batch closes when every traced task is closable; a mixed batch is atomic ─
+  settleProofBoard()
   const batchInit = await call('analysis_upsert', { initiative: 'batch-proof', patch: readyRecord({ status: 'ready', title: 'Batch proof' }) })
   const batchOne = await delegate({ title: 'batch one', role: 'BACKEND', objective: 'implement REQ-1', changeClass: 'L1', analysisId: 'batch-proof', requirementIds: ['REQ-1'], cwd: dir })
   const batchTwo = await delegate({ title: 'batch two', role: 'BACKEND', objective: 'implement REQ-2', changeClass: 'L1', analysisId: 'batch-proof', requirementIds: ['REQ-2'], cwd: dir })
@@ -991,6 +1012,7 @@ try {
   const batchClose = await a.guarded(root.tools, root.guards, 'task_close', { ids: [batchOne.taskId, batchTwo.taskId], resultSummary: 'done', resultEvidence: ['proof run'] }, root.agent)
   check('a batch close succeeds when every traced task is proven', batchInit?.ok === true && batchResolved?.ok === true && batchClose?.ok === true && batchClose?.closed === 2, { code: batchClose?.code, message: batchClose?.message, closed: batchClose?.closed })
 
+  settleProofBoard()
   const partialInit = await call('analysis_upsert', { initiative: 'partial-proof', patch: readyRecord({ status: 'ready', title: 'Partial batch proof' }) })
   const partialOne = await delegate({ title: 'partial one', role: 'BACKEND', objective: 'implement REQ-1', changeClass: 'L1', analysisId: 'partial-proof', requirementIds: ['REQ-1'], cwd: dir })
   const partialTwo = await delegate({ title: 'partial two', role: 'BACKEND', objective: 'implement REQ-2', changeClass: 'L1', analysisId: 'partial-proof', requirementIds: ['REQ-2'], cwd: dir })
