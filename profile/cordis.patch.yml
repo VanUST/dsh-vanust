@@ -485,6 +485,7 @@
               - analysis_upsert
               - ask_user_question
               - case_drift
+              - case_gate
               - case_get
               - case_list
               - case_record
@@ -501,7 +502,6 @@
               - map_list
               - map_read
               - map_render
-              - mcp__godot__*
               - hindsight_list_pages
               - hindsight_read_page
               - hindsight_search_pages
@@ -557,7 +557,8 @@
             projectDeny:
               - mcp__godot__*
           # Implementation role: files, a shell, the two board tools a worker needs
-          # (task_get/task_note), the case runner and the three intake case tools.
+          # (task_get/task_note), and the case surface its row in the plugin promises -
+          # intake, the runner and the repair verbs (case_update/case_verify).
           backend:
             allow:
               - bash
@@ -565,6 +566,9 @@
               - case_list
               - case_record
               - case_run
+              - case_suite
+              - case_update
+              - case_verify
               - edit
               - glob
               - grep
@@ -585,6 +589,7 @@
               - case_get
               - case_list
               - case_run
+              - case_verify
               - glob
               - grep
               - outline
@@ -671,6 +676,8 @@
           # Research: web and paper search, files, no shell (it reads and writes reports).
           research:
             allow:
+              - case_get
+              - case_list
               - glob
               - grep
               - outline

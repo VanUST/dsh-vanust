@@ -8,22 +8,20 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
 
-## active (3)
+## active (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-507 | Кейс ворот: перепривязать и подтвердить прогоном | — | — | yes |
-| TASK-508 | Батч после критики: ворота, доставка, профиль | — | — | yes |
+| TASK-510 | Коммит: профиль и проверка ролей | — | — | yes |
 
-## review (2)
+## review (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
-| TASK-501 | Критика воркфлоу: бюрократия, краевые случаи, блокеры | — | — | yes |
 
-## done (408)
+## done (411)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -430,17 +428,21 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-498 | Архитектура: инструменты кита в §2 | — | — | yes |
 | TASK-499 | Батч: архитектура в контексте, панель, расхождение | — | — | yes |
 | TASK-500 | Разблокировать и закоммитить батч | — | — | yes |
+| TASK-501 | Критика воркфлоу: бюрократия, краевые случаи, блокеры | — | — | yes |
 | TASK-502 | Ворота консультации: по флагу, а не по классу | — | — | yes |
 | TASK-503 | Доставка архитектуры: длинная строка, пустой файл, дельта | — | — | yes |
 | TASK-504 | Первая архитектурная консультация: решения ARCH- для двух инициатив | — | — | yes |
 | TASK-505 | Роль ARCHITECT: право записать решение и файл | — | — | yes |
 | TASK-506 | Кейсы ворот: свести два следа к одному живому | — | — | yes |
+| TASK-508 | Батч после критики: ворота, доставка, профиль | — | — | yes |
+| TASK-509 | Профиль и карта ролей: расхождение должно валить гейт | — | — | yes |
 
-## blocked (1)
+## blocked (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-372 | Задержка отправки и размер контекста: есть ли связь | — | — | yes |
+| TASK-507 | Кейс ворот: перепривязать и подтвердить прогоном | — | — | yes |
 
 ## cancelled (93)
 

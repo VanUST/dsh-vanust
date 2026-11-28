@@ -50,7 +50,7 @@ const WINDOW_1M = 1_048_576
 const WINDOW_272K = 272_000
 const CONTRACT_TOOLS = ['task_get', 'task_update', 'task_close', 'analysis_read', 'analysis_upsert', 'skill', 'delegation_brief', 'delegation_return']
 const OLD_ROW = ['designmap_apply', 'designmap_export', 'designmap_lint', 'designmap_open', 'designmap_render', 'designmap_scan', 'designmap_status', 'hindsight_reflect', 'task_link', 'task_pause', 'task_remove', 'task_resume']
-const INTAKE = ['case_drift', 'case_get', 'case_list', 'case_record', 'delegation_brief']
+const INTAKE = ['case_drift', 'case_gate', 'case_get', 'case_list', 'case_record', 'delegation_brief']
 
 const control = process.env.CASE_NEGATIVE_CONTROL ?? ''
 if (control !== '' && control !== 'pre-change') {
@@ -320,7 +320,7 @@ try {
   allowNames = parseAllowRow(lines, 'orchestrator')
   if (preChange) allowNames = [...allowNames.filter((name) => !INTAKE.includes(name)), ...OLD_ROW]
   check('the allow row names the case intake and delegation_brief', INTAKE.every((name) => allowNames.includes(name)), INTAKE.filter((name) => allowNames.includes(name)).join(',') || 'none')
-  check('the allow row drops the zero-use tools', OLD_ROW.every((name) => !allowNames.includes(name)) && !allowNames.includes('diagram') && !allowNames.includes('case_run') && !allowNames.includes('case_gate'), OLD_ROW.filter((name) => allowNames.includes(name)).join(',') || 'none')
+  check('the allow row drops the zero-use tools', OLD_ROW.every((name) => !allowNames.includes(name)) && !allowNames.includes('diagram') && !allowNames.includes('case_run'), OLD_ROW.filter((name) => allowNames.includes(name)).join(',') || 'none')
   check('the row stays within the 45-tool budget', allowNames.length <= 45, allowNames.length + ' entries')
 
   const surface = spawnSync(process.execPath, [join(ROOT, 'scripts', 'tool-surface-proof.mjs')], { cwd: ROOT, encoding: 'utf8', timeout: 60000 })

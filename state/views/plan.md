@@ -77,13 +77,12 @@
 
 Файлы решений: state/decision/<ID>.md.
 
-## Открытые задачи журнала (7)
+## Открытые задачи журнала (6)
 - TASK-273 (open): Codex sign-in tool: codex_signin_start/status/cancel
 - TASK-337 (review): Independent acceptance case: devops role and the one-live-deployment lane
 - TASK-372 (blocked): Задержка отправки и размер контекста: есть ли связь
 - TASK-383 (active): Отказ board_limit: назвать причину — долг проверки и minimal viable change
-- TASK-501 (review): Критика воркфлоу: бюрократия, краевые случаи, блокеры
-- TASK-507 (active): Кейс ворот: перепривязать и подтвердить прогоном
-- TASK-508 (active): Батч после критики: ворота, доставка, профиль
+- TASK-507 (blocked): Кейс ворот: перепривязать и подтвердить прогоном
+- TASK-510 (active): Коммит: профиль и проверка ролей
 
 Записи анализа: docs/analysis/<initiative>.json.

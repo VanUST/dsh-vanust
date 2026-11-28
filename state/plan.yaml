@@ -2,7 +2,7 @@
 # written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.
 schemaVersion: 1
 initiatives: 31
-openTasks: 7
+openTasks: 6
 work:
   - id: "agent-surface-and-shell"
     title: "Открытая поверхность: модель Codex в харнессе, вход внешнег…"
@@ -83,10 +83,9 @@ next:
   - id: "TASK-383"
     status: "active"
     title: "Отказ board_limit: назвать причину — долг проверки и minima…"
-  - id: "TASK-501"
-    status: "review"
-    title: "Критика воркфлоу: бюрократия, краевые случаи, блокеры"
   - id: "TASK-507"
-    status: "active"
+    status: "blocked"
     title: "Кейс ворот: перепривязать и подтвердить прогоном"
-  # +1 more open tasks: state/views/plan.md
+  - id: "TASK-510"
+    status: "active"
+    title: "Коммит: профиль и проверка ролей"

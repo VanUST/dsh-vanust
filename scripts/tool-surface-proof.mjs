@@ -109,15 +109,17 @@ const families = { orchestrator: { allow: allowRow('orchestrator') }, backend: {
   check('diagram is not registered for the orchestrator (the row omits it)', registered.length === 0, registered.join(',') || '(none)')
 }
 
-// test-cases: the intake subset survives, the rest of the family does not
+// test-cases: the intake subset survives, the rest of the family does not.
+// case_gate joined INTAKE_TOOLS on 2026-11-20 and the allow row named it again on 2026-11-28,
+// so it is intake now; case_run stays out because the root never measures a run.
 {
   const env = host(families)
   applyTestCases(env.ctx, {})
   const { agent, registered } = agentFor('tc-session', 'orchestrator')
   env.handlers.get('agent/created')({ agent })
-  const intake = ['case_record', 'case_list', 'case_get', 'case_drift']
+  const intake = ['case_record', 'case_list', 'case_get', 'case_drift', 'case_gate']
   check('the case intake subset is registered', intake.every((name) => registered.includes(name)), registered.join(',') || '(none)')
-  check('case_gate and case_run stay out of the root', !registered.includes('case_gate') && !registered.includes('case_run'), registered.join(',') || '(none)')
+  check('case_run stays out of the root', !registered.includes('case_run'), registered.join(',') || '(none)')
 }
 
 // a preset without a row keeps its plugins' own policy

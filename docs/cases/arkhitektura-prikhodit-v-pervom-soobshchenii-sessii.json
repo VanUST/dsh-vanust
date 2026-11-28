@@ -4,7 +4,7 @@
   "title": "Архитектура приходит в первом сообщении сессии",
   "requirement": "Оркестратор в первом сообщении сессии получает docs/ARCHITECTURE.md отдельным разделом после плана; раздел ограничен по размеру с явным маркером, содержимое входит в хеш состояния, отсутствие файла названо, а не приводит к падению.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/state-feed/test/feed.test.mjs",
@@ -36,9 +36,9 @@
   "purpose": "implementation",
   "testHash": "28f1403ad3807d84ea23a679a8e4c7e881aa2d19dbc8e03d1acf7cb575a7b9d0",
   "negativeControl": "architecture-section",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-28T17:44:31.706Z",
-  "updatedAt": "2026-11-28T17:44:37.889Z",
+  "updatedAt": "2026-11-28T18:15:18.318Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -55,6 +55,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T18:15:18.318Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/state-feed/lib/feed.mjs"
     }
   ],
   "evidence": {},
@@ -166,5 +173,12 @@
     },
     "cwd": "C:\\dsh-kit",
     "cwdRelative": "."
+  },
+  "needsReverification": {
+    "at": "2026-11-28T18:15:18.318Z",
+    "changedFiles": [
+      "plugins/state-feed/lib/feed.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/state-feed/lib/feed.mjs"
   }
 }
