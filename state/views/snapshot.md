@@ -2,18 +2,18 @@
 
 GENERATED — DO NOT EDIT.
 
-- last journal event: 3280
-- REQ: 286
+- last journal event: 3355
+- REQ: 289
 - DECISION: 0
-- TASK: 447
-- TEST: 111
-- active agents: 2
+- TASK: 457
+- TEST: 114
+- active agents: 3
 
 ## Tasks by status
 
-- active: 2
+- active: 3
 - blocked: 1
 - cancelled: 91
-- done: 348
-- open: 3
+- done: 358
+- open: 2
 - review: 2

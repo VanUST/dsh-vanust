@@ -13,6 +13,10 @@ Read next, in this order: `README.md` (what the kit is, per-plugin catalog), `ru
 `docs/TERMINOLOGY.md` (the words a report must use). Those three pages are the whole of `docs/`
 (see §2.3).
 
+Where the work stands: `state/views/plan.md` is the generated view of the journal — the initiatives,
+their stage, what is confirmed, what is left and the open tasks. It is a view, not a document: it is
+regenerated with the other projections and never edited by hand.
+
 ## 1. What dsh-kit is
 
 `dsh-kit` installs a pinned **DeepSeek Harness** (`dsh`) and the 29 `@cc/dsh-*` / upstream plugins

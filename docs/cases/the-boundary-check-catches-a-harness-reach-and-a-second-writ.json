@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "id": "the-boundary-check-catches-a-harness-reach-and-a-second-writ",
+  "title": "The boundary check catches a harness reach and a second writer, and passes a lawful plugin",
+  "requirement": "Outside the harness seam, kit code does not import the harness's internals, and every state has one writer: a change that breaks either boundary is refused by scripts/check-boundaries.mjs --check with exit 1, while a plugin that uses the declared plugin API and writes its own file passes with exit 0.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/check-boundaries.test.mjs",
+  "runCommand": "node --test scripts/check-boundaries.test.mjs",
+  "steps": [
+    "The test builds a temporary tree with plugins/pilot-breach/seam.mjs (imports @deepseek-ai/dsh-session and @deepseek-ai/dsh-tools/lib/index.js), plugins/pilot-breach/board.mjs (writeFileSync into .dsh/taskboard.rows.json) and plugins/pilot-legal/tool.mjs (imports @deepseek-ai/dsh-tools, writes its own .dsh/pilot-legal.json).",
+    "scan() over the lawful tree: no findings. scan() over each breach: the two harness reaches and the second writer are named.",
+    "main(['--check','--root',breachTree]) exits 1; main(['--check','--root',lawfulTree]) exits 1 as well because every named exception is stale in a tree that holds none of the excepted files; report mode exits 0.",
+    "Observed as a product run first: node scripts/check-boundaries.mjs --check on a copy of the kit's plugins/scripts/profile with the two breach modules present exited 1 with three findings; with the breach removed and the lawful plugin left in place it exited 0 with five excepted findings."
+  ],
+  "expected": "The breach tree is refused with exit 1 and the findings name the rule, the file and the literal; a lawful plugin alone produces no finding; a tree whose exceptions match nothing is refused, so the exception list cannot rot.",
+  "tags": [
+    "boundaries",
+    "architecture",
+    "harness-seam",
+    "one-writer"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/check-boundaries.mjs",
+      "sha256": "2c12f19eac5909bf759fc89b644d66f6fba0806f5585554859ebaab01c2cdf4c"
+    },
+    {
+      "path": "scripts/check-boundaries.test.mjs",
+      "sha256": "1f6444400a31227f7af56f3e1e8e50ce2d23e02929610fe76190b6b3508cd722"
+    }
+  ],
+  "linkedTaskId": "task-mx0gkops-cxwt39",
+  "reqId": "REQ-299",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "9cc651b0-6588-46e4-8a30-20ad26b37890",
+  "purpose": "implementation",
+  "testHash": "1f6444400a31227f7af56f3e1e8e50ce2d23e02929610fe76190b6b3508cd722",
+  "failsWhen": "The gate returns 0 while a breach is present, or the second writer of the board and the reach into the harness are not named.",
+  "negativeControl": "expect-no-gate",
+  "revision": 3,
+  "createdAt": "2026-11-28T13:49:41.287Z",
+  "updatedAt": "2026-11-28T13:49:47.153Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:49:44.638Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-no-gate\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:49:47.153Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0gvsjw-fvlcx-1",
+      "at": "2026-11-28T13:49:44.637Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "9cc651b0-6588-46e4-8a30-20ad26b37890",
+        "taskId": "task-mx0gkops-cxwt39"
+      },
+      "control": "expect-no-gate",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 175,
+      "commandSha256": "852f1aee439fe8c641ab51538caef1eedeac7cea8a837d4bd839945c7b3aad9f",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-boundary-check-catches-a-harness-reach-and-a-second-writ/mx0gvsjw-fvlcx-1/stdout.log",
+      "stderr": "docs/cases/runs/the-boundary-check-catches-a-harness-reach-and-a-second-writ/mx0gvsjw-fvlcx-1/stderr.log",
+      "summary": "docs/cases/runs/the-boundary-check-catches-a-harness-reach-and-a-second-writ/mx0gvsjw-fvlcx-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0gvuhz-cmqnr-1",
+      "at": "2026-11-28T13:49:47.152Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "9cc651b0-6588-46e4-8a30-20ad26b37890",
+        "taskId": "task-mx0gkops-cxwt39"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 173,
+      "commandSha256": "852f1aee439fe8c641ab51538caef1eedeac7cea8a837d4bd839945c7b3aad9f",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+      "dirty": true,
+      "stdout": "docs/cases/runs/the-boundary-check-catches-a-harness-reach-and-a-second-writ/mx0gvuhz-cmqnr-1/stdout.log",
+      "stderr": "docs/cases/runs/the-boundary-check-catches-a-harness-reach-and-a-second-writ/mx0gvuhz-cmqnr-1/stderr.log",
+      "summary": "docs/cases/runs/the-boundary-check-catches-a-harness-reach-and-a-second-writ/mx0gvuhz-cmqnr-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T13:49:44.638Z",
+    "runId": "mx0gvsjw-fvlcx-1",
+    "exitCode": 1,
+    "control": "expect-no-gate",
+    "command": "node --test scripts/check-boundaries.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "C:\\dsh-kit",
+    "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "9cc651b0-6588-46e4-8a30-20ad26b37890",
+      "taskId": "task-mx0gkops-cxwt39"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T13:49:47.153Z",
+    "command": "node --test scripts/check-boundaries.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0gvuhz-cmqnr-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "9cc651b0-6588-46e4-8a30-20ad26b37890",
+      "taskId": "task-mx0gkops-cxwt39"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

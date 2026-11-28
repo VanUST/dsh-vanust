@@ -14,10 +14,11 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'check-documentation.mjs')
+const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const SCRIPT = join(KIT, 'scripts', 'check-documentation.mjs')
 const day = 86400000
 const iso = (daysAgo) => new Date(Date.now() - daysAgo * day).toISOString().slice(0, 10)
 

@@ -40,7 +40,10 @@ export function readState(cwd) {
   const board = readIf(join(views, 'board.md')) ?? ''
   const snapshot = readIf(join(views, 'snapshot.md')) ?? ''
   const plan = readIf(join(cwd, 'state', 'plan.yaml'))
-  const hash = createHash('sha256').update(`${digest}\u0000${board}\u0000${snapshot}`, 'utf8').digest('hex')
+  // The plan is part of the state: `regenerateViews` writes `state/plan.yaml` from the analysis
+  // records, and an initiative that changed stage without moving a task moves only the plan. The
+  // plan therefore joins the hash, so its change is a delta, not a silent edit the session misses.
+  const hash = createHash('sha256').update(`${digest}\u0000${board}\u0000${snapshot}\u0000${plan ?? ''}`, 'utf8').digest('hex')
   return { ok: true, digest, board, snapshot, plan, hash }
 }
 
@@ -201,7 +204,7 @@ function cap(text, limit) {
  * @param {string} previousHash - the hash the session already saw.
  */
 export function composeL2(state, previousHash) {
-  const parts = [L2_HEADER, '', `views hash: ${String(previousHash).slice(0, 8)} -> ${state.hash.slice(0, 8)}`]
+  const parts = [L2_HEADER, '', `state hash: ${String(previousHash).slice(0, 8)} -> ${state.hash.slice(0, 8)}`]
   const countsLines = counts(state.snapshot)
   if (countsLines.length > 0) parts.push('', '## Counts', '', ...countsLines)
   const bullets = openWork(state.digest)

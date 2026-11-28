@@ -2,10 +2,10 @@
 id: TASK-289
 kind: task
 title: "P1 fix 2: целевое ревью W1 head/test и B1 junction"
-status: review
-revision: 4
+status: done
+revision: 5
 createdAt: 2026-11-22T12:06:31.911Z
-updatedAt: 2026-11-22T12:11:23.774Z
+updatedAt: 2026-11-28T10:48:08.565Z
 acceptance:
   - text: "Все команды перезапущены; вывод/коды"
     done: false

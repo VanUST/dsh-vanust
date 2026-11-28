@@ -2,10 +2,10 @@
 id: TASK-288
 kind: task
 title: "P1 fix: повторная атака на область записи и wrong-product red"
-status: review
-revision: 4
+status: done
+revision: 5
 createdAt: 2026-11-22T11:58:38.762Z
-updatedAt: 2026-11-22T12:06:36.574Z
+updatedAt: 2026-11-28T10:48:13.121Z
 acceptance:
   - text: "Найден воспроизводимый обход или каждый проверенный путь отказан"
     done: false

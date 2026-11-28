@@ -21,7 +21,7 @@ import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'nod
 import { createHash } from 'node:crypto'
 import { dirname, join, relative, sep } from 'node:path'
 import { parse, serialize } from './format.mjs'
-import { buildModel, renderViews, VIEW_DIR } from './views.mjs'
+import { buildModel, renderPlanYaml, renderViews, VIEW_DIR } from './views.mjs'
 
 const KINDS = {
   req: { prefix: 'REQ', status: ['proposed', 'open', 'accepted', 'done', 'rejected', 'dropped'] },
@@ -806,7 +806,12 @@ export function createStateService(options = {}) {
           await writeFile(join(viewsDir, relPath), text, { encoding: 'utf8' })
           hashes[relPath] = sha256(text)
         }
-        const manifest = { schemaVersion: 1, files: hashes }
+        // `state/plan.yaml` is the plan summary the state feed puts in a new session's first
+        // message; it lives at the state root, not under `state/views/`, because that is where
+        // the feed reads it. Same pass, same `plan` input, same renderer as `plan.md`.
+        const planYaml = renderPlanYaml(plan, model)
+        await writeFile(join(root, 'plan.yaml'), planYaml, { encoding: 'utf8' })
+        const manifest = { schemaVersion: 1, files: hashes, stateFiles: { 'plan.yaml': sha256(planYaml) } }
         await writeFile(join(viewsDir, '.hashes.json'), `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8' })
         // No journal event: a projection is derived, and appending one would move `lastSeq` on
         // every run — the digest would stop being byte-identical on unchanged state.
@@ -932,6 +937,19 @@ export function createStateService(options = {}) {
               findings.push({ code: 'view_modified', path: `${VIEW_DIR}/${relPath}`, message: 'projection is missing; run regenerateViews()' })
             } else if (sha256(actual) !== expected) {
               findings.push({ code: 'view_modified', path: `${VIEW_DIR}/${relPath}`, message: 'projection was edited by hand; run regenerateViews()' })
+            }
+          }
+          // The same guard for the one projection outside state/views/: state/plan.yaml feeds
+          // the first message of a session, so a hand edit there would reach the model unseen.
+          for (const [relPath, expected] of Object.entries(manifest.stateFiles ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+            let actual = null
+            try {
+              actual = await readFile(join(root, relPath), 'utf8')
+            } catch {
+              actual = null
+            }
+            if (actual === null || sha256(actual) !== expected) {
+              findings.push({ code: 'view_modified', path: relPath, message: 'projection was edited by hand; run regenerateViews()' })
             }
           }
         } catch {

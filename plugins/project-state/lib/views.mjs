@@ -292,42 +292,33 @@ const planStageRank = (status) => {
 }
 /** A row stays one readable line: a long initiative title is cut, never wrapped. */
 const PLAN_TITLE_LIMIT = 90
-const shortTitle = (value) => {
+/** Rows the compact `plan.yaml` carries; the rest of the plan stays in `plan.md`. */
+export const PLAN_INITIATIVE_ROWS = 10
+export const PLAN_TASK_ROWS = 6
+/** Hard cap of `state/plan.yaml`: it travels inside L1, so it must stay a few kilobytes. */
+export const PLAN_YAML_LIMIT_BYTES = 4096
+/** A title in `plan.yaml` is cut shorter than in `plan.md`: this file travels inside L1. */
+export const PLAN_YAML_TITLE_LIMIT = 60
+const shortTitle = (value, limit = PLAN_TITLE_LIMIT) => {
   const text = cell(value)
-  return text.length <= PLAN_TITLE_LIMIT ? text : `${text.slice(0, PLAN_TITLE_LIMIT - 1).trimEnd()}…`
+  return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`
 }
 /** At most four ids in a table cell; the rest of the work is listed under "Что осталось". */
 const idCell = (ids) => (ids.length === 0 ? '—' : ids.length <= 4 ? ids.join(', ') : `${ids.slice(0, 4).join(', ')} +${ids.length - 4}`)
 
 /**
- * `plan.md`: the initiatives of the analysis records, their stage, what is confirmed, what is
- * left, and which tasks are still open - ONE LINE PER INITIATIVE plus a short list of the work in
- * flight. The aim is a new session's minute, not the archive: requirement TEXTS stay in the
- * analysis records and are not copied here; the page carries their ids and statuses, and the open
- * tasks with their title and status.
+ * The ONE derivation both plan projections read: per initiative its requirements, which are
+ * confirmed, which remain, and which traced tasks the journal still has open; plus the
+ * journal's own open tasks. `plan.md` and `plan.yaml` cannot disagree about the plan because
+ * neither of them derives it.
  *
- * WHY A VIEW AND NOT A HAND-WRITTEN FILE. The plan used to be docs/PROJECT-PLAN.md, which went
- * stale between edits. The order and stage of an initiative are already in its analysis record
- * (docs/analysis/<id>.json) and the task statuses are in the journal, so the page is derived from
- * both: it cannot disagree with them, and it is regenerated with every other projection.
- *
- * DETERMINISM. Work in flight first, then the stage order, then id; requirements and tasks by id;
- * no date, no wall clock and no absolute path reaches the text. One input, one byte sequence.
+ * @param {object[]} initiatives - the analysis records, as `loadInitiatives` returns them.
+ * @param {{tasks?: object[]}} [model] - output of `buildModel`.
  */
-export function renderPlan(initiatives = [], model = { tasks: [] }) {
+function planSections(initiatives, model = { tasks: [] }) {
   const tasks = new Map((Array.isArray(model.tasks) ? model.tasks : []).map((task) => [task.id, task]))
-  const lines = [
-    '# План: инициативы журнала',
-    '',
-    'Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.',
-    '',
-  ]
   const records = (Array.isArray(initiatives) ? initiatives : [])
     .filter((record) => record !== null && typeof record === 'object' && typeof record.id === 'string')
-  if (records.length === 0) {
-    lines.push('Записей анализа нет.')
-    return lines.join('\n') + '\n'
-  }
   const rows = records.map((record) => {
     const requirements = (Array.isArray(record.requirements) ? record.requirements : [])
       .filter((requirement) => requirement !== null && typeof requirement === 'object' && typeof requirement.id === 'string')
@@ -349,10 +340,45 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
     return { record, requirements, confirmed, remaining, openTasks }
   })
   rows.sort((a, b) => planStageRank(a.record.status) - planStageRank(b.record.status) || byId(a.record, b.record))
-  // The section lists only work that is actionable NOW (an open task); a remaining requirement
-  // is visible in the table and its text stays in the analysis record.
+  // The open-work section lists only work that is actionable NOW (an open task); a remaining
+  // requirement is visible in the table and its text stays in the analysis record.
   const inFlight = rows.filter((row) => row.openTasks.length > 0)
   const withRemaining = rows.filter((row) => row.remaining.length > 0)
+  // The journal's own open work, initiative or not: the question a new session asks first is
+  // "what is still running", and a task need not be traced from an analysis record to be open.
+  const openJournalTasks = (Array.isArray(model.tasks) ? model.tasks : [])
+    .filter((task) => task !== null && typeof task === 'object' && typeof task.id === 'string' && !CLOSED_TASK_STATUSES.has(String(task.status)))
+    .sort(byId)
+  return { records, rows, inFlight, withRemaining, openJournalTasks }
+}
+
+/**
+ * `plan.md`: the initiatives of the analysis records, their stage, what is confirmed, what is
+ * left, and which tasks are still open - ONE LINE PER INITIATIVE plus a short list of the work in
+ * flight. The aim is a new session's minute, not the archive: requirement TEXTS stay in the
+ * analysis records and are not copied here; the page carries their ids and statuses, and the open
+ * tasks with their title and status.
+ *
+ * WHY A VIEW AND NOT A HAND-WRITTEN FILE. The plan used to be docs/PROJECT-PLAN.md, which went
+ * stale between edits. The order and stage of an initiative are already in its analysis record
+ * (docs/analysis/<id>.json) and the task statuses are in the journal, so the page is derived from
+ * both: it cannot disagree with them, and it is regenerated with every other projection.
+ *
+ * DETERMINISM. Work in flight first, then the stage order, then id; requirements and tasks by id;
+ * no date, no wall clock and no absolute path reaches the text. One input, one byte sequence.
+ */
+export function renderPlan(initiatives = [], model = { tasks: [] }) {
+  const { records, rows, inFlight, withRemaining, openJournalTasks } = planSections(initiatives, model)
+  const lines = [
+    '# План: инициативы журнала',
+    '',
+    'Сгенерированный вид из docs/analysis/*.json и журнала проекта (regenerateViews). Руками не правится; тексты требований остаются в записях анализа.',
+    '',
+  ]
+  if (records.length === 0) {
+    lines.push('Записей анализа нет.')
+    return lines.join('\n') + '\n'
+  }
   lines.push(`Инициатив: ${rows.length}; с открытыми задачами: ${inFlight.length}; с несделанными требованиями: ${withRemaining.length}.`)
   lines.push('')
   lines.push('| Инициатива | Этап | Подтверждено | Осталось | Открытые задачи |')
@@ -367,17 +393,68 @@ export function renderPlan(initiatives = [], model = { tasks: [] }) {
       for (const task of row.openTasks) lines.push(`- ${task.id} (${String(task.status ?? 'unknown')}): ${shortTitle(task.title)}`)
     }
   }
-  // The journal's own open work, initiative or not: the question a new session asks first is
-  // "what is still running", and a task need not be traced from an analysis record to be open.
-  const openJournalTasks = (Array.isArray(model.tasks) ? model.tasks : [])
-    .filter((task) => task !== null && typeof task === 'object' && typeof task.id === 'string' && !CLOSED_TASK_STATUSES.has(String(task.status)))
-    .sort(byId)
   if (openJournalTasks.length > 0) {
     lines.push('', `## Открытые задачи журнала (${openJournalTasks.length})`)
     for (const task of openJournalTasks) lines.push(`- ${task.id} (${String(task.status ?? 'unknown')}): ${shortTitle(task.title)}`)
   }
   lines.push('', 'Записи анализа: docs/analysis/<initiative>.json.')
   return `${lines.join('\n').replace(/\n+$/, '')}\n`
+}
+
+/** A YAML double-quoted scalar: JSON string escaping is a valid YAML 1.2 quoted scalar. */
+const yamlString = (value) => JSON.stringify(String(value ?? ''))
+
+/**
+ * `state/plan.yaml`: the plan the state feed puts into a new session's FIRST message.
+ *
+ * WHY A SECOND FILE. `plan.md` is the readable view (one row per initiative, every open task);
+ * it is ten kilobytes, and L1 already carries the digest and the board. This is the same plan
+ * with the archive dropped: only initiatives with unfinished work, their stage, how many of
+ * their requirements are confirmed, and the nearest open tasks - no requirement texts, no
+ * tables. `plugins/state-feed/lib/feed.mjs` reads it as the `## Plan` section of L1 and folds
+ * it into the projection hash, so a plan change is a state change, not a silent edit.
+ *
+ * DETERMINISM. Same inputs and the same row limits as `plan.md` (`planSections`), no clock and
+ * no absolute path: two runs on unchanged state produce identical bytes. The row limits and the
+ * title cut keep the file inside `PLAN_YAML_LIMIT_BYTES`; the generator never truncates mid-line,
+ * because half a YAML row is worse than a shorter plan.
+ *
+ * @param {object[]} initiatives - the analysis records, as `loadInitiatives` returns them.
+ * @param {{tasks?: object[]}} [model] - output of `buildModel`.
+ * @returns {string} the YAML document, newline-terminated.
+ */
+export function renderPlanYaml(initiatives = [], model = { tasks: [] }) {
+  const { rows, openJournalTasks } = planSections(initiatives, model)
+  const live = rows.filter((row) => row.remaining.length > 0 || row.openTasks.length > 0)
+  const lines = [
+    '# GENERATED — DO NOT EDIT. The plan summary the state feed delivers in L1,',
+    '# written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.',
+    'schemaVersion: 1',
+    `initiatives: ${live.length}`,
+    `openTasks: ${openJournalTasks.length}`,
+  ]
+  lines.push(live.length === 0 ? 'work: []' : 'work:')
+  for (const row of live.slice(0, PLAN_INITIATIVE_ROWS)) {
+    lines.push(`  - id: ${yamlString(row.record.id)}`)
+    lines.push(`    title: ${yamlString(shortTitle(row.record.title, PLAN_YAML_TITLE_LIMIT))}`)
+    lines.push(`    stage: ${yamlString(String(row.record.status ?? 'unknown'))}`)
+    lines.push(`    confirmed: ${row.confirmed.length}`)
+    lines.push(`    requirements: ${row.requirements.length}`)
+    lines.push(`    openTasks: [${row.openTasks.map((task) => yamlString(task.id)).join(', ')}]`)
+  }
+  if (live.length > PLAN_INITIATIVE_ROWS) {
+    lines.push(`  # +${live.length - PLAN_INITIATIVE_ROWS} more initiatives with open work: state/views/plan.md`)
+  }
+  lines.push(openJournalTasks.length === 0 ? 'next: []' : 'next:')
+  for (const task of openJournalTasks.slice(0, PLAN_TASK_ROWS)) {
+    lines.push(`  - id: ${yamlString(task.id)}`)
+    lines.push(`    status: ${yamlString(String(task.status ?? 'unknown'))}`)
+    lines.push(`    title: ${yamlString(shortTitle(task.title, PLAN_YAML_TITLE_LIMIT))}`)
+  }
+  if (openJournalTasks.length > PLAN_TASK_ROWS) {
+    lines.push(`  # +${openJournalTasks.length - PLAN_TASK_ROWS} more open tasks: state/views/plan.md`)
+  }
+  return `${lines.join('\n')}\n`
 }
 
 /**

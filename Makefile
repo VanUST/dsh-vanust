@@ -139,6 +139,7 @@ design-audit:
 
 verify:
 	node scripts/check-portability.mjs
+	node scripts/check-boundaries.mjs --check
 	node scripts/check-documentation.mjs
 	node scripts/check-glossary.mjs
 	node scripts/check-role-table.mjs

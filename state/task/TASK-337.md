@@ -3,9 +3,9 @@ id: TASK-337
 kind: task
 title: "Independent acceptance case: devops role and the one-live-deployment lane"
 status: review
-revision: 4
+revision: 5
 createdAt: 2026-11-27T11:09:22.754Z
-updatedAt: 2026-11-27T11:19:12.023Z
+updatedAt: 2026-11-28T10:48:45.803Z
 acceptance:
   - text: "one automated case recorded with source agent (your preset), testPath, runCommand, checks and surfaceFiles"
     done: false
@@ -18,13 +18,15 @@ acceptance:
   - text: "the case text names REQ-256..REQ-263 with REQ-257 as primary, and does not claim a verification you did not run"
     done: false
 boardId: task-mwyvpo6b-q8dc4o
+manualAt: 2026-11-28T10:48:45.803Z
+manualFields: [reqId, reqIds]
 nonScope: ["product files", "the live :3080 server and its profile", commits, "the designmap work in flight"]
 owner:
   kind: agent
   label: TESTER
   sessionId: 2b024beb-4447-4bfe-bbc1-0b042caa4a4b
 preset: tester
-reqIds: [REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263]
+reqId: ""
 role: TESTER
 scope: ["docs/cases/ (one JSON case + its driver under tests/)", "read the product modules and git HEAD copy", "run the driver red on the HEAD copy and green on the current tree"]
 sessions:

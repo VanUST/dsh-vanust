@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "id": "architecture-boundaries",
+  "rev": 6,
+  "status": "completed",
+  "createdAt": "2026-11-28T13:45:28.718Z",
+  "updatedAt": "2026-11-28T13:53:06.726Z",
+  "updatedBy": "agent",
+  "title": "Границы архитектуры: опись и проверка",
+  "requestedSolution": "Машинная опись компонентов и проверка двух границ с именованными исключениями; сначала отчёт, потом пилот.",
+  "businessOutcome": {
+    "problem": "Границы архитектуры держатся на внимательности оркестратора: нет ни машинной описи компонентов, ни проверки, которая ловит импорт внутренностей харнесса вне шва или второго писателя состояния.",
+    "outcome": "Нарушение границы ловится проверкой в момент изменения, а не на памяти оркестратора.",
+    "successMetrics": [
+      "Опись компонентов с владельцами и путями существует и совпадает с деревом.",
+      "Нарушающее изменение падает с кодом 1, законное проходит с 0.",
+      "Каждое исключение названо, у него есть владелец и причина."
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Соблюдение границ",
+        "actors": [
+          "оркестратор"
+        ],
+        "steps": [
+          "Оркестратор читает изменения и вспоминает границы.",
+          "Нарушение замечается после реализации или не замечается вовсе."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Соблюдение границ",
+        "actors": [
+          "проверка",
+          "оркестратор"
+        ],
+        "steps": [
+          "Опись компонентов объявляет пути и зависимости.",
+          "Проверка ловит нарушение до приёмки.",
+          "Исключение требует владельца и причины."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "R1",
+      "kind": "FR",
+      "text": "Границы архитектуры проверяются машинно по описи компонентов, нарушения ловятся до приёмки, исключения именованы.",
+      "acceptance": [
+        "AC-1: Опись компонентов объявлена в одном месте (экспортируемые STATES и EXCEPTIONS в скрипте проверки), печатается --list и совпадает с деревом.",
+        "AC-2: scripts/check-boundaries.mjs отказывает (код 1) на импорте внутренностей харнесса вне шва и на втором писателе состояния, а законное дерево проходит с 0.",
+        "AC-3: Исключения именованные, с владельцем и причиной; отчёт по текущему дереву назван до включения обязательности."
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "R2",
+      "kind": "NFR",
+      "text": "Проверка границ включается в штатные гейты, чтобы она не осталась тестом, который никто не запускает.",
+      "acceptance": [
+        "AC-1: Проверка запускается штатным гейтом (тест в scripts/test, шаг в make verify), а не только вручную."
+      ],
+      "status": "deferred",
+      "reason": "Проверено командами: test-all --list 89 шагов, make test ONLY=check-boundaries 5/5, make verify зелёный с шагом границ на копии чистого дерева. Автотеста с красным прогоном для самого подключения нет."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-MAP",
+        "name": "список компонентов",
+        "responsibility": "Опись: идентификатор, владелец, пути, разрешённые зависимости, инварианты со ссылкой на проверку.",
+        "owner": "BACKEND",
+        "owns": [
+          "D-ARCH"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-CHECK",
+        "name": "проверка границ",
+        "responsibility": "Два правила по описи: нет импорта внутренностей харнесса вне шва; у состояния один писатель.",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-MAP"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-ARCH",
+      "name": "опись компонентов",
+      "owner": "kit",
+      "ownerComponentId": "C-MAP",
+      "description": "architecture/components.json: компоненты, владельцы, пути, зависимости, инварианты."
+    }
+  ],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "I-SEAM-ONLY",
+      "text": "Вне шва код кита не импортирует внутренности установленного харнесса.",
+      "scope": ""
+    },
+    {
+      "id": "I-ONE-WRITER",
+      "text": "У каждого состояния один писатель: доска через таскборд, записи анализа через analysis, кейсы через библиотеку.",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-INVENTORY-OWNER",
+      "decision": "Опись компонентов живёт в самом скрипте проверки (экспортируемые STATES и EXCEPTIONS, печать через --list), а не в отдельном JSON.",
+      "rationale": "Один владелец: отдельный файл был бы вторым местом, которое надо держать в согласии с правилами и исключениями; при расхождении выиграл бы тот, кто читается.",
+      "alternatives": [
+        "Отдельный architecture/components.json как источник истины",
+        "Только документ"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": []
+  },
+  "designRef": null,
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "R1",
+      "processId": "P-TARGET",
+      "componentId": "C-MAP",
+      "contractIds": [],
+      "dataIds": [
+        "D-ARCH"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mx0gkops-cxwt39",
+          "role": "BACKEND",
+          "at": "2026-11-28T13:50:00.000Z",
+          "evidence": [
+            "Отчёт по дереву: 3 находки (state-merge, state-migrate, taskboard-migrate) — записаны исключениями с владельцем и причиной.",
+            "--check: gate ok, 5 исключений, exit 0; пилот: подложенные нарушения → REFUSED exit 1, законное изменение → exit 0.",
+            "node --test scripts/test/check-boundaries.test.mjs → 5/5; кейс TEST-114 красный→зелёный."
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "processId": "P-TARGET",
+      "componentId": "C-CHECK",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mx0gwo79-kutto7",
+          "role": "BACKEND",
+          "at": "2026-11-28T13:55:00.000Z",
+          "evidence": [
+            "Тест перенесён в scripts/test; test-all --list 89 шагов; make test ONLY=check-boundaries 5/5 exit 0.",
+            "Makefile verify: node scripts/check-boundaries.mjs --check; на копии чистого дерева VERIFY_EXIT=0."
+          ]
+        }
+      ],
+      "reason": "Проверено командами: test-all --list 89 шагов, make test ONLY=check-boundaries 5/5, make verify зелёный с шагом границ на копии чистого дерева. Автотеста с красным прогоном для самого подключения нет."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "3f671f0f493c3db8cd0ce7d3b6d418396edb71ce576c09001b65193da6e1ea73",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:45:28.718Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:45:35.430Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0gkops-cxwt39 -> R1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-28T13:50:19.647Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: R1 changed, R2 added; impacts: 3"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-28T13:50:25.441Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mx0gwo79-kutto7 -> R2"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T13:53:02.065Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-28T13:53:06.726Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: R2 changed; impacts: 1"
+    }
+  ]
+}

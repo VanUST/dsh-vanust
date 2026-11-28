@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "harness-seam",
-  "rev": 4,
-  "status": "ready",
+  "rev": 5,
+  "status": "completed",
   "createdAt": "2026-11-28T12:58:55.505Z",
-  "updatedAt": "2026-11-28T13:04:38.363Z",
+  "updatedAt": "2026-11-28T13:39:04.965Z",
   "updatedBy": "agent",
   "title": "Шов харнесса: запуск субагента в одном месте",
   "requestedSolution": "Вынести запуск субагента в один модуль с двумя известными формами активации и перечнем вызовов харнесса.",
@@ -58,9 +58,9 @@
       "acceptance": [
         "AC-1: Оркестратор не содержит полей запроса активации; единственное место — шов.",
         "AC-2: Один сценарий запуска проходит на двух формах активации; неизвестная форма даёт явный отказ.",
-        "AC-3: docs/HARNESS-CONTRACT.md перечисляет вызовы с владельцем и проверкой и совпадает с кодом."
+        "AC-3: Перечень вызовов харнесса с владельцем и проверкой лежит в §8 архитектуры и совпадает с кодом."
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -146,31 +146,39 @@
       "dataIds": [
         "D-CONTRACT"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mx0f37sm-hivhcz",
           "role": "BACKEND",
-          "at": "2026-11-28T12:59:31.530Z",
-          "evidence": []
+          "at": "2026-11-28T12:59:31.838Z",
+          "evidence": [
+            "Проверка кода: orchestrator.mjs:1343 — единственный вызов шва; маркеров spec.request, maxDepth, outputSchema нет; harness-seam.mjs содержит ACTIVATION_FORMS и явный отказ.",
+            "Хеши: harness-seam.mjs 072B1586, orchestrator.mjs 90A16D0C; прогоны шов 3/3, оркестратор 49/49, миграционный proof 11/11."
+          ]
         },
         {
           "taskId": "task-mx0f7811-uqvohi",
           "role": "TESTER",
-          "at": "2026-11-28T13:02:38.466Z",
-          "evidence": []
+          "at": "2026-11-28T13:02:38.719Z",
+          "evidence": [
+            "TEST-109 rev 5: красный mx0f8u4f-q0320-1 на клоне git HEAD 88e42df (exit 1), зелёный mx0f8xvi-40kh6-1 (exit 0)."
+          ]
         },
         {
           "taskId": "task-mx0f9sji-aohalc",
           "role": "BACKEND",
-          "at": "2026-11-28T13:04:38.363Z",
-          "evidence": []
+          "at": "2026-11-28T13:04:38.630Z",
+          "evidence": [
+            "Пакет оркестратора 0.1.83: tarball sha256 6aa10930…, portability 20/20; извлечённый пакет отдаёт обе формы.",
+            "Живая проверка после установки: субагент DOCS запущен через шов в загруженной сборке 0.1.83 и вернул ответ."
+          ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "f1216e9c5cd3f5fba13089c96f691746822add15afbd8b42f29a9953b997bc92",
+  "fingerprint": "e3c421fe3594a400ccfc040dedb0e76f19a3f4135f24257fc6c33ca4cfbc6117",
   "history": [
     {
       "revision": 1,
@@ -203,6 +211,14 @@
       "action": "link_task",
       "status": "ready",
       "summary": "task-mx0f9sji-aohalc -> R1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-28T13:39:04.965Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: R1 changed; impacts: 1"
     }
   ]
 }

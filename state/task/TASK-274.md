@@ -2,10 +2,10 @@
 id: TASK-274
 kind: task
 title: "Hindsight starts with dsh web; harness pin is enforced"
-status: review
-revision: 2
+status: done
+revision: 3
 createdAt: 2026-11-22T07:44:20.144Z
-updatedAt: 2026-11-22T07:45:52.834Z
+updatedAt: 2026-11-28T10:47:59.452Z
 acceptance:
   - text: "Hindsight daemon is running and /health reports healthy; hindsight_sync_status returns JSON instead of ECONNREFUSED"
     done: false

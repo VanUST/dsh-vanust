@@ -2,20 +2,20 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (3)
+## open (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
-| TASK-445 | Прогонять тест проверки документации штатным гейтом | — | — | yes |
 | TASK-446 | Разобрать красный delegation-basis-proof | — | — | yes |
 
-## active (2)
+## active (3)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
-| TASK-447 | Коммит и установка: шов, вид плана, правила документации | — | — | yes |
+| TASK-455 | Кэш и стоимость шага: оркестратор против субагентов | REQ-300 | — | no |
+| TASK-457 | Собрать пакеты и закоммитить батч: границы, план, наблюдение | — | — | yes |
 
 ## review (2)
 
@@ -24,7 +24,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane |  | — | no |
 | TASK-438 | Приёмка шва харнесса: обе формы и отсутствие формы в оркестраторе | REQ-296 | — | no |
 
-## done (348)
+## done (358)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -376,6 +376,16 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-442 | Проверка: документов ровно три и без состояния | REQ-297 | — | no |
 | TASK-443 | Вернуть удалённый вход сборки и доказать зелёный прогон | — | — | yes |
 | TASK-444 | Удалить лишний документ и назвать настоящий источник плейбуков | — | — | yes |
+| TASK-445 | Прогонять тест проверки документации штатным гейтом | — | — | yes |
+| TASK-447 | Коммит и установка: шов, вид плана, правила документации | — | — | yes |
+| TASK-448 | Убрать задачу автоперезапуска и снять проверку установки | — | — | yes |
+| TASK-449 | Живая проверка: запуск субагента через шов | — | — | yes |
+| TASK-450 | Указать в навигации путь к виду плана | — | — | yes |
+| TASK-451 | Наблюдение запроса после сериализации: байты, а не догадки | REQ-298 | — | no |
+| TASK-452 | Где ушла минута после инъекции состояния | — | — | yes |
+| TASK-453 | Проверка границ архитектуры на одном пилоте | — | — | yes |
+| TASK-454 | Довести план до модели: компактная проекция в инъекции состояния | REQ-298 | — | no |
+| TASK-456 | Включить проверку границ в штатные гейты | REQ-301 | — | yes |
 
 ## blocked (1)
 

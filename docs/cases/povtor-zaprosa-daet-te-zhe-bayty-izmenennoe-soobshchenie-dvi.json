@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "id": "povtor-zaprosa-daet-te-zhe-bayty-izmenennoe-soobshchenie-dvi",
+  "title": "Повтор запроса даёт те же байты, изменённое сообщение двигает только messages",
+  "requirement": "По шагу видно, что установленный харнесс действительно отправляет: разделы системного промпта с отпечатками, схемы инструментов целиком, сообщения контекста и историю; повтор без изменений повторяет байты тела, а изменение одного фактора называет раздел и первое отличие.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/request-snapshot.mjs",
+  "runCommand": "node scripts/request-snapshot.mjs",
+  "steps": [
+    "Запустить dsh --profile headless из установленного пакета под временным DSH_HOME с предзагрузкой, которая подменяет globalThis.fetch: записывает тело POST и отвечает готовым SSE.",
+    "Снять шаг дважды с одним и тем же запросом и один раз с одним изменённым сообщением.",
+    "Сравнить тела: sha256 целиком и с заменой сгенерированных идентификаторов на плейсхолдер; найти первое отличие и назвать поле, в котором оно лежит."
+  ],
+  "expected": "Повтор: тела совпадают побайтно после замены сгенерированных идентификаторов (полное тело расходится только в dsh_session_log на идентификаторе сессии). Изменённое сообщение: другое sha256, первое отличие внутри поля messages, остальные разделы совпадают по отпечаткам. Команда выходит 0.",
+  "tags": [
+    "request-cache",
+    "serialized-body",
+    "stub-provider"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/request-snapshot.mjs",
+      "sha256": "99e6a623f0a3f1fd79c8cdfcba87ab9d7dc9c39537a82dbf4c0c28d58d06eb0b"
+    }
+  ],
+  "linkedTaskId": "task-mx0gg9bt-52ue34",
+  "reqId": "REQ-298",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+  "purpose": "implementation",
+  "testHash": "99e6a623f0a3f1fd79c8cdfcba87ab9d7dc9c39537a82dbf4c0c28d58d06eb0b",
+  "negativeControl": "CASE_NEGATIVE_CONTROL",
+  "revision": 3,
+  "createdAt": "2026-11-28T13:44:37.632Z",
+  "updatedAt": "2026-11-28T13:45:06.567Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:44:53.315Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"CASE_NEGATIVE_CONTROL\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:45:06.567Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0gpa6e-atvrb-1",
+      "at": "2026-11-28T13:44:53.313Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+        "taskId": "task-mx0gg9bt-52ue34"
+      },
+      "control": "CASE_NEGATIVE_CONTROL",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 12577,
+      "commandSha256": "256cd261fce13b0facac1712cc27aebcb626ac6613a8040dcfbcb8561450fa3d",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+      "dirty": true,
+      "stdout": "docs/cases/runs/povtor-zaprosa-daet-te-zhe-bayty-izmenennoe-soobshchenie-dvi/mx0gpa6e-atvrb-1/stdout.log",
+      "stderr": "docs/cases/runs/povtor-zaprosa-daet-te-zhe-bayty-izmenennoe-soobshchenie-dvi/mx0gpa6e-atvrb-1/stderr.log",
+      "summary": "docs/cases/runs/povtor-zaprosa-daet-te-zhe-bayty-izmenennoe-soobshchenie-dvi/mx0gpa6e-atvrb-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0gpkgq-iui7h-1",
+      "at": "2026-11-28T13:45:06.566Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+        "taskId": "task-mx0gg9bt-52ue34"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 12512,
+      "commandSha256": "256cd261fce13b0facac1712cc27aebcb626ac6613a8040dcfbcb8561450fa3d",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+      "dirty": true,
+      "stdout": "docs/cases/runs/povtor-zaprosa-daet-te-zhe-bayty-izmenennoe-soobshchenie-dvi/mx0gpkgq-iui7h-1/stdout.log",
+      "stderr": "docs/cases/runs/povtor-zaprosa-daet-te-zhe-bayty-izmenennoe-soobshchenie-dvi/mx0gpkgq-iui7h-1/stderr.log",
+      "summary": "docs/cases/runs/povtor-zaprosa-daet-te-zhe-bayty-izmenennoe-soobshchenie-dvi/mx0gpkgq-iui7h-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T13:44:53.315Z",
+    "runId": "mx0gpa6e-atvrb-1",
+    "exitCode": 1,
+    "control": "CASE_NEGATIVE_CONTROL",
+    "command": "node scripts/request-snapshot.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "C:\\dsh-kit",
+    "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+      "taskId": "task-mx0gg9bt-52ue34"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T13:45:06.567Z",
+    "command": "node scripts/request-snapshot.mjs",
+    "exitCode": 0,
+    "runId": "mx0gpkgq-iui7h-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "905a0b18-42ca-423d-aeac-fba20c98e0dc",
+      "taskId": "task-mx0gg9bt-52ue34"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

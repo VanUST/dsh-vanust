@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-dokhodit-do-modeli-state-plan-yaml-v-l1-i-v-kheshe-sost",
+  "title": "План доходит до модели: state/plan.yaml в L1 и в хеше состояния",
+  "requirement": "План собирается генератором видов и доходит до модели: первое сообщение сессии несёт сводку плана, повторный прогон даёт те же байты, а изменение плана меняет состояние (иначе дельта не появится).",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/state-feed/test/plan.test.mjs",
+  "runCommand": "node --test plugins/state-feed/test/plan.test.mjs",
+  "steps": [
+    "Создать дерево с одним анализ-рекордом и одной открытой задачей, вызвать regenerateViews()",
+    "Прочитать state/plan.yaml; сравнить с повтором regenerateViews() и с PLAN_YAML_LIMIT_BYTES",
+    "readState() + composeL1(): раздел Plan присутствует и несёт текст плана",
+    "Сменить статус требования в анализе, повторить regenerateViews(), сравнить хеш состояния"
+  ],
+  "expected": "plan.yaml записан, байт-в-байт одинаков на двух прогонах и не больше PLAN_YAML_LIMIT_BYTES; L1 содержит раздел Plan с текстом плана; изменение анализа меняет хеш состояния.",
+  "tags": [
+    "state-feed",
+    "plan",
+    "durability"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state/lib/views.mjs",
+      "sha256": "4f9ef9252fd18bbc6d52a501f93afc6c56e67cecd0ac89164fa7d9c4de29bc7d"
+    },
+    {
+      "path": "plugins/project-state/lib/core.mjs",
+      "sha256": "39124289a67241558c56472ae216f7f557e0dd9577654c38b336b304914c3180"
+    },
+    {
+      "path": "plugins/state-feed/lib/feed.mjs",
+      "sha256": "427ffdd247faf43b6ea41dcd843aad3d4b3ea26c845342f97a0ca9c608fe4adf"
+    }
+  ],
+  "linkedTaskId": "task-mx0gow4e-9jdh3g",
+  "reqId": "REQ-297",
+  "authorRole": "backend",
+  "authorPreset": "backend",
+  "authorSessionId": "8c027b60-cd39-409b-944d-386edc15064f",
+  "purpose": "implementation",
+  "testHash": "55d74839a6996a16c6a0f40ca0c938f3767f9cae0cb941b356f58a1e717d2a8b",
+  "negativeControl": "break-the-plan",
+  "revision": 3,
+  "createdAt": "2026-11-28T13:47:35.800Z",
+  "updatedAt": "2026-11-28T13:47:39.969Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-28T13:47:39.016Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"break-the-plan\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-28T13:47:39.969Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mx0gt3l8-g0m7v-1",
+      "at": "2026-11-28T13:47:39.014Z",
+      "mode": "red",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "8c027b60-cd39-409b-944d-386edc15064f",
+        "taskId": "task-mx0gow4e-9jdh3g"
+      },
+      "control": "break-the-plan",
+      "redSource": "negative-control",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 211,
+      "commandSha256": "fe1722d8153e9361139a0e782977aa4187ffbdc680676c3b7e74ace000883c9e",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+      "dirty": true,
+      "stdout": "docs/cases/runs/plan-dokhodit-do-modeli-state-plan-yaml-v-l1-i-v-kheshe-sost/mx0gt3l8-g0m7v-1/stdout.log",
+      "stderr": "docs/cases/runs/plan-dokhodit-do-modeli-state-plan-yaml-v-l1-i-v-kheshe-sost/mx0gt3l8-g0m7v-1/stderr.log",
+      "summary": "docs/cases/runs/plan-dokhodit-do-modeli-state-plan-yaml-v-l1-i-v-kheshe-sost/mx0gt3l8-g0m7v-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mx0gt4bg-ck0ue-1",
+      "at": "2026-11-28T13:47:39.968Z",
+      "mode": "green",
+      "runBy": {
+        "preset": "backend",
+        "sessionId": "8c027b60-cd39-409b-944d-386edc15064f",
+        "taskId": "task-mx0gow4e-9jdh3g"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 224,
+      "commandSha256": "fe1722d8153e9361139a0e782977aa4187ffbdc680676c3b7e74ace000883c9e",
+      "cwd": "C:\\dsh-kit",
+      "cwdRelative": ".",
+      "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+      "dirty": true,
+      "stdout": "docs/cases/runs/plan-dokhodit-do-modeli-state-plan-yaml-v-l1-i-v-kheshe-sost/mx0gt4bg-ck0ue-1/stdout.log",
+      "stderr": "docs/cases/runs/plan-dokhodit-do-modeli-state-plan-yaml-v-l1-i-v-kheshe-sost/mx0gt4bg-ck0ue-1/stderr.log",
+      "summary": "docs/cases/runs/plan-dokhodit-do-modeli-state-plan-yaml-v-l1-i-v-kheshe-sost/mx0gt4bg-ck0ue-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-28T13:47:39.016Z",
+    "runId": "mx0gt3l8-g0m7v-1",
+    "exitCode": 1,
+    "control": "break-the-plan",
+    "command": "node --test plugins/state-feed/test/plan.test.mjs",
+    "source": "negative-control",
+    "redSource": "runner",
+    "cwd": "C:\\dsh-kit",
+    "head": "ab3a67f5c72bced3060a7cd35a7bf41e34bbef80",
+    "dirty": true,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "8c027b60-cd39-409b-944d-386edc15064f",
+      "taskId": "task-mx0gow4e-9jdh3g"
+    }
+  },
+  "lastVerified": {
+    "at": "2026-11-28T13:47:39.969Z",
+    "command": "node --test plugins/state-feed/test/plan.test.mjs",
+    "exitCode": 0,
+    "runId": "mx0gt4bg-ck0ue-1",
+    "source": "runner",
+    "commit": null,
+    "runBy": {
+      "preset": "backend",
+      "sessionId": "8c027b60-cd39-409b-944d-386edc15064f",
+      "taskId": "task-mx0gow4e-9jdh3g"
+    },
+    "cwd": "C:\\dsh-kit",
+    "cwdRelative": "."
+  }
+}

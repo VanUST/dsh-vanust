@@ -1,0 +1,87 @@
+# GENERATED — DO NOT EDIT. The plan summary the state feed delivers in L1,
+# written by regenerateViews() from docs/analysis/*.json and the journal. The full view is state/views/plan.md.
+schemaVersion: 1
+initiatives: 26
+openTasks: 9
+work:
+  - id: "agent-surface-and-shell"
+    title: "Открытая поверхность: модель Codex в харнессе, вход внешнег…"
+    stage: "ready"
+    confirmed: 7
+    requirements: 8
+    openTasks: []
+  - id: "architect-role-and-context-economy"
+    title: "Роль ARCHITECT: минималистичный пресет системного дизайнера…"
+    stage: "ready"
+    confirmed: 0
+    requirements: 7
+    openTasks: []
+  - id: "architecture-boundaries"
+    title: "Границы архитектуры: опись и проверка"
+    stage: "ready"
+    confirmed: 0
+    requirements: 1
+    openTasks: []
+  - id: "batch-execution"
+    title: "Пакетная работа: две seats на спайк вместо ребёнка на строку"
+    stage: "ready"
+    confirmed: 0
+    requirements: 2
+    openTasks: []
+  - id: "batch-review"
+    title: "Пакетное ревью: один REVIEWER на несколько задач"
+    stage: "ready"
+    confirmed: 0
+    requirements: 1
+    openTasks: []
+  - id: "behaviour-only-cases"
+    title: "Кейсы приёмки проверяют поведение через публичную поверхнос…"
+    stage: "ready"
+    confirmed: 0
+    requirements: 12
+    openTasks: []
+  - id: "client-load-performance"
+    title: "Клиент быстрее: измеренное открытие, интерактивность и бюдж…"
+    stage: "ready"
+    confirmed: 0
+    requirements: 6
+    openTasks: []
+  - id: "codex-context-bounds"
+    title: "Границы контекста и видимость квоты на маршруте Codex"
+    stage: "ready"
+    confirmed: 5
+    requirements: 8
+    openTasks: []
+  - id: "designmap-pages"
+    title: "Карта дизайна v2: страницы-рисунки вместо модели проекта"
+    stage: "ready"
+    confirmed: 0
+    requirements: 9
+    openTasks: []
+  - id: "independent-verification"
+    title: "Независимая проверка: происхождение доказательства, роль TE…"
+    stage: "ready"
+    confirmed: 0
+    requirements: 11
+    openTasks: []
+  # +16 more initiatives with open work: state/views/plan.md
+next:
+  - id: "TASK-273"
+    status: "open"
+    title: "Codex sign-in tool: codex_signin_start/status/cancel"
+  - id: "TASK-337"
+    status: "review"
+    title: "Independent acceptance case: devops role and the one-live-d…"
+  - id: "TASK-372"
+    status: "blocked"
+    title: "Задержка отправки и размер контекста: есть ли связь"
+  - id: "TASK-383"
+    status: "active"
+    title: "Отказ board_limit: назвать причину — долг проверки и minima…"
+  - id: "TASK-438"
+    status: "review"
+    title: "Приёмка шва харнесса: обе формы и отсутствие формы в оркест…"
+  - id: "TASK-446"
+    status: "open"
+    title: "Разобрать красный delegation-basis-proof"
+  # +3 more open tasks: state/views/plan.md
